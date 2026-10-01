@@ -14,7 +14,8 @@ let supabaseClientInstance: SupabaseClient | null = null;
 
 export function getSupabaseStorageClient(): SupabaseClient | null {
   const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  // Credencial moderna exclusivamente server-side (Secret Key)
+  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
     return null;
