@@ -1,0 +1,331 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  passwordHash String
+  role         String       @default("BROKER") // "BROKER" | "ADMIN"
+  status       String       @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  profile      BrokerProfile?
+
+  properties              Property[]    @relation("CreatedProperties")
+  responsibleProperties   Property[]    @relation("ResponsibleProperties")
+  developments            Development[] @relation("CreatedDevelopments")
+  responsibleDevelopments Development[] @relation("ResponsibleDevelopments")
+  clients                 Client[]
+  searches                Search[]      @relation("CreatedSearches")
+  responsibleSearches     Search[]      @relation("ResponsibleSearches")
+}
+
+model BrokerProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commercialName String?
+  phone          String?
+  creci          String?
+  tagline        String?
+  bio            String?
+  city           String?
+  avatarUrl      String?
+  logoUrl        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Client {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  searches  Search[]
+}
+
+model Property {
+  id                  String          @id @default(cuid())
+  userId              String
+  user                User            @relation("CreatedProperties", fields: [userId], references: [id], onDelete: Cascade)
+  responsibleBrokerId String?
+  responsibleBroker   User?           @relation("ResponsibleProperties", fields: [responsibleBrokerId], references: [id], onDelete: SetNull)
+  title               String
+  internalCode  String?
+  propertyType  String          // Apartamento, Casa, Terreno, Comercial, Galpão, Rural, Outro
+  purpose       String          // Venda, Locação
+  status        String          @default("Disponível") // Disponível, Reservado, Vendido/Alugado, Inativo
+  price         Float
+  privateArea   Float?
+  totalArea     Float?
+  bedrooms      Int             @default(0)
+  suites        Int             @default(0)
+  bathrooms     Int             @default(0)
+  parkingSpaces Int             @default(0)
+  description   String?
+  internalNotes String?
+  
+  // Localização
+  address       String?
+  number        String?
+  complement    String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  zipcode       String?
+  latitude      Float?
+  longitude     Float?
+
+  // Delimitação do terreno (opcional)
+  boundary      String?
+  boundaryArea  Float?
+
+  // Semântica de dormitórios e banheiros (Fase 5.0.1)
+  otherBedrooms       Int?            // Outros quartos (além das suítes)
+  otherBathrooms      Int?            // Outros banheiros (além das suítes)
+
+  // Áreas adicionais
+  landArea            Float?          // Área do terreno documental (m²)
+
+  // Negociação
+  acceptsExchange     Boolean?        // Aceita permuta? (Sim / Não / null)
+  exchangeNotes       String?         // Observações da permuta
+
+  // Casa
+  isRegistered        Boolean?        // Averbada? (Sim / Não / null)
+
+  // Características Casa / Apartamento
+  hasPool             Boolean?        // Piscina
+  hasGym              Boolean?        // Academia
+  furniture           String?         // Mobília: "Completa" | "Semi" | "Não" | null
+  hasBarbecue         Boolean?        // Churrasqueira
+  registryNumber      String?         // Número da matrícula
+
+  // Apartamento específico
+  hasPartyHall        Boolean?        // Salão de festas
+  hasElevator         Boolean?        // Elevador
+  isPenthouse         Boolean?        // Cobertura
+  hasPetSpace         Boolean?        // Espaço pet
+  floor               Int?            // Andar
+
+  // Terreno específico
+  isCorner            Boolean?        // Esquina?
+  inGatedCommunity    Boolean?        // Condomínio fechado?
+  inAllotment         Boolean?        // Loteamento?
+  streetPaving        String?         // Asfalto | Lajota | Paralelepípedo | Terra
+
+  // Comercial específico
+  commercialType      String?         // Térrea | Aérea
+
+  // Compartilhamento e Apresentação Pública (Fase 5.3)
+  isPublic                 Boolean         @default(false)
+  publicId                 String?         @unique
+  publishedAt              DateTime?
+  publicLocationPrecision  String          @default("APPROXIMATE") // HIDDEN | APPROXIMATE | EXACT
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  images        PropertyImage[]
+  matches       Match[]
+}
+
+model PropertyImage {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  url        String
+  isCover    Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model Search {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation("CreatedSearches", fields: [userId], references: [id], onDelete: Cascade)
+  responsibleBrokerId   String?
+  responsibleBroker     User?     @relation("ResponsibleSearches", fields: [responsibleBrokerId], references: [id], onDelete: SetNull)
+  clientId              String
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name               String
+  purpose            String    // Venda, Locação
+  propertyTypes      String    // JSON array stored as string: ["Apartamento", "Casa"]
+  cities             String    // JSON array stored as string: ["Criciúma"]
+  neighborhoods      String    // JSON array stored as string: ["Centro", "Comerciário"]
+  minPrice           Float?
+  maxPrice           Float
+  minBedrooms        Int       @default(0)
+  minSuites          Int       @default(0)
+  minParkingSpaces   Int       @default(0)
+  minArea            Float?
+  
+  // Raio geográfico opcional (retrocompatibilidade)
+  referenceAddress   String?
+  referenceLatitude  Float?
+  referenceLongitude Float?
+  maxRadiusKm        Float?
+
+  // Busca geográfica por Ponto + Raio (Fase 5.2) e Tempo de Carro (Fase 5.2.1)
+  locationStrategy      String?   @default("NEIGHBORHOODS") // "NEIGHBORHOODS" | "RADIUS" | "TRAVEL_TIME"
+  searchLatitude        Float?
+  searchLongitude       Float?
+  searchRadiusMeters    Float?
+  maxTravelTimeMinutes  Int?
+  travelMode            String?   @default("DRIVING") // DRIVING
+
+  // Semântica de dormitórios e banheiros (Fase 5.0.1)
+  minOtherBedrooms   Int?
+  minOtherBathrooms  Int?
+
+  // Terreno / Área documental do terreno
+  minLandArea        Float?
+
+  // Preferências tri-state: "INDIFERENTE" | "DESEJAVEL" | "NECESSARIO"
+  acceptsExchangePref String?         @default("INDIFERENTE")
+  isRegisteredPref    String?         @default("INDIFERENTE")
+  poolPref            String?         @default("INDIFERENTE")
+  gymPref             String?         @default("INDIFERENTE")
+  barbecuePref        String?         @default("INDIFERENTE")
+  partyHallPref       String?         @default("INDIFERENTE")
+  elevatorPref        String?         @default("INDIFERENTE")
+  petSpacePref        String?         @default("INDIFERENTE")
+  penthousePref       String?         @default("INDIFERENTE")
+  cornerPref          String?         @default("INDIFERENTE")
+  gatedCommunityPref  String?         @default("INDIFERENTE")
+  allotmentPref       String?         @default("INDIFERENTE")
+  
+  // Preferências de valores / seleção
+  furniturePref       String?         @default("INDIFERENTE") // INDIFERENTE | COMPLETA | SEMI | SEM_MOBILIA
+  streetPavingPref    String?         @default("INDIFERENTE") // INDIFERENTE | ASFALTO | LAJOTA | PARALELEPIPEDO | TERRA
+  commercialTypePref  String?         @default("INDIFERENTE") // INDIFERENTE | TERREA | AEREA
+  customPreferences   String?         // JSON complementar extensível
+
+  notes              String?
+  active             Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  matches            Match[]
+}
+
+model Match {
+  id          String    @id @default(cuid())
+  searchId    String
+  search      Search    @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  offerType   String    @default("PROPERTY") // "PROPERTY" | "TYPOLOGY"
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  typologyId  String?
+  typology    Typology? @relation(fields: [typologyId], references: [id], onDelete: Cascade)
+  score       Int       // 0 a 100
+  explanation String    // JSON string with detailed breakdown
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([searchId])
+  @@index([propertyId])
+  @@index([typologyId])
+}
+
+model Development {
+  id                    String              @id @default(cuid())
+  userId                String
+  user                  User                @relation("CreatedDevelopments", fields: [userId], references: [id], onDelete: Cascade)
+  responsibleBrokerId   String?
+  responsibleBroker     User?               @relation("ResponsibleDevelopments", fields: [responsibleBrokerId], references: [id], onDelete: SetNull)
+  name                  String              // Nome do empreendimento
+  developer     String              // Construtora (informação do empreendimento, não usuário)
+  stage         String              // Lançamento, Na planta, Em construção, Próximo da entrega
+  deliveryDate  String?             // Previsão de entrega (ex: Março/2028)
+  status        String              @default("Ativo") // Ativo, Inativo
+  description   String?             // Descrição curta
+  internalNotes String?             // Observações internas do corretor
+
+  // Localização
+  address       String?
+  number        String?
+  complement    String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  zipcode       String?
+  latitude      Float?
+  longitude     Float?
+
+  // Características compartilhadas do condomínio / empreendimento (Fase 5.0.1)
+  hasPool               Boolean?      // Piscina compartilhada
+  hasGym                Boolean?      // Academia compartilhada
+  hasPartyHall          Boolean?      // Salão de festas compartilhado
+  hasPetSpace           Boolean?      // Espaço pet compartilhado
+  hasElevator           Boolean?      // Elevadores nas torres
+  hasDirectInstallments Boolean?      // Parcelamento próprio com a construtora
+
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  images        DevelopmentImage[]
+  typologies    Typology[]
+}
+
+model DevelopmentImage {
+  id            String       @id @default(cuid())
+  developmentId String
+  development   Development  @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+  url           String
+  isCover       Boolean      @default(false)
+  order         Int          @default(0)
+  createdAt     DateTime     @default(now())
+}
+
+model Typology {
+  id            String       @id @default(cuid())
+  developmentId String
+  development   Development  @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+  name          String       // ex: Tipo A, 2 dorms, Planta 01, Cobertura
+  propertyType  String       @default("Apartamento") // Apartamento, Cobertura, Studio, Casa, etc.
+  price         Float        // Valor ou valor inicial (a partir de)
+  privateArea   Float?       // Área privativa (m²)
+  totalArea     Float?       // Área total (m²)
+  bedrooms      Int          @default(0)
+  suites        Int          @default(0)
+  bathrooms     Int          @default(0)
+  parkingSpaces Int          @default(0)
+  status        String       @default("Disponível") // Disponível, Reservada, Esgotada
+  notes         String?      // Observação opcional
+
+  // Semântica e adicionais (Fase 5.0.1)
+  otherBedrooms   Int?        // Outros quartos
+  otherBathrooms  Int?        // Outros banheiros
+  acceptsExchange Boolean?    // Aceita permuta
+  exchangeNotes   String?     // Observação da permuta
+  hasBarbecue     Boolean?    // Churrasqueira na sacada/unidade
+  hasElevator     Boolean?    // Acesso por elevador
+  isPenthouse     Boolean?    // Cobertura
+
+  // Compartilhamento e Apresentação Pública (Fase 5.3)
+  isPublic                 Boolean     @default(false)
+  publicId                 String?     @unique
+  publishedAt              DateTime?
+  publicLocationPrecision  String      @default("APPROXIMATE") // HIDDEN | APPROXIMATE | EXACT
+
+  matches       Match[]
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
