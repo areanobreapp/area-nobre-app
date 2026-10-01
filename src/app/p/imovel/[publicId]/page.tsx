@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { prisma } from '@/lib/db';
 import { toPublicPropertyDTO } from '@/lib/public-property-dto';
-import { getPublicPropertyUrl } from '@/lib/public-sharing';
+import { getPublicPropertyUrl, getAppBaseUrl } from '@/lib/public-sharing';
 import PublicPresentationView from '@/components/PublicPresentationView';
 import PublicRevokedView from '@/components/PublicRevokedView';
 
@@ -100,7 +100,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const title = `${dto.title} — ${formattedPrice} | ${brandName}`;
   const description = `${dto.propertyType} disponível em ${locationText}. Apresentação exclusiva por ${brandName}${creciText}.`;
-  const coverImage = dto.images?.[0]?.url;
+  const rawCoverImage = dto.images?.[0]?.url;
+  let coverImage: string | undefined = undefined;
+  if (rawCoverImage) {
+    if (rawCoverImage.startsWith('http://') || rawCoverImage.startsWith('https://')) {
+      coverImage = rawCoverImage;
+    } else {
+      const base = getAppBaseUrl();
+      coverImage = `${base}${rawCoverImage.startsWith('/') ? '' : '/'}${rawCoverImage}`;
+    }
+  }
 
   return {
     title,

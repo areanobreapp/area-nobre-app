@@ -28,6 +28,7 @@ export default function ProfilePage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Dados da Conta
+  const [userId, setUserId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('BROKER');
@@ -58,6 +59,7 @@ export default function ProfilePage() {
       })
       .then((data) => {
         if (data.user) {
+          setUserId(data.user.id || '');
           setName(data.user.name || '');
           setEmail(data.user.email || '');
           setRole(data.user.role || 'BROKER');
@@ -88,6 +90,10 @@ export default function ProfilePage() {
     try {
       const formData = new FormData();
       formData.append('files', file);
+      formData.append('entityType', type);
+      if (userId) {
+        formData.append('entityId', userId);
+      }
 
       const res = await fetch('/api/upload', {
         method: 'POST',

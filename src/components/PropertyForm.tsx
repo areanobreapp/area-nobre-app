@@ -170,6 +170,10 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     setError(null);
 
     const formData = new FormData();
+    formData.append('entityType', 'property');
+    if (initialData?.id) {
+      formData.append('entityId', initialData.id);
+    }
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
     }

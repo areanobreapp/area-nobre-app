@@ -151,6 +151,10 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
     setError(null);
 
     const formData = new FormData();
+    formData.append('entityType', 'development');
+    if (initialData?.id) {
+      formData.append('entityId', initialData.id);
+    }
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
     }
