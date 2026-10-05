@@ -21,6 +21,9 @@ import {
   Sliders,
   ShieldCheck,
   Sparkles,
+  GripVertical,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
@@ -36,6 +39,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
 
@@ -148,6 +152,28 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     initialData?.images?.map((img: any) => img.url) || []
   );
 
+  // Estados para reordenação manual de fotos (Desktop Drag & Drop + Mobile Touch)
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  function moveImage(fromIndex: number, toIndex: number) {
+    if (
+      fromIndex < 0 ||
+      fromIndex >= images.length ||
+      toIndex < 0 ||
+      toIndex >= images.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+    setImages((prev) => {
+      const updated = [...prev];
+      const [moved] = updated.splice(fromIndex, 1);
+      updated.splice(toIndex, 0, moved);
+      return updated;
+    });
+  }
+
   // Formatação de Moeda
   function formatCurrency(val: string) {
     const clean = val.replace(/\D/g, '');
@@ -161,40 +187,161 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     setPrice(raw);
   }
 
-  // Upload de Imagens
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  // Otimização de imagem antes de envio para manter o payload sob o limite de 4.5MB da Vercel
+  async function ensureSafePayloadSize(file: File): Promise<Blob | File> {
+    if (file.size <= 3.8 * 1024 * 1024) {
+      return file;
+    }
+
+    try {
+      return await new Promise<Blob | File>((resolve) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          const maxDim = 2048;
+          let { width, height } = img;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return resolve(file);
+          }
+
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob && blob.size < file.size) {
+                resolve(blob);
+              } else {
+                resolve(file);
+              }
+            },
+            'image/jpeg',
+            0.85
+          );
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+        };
+
+        img.src = objectUrl;
+      });
+    } catch {
+      return file;
+    }
+  }
+
+  // Upload Múltiplo de Imagens Seguro (compatível com limites Vercel e feedback contínuo)
+  async function uploadFiles(filesToUpload: File[]) {
+    if (!filesToUpload || filesToUpload.length === 0) return;
 
     setUploading(true);
     setError(null);
 
-    const formData = new FormData();
-    formData.append('entityType', 'property');
-    if (initialData?.id) {
-      formData.append('entityId', initialData.id);
-    }
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
-    }
+    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
+    const validFiles: File[] = [];
+    const clientErrors: string[] = [];
 
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Falha ao enviar fotos.');
+    for (const file of filesToUpload) {
+      if (file.size > maxSizeBytes) {
+        clientErrors.push(`"${file.name}" excede o tamanho máximo de 10MB.`);
+        continue;
       }
-
-      setImages((prev) => [...prev, ...data.urls]);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao carregar imagens.');
-    } finally {
-      setUploading(false);
+      const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
+      if (!isImage) {
+        clientErrors.push(`"${file.name}" não é um formato suportado (aceitos: JPG, PNG, WEBP).`);
+        continue;
+      }
+      validFiles.push(file);
     }
+
+    if (validFiles.length === 0) {
+      setUploading(false);
+      setUploadProgress(null);
+      if (clientErrors.length > 0) {
+        setError(clientErrors.join(' | '));
+      }
+      return;
+    }
+
+    const errors: string[] = [...clientErrors];
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      setUploadProgress(
+        validFiles.length > 1
+          ? `Enviando fotos (${i + 1} de ${validFiles.length})...`
+          : 'Enviando foto...'
+      );
+
+      try {
+        const fileToUpload = await ensureSafePayloadSize(file);
+
+        const formData = new FormData();
+        formData.append('entityType', 'property');
+        if (initialData?.id) {
+          formData.append('entityId', initialData.id);
+        }
+        formData.append('files', fileToUpload, file.name);
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || `Falha ao enviar ${file.name}`);
+        }
+
+        if (data.urls && data.urls.length > 0) {
+          // Incorpora cada imagem recebida sem substituir as anteriores
+          setImages((prev) => [...prev, ...data.urls]);
+        }
+
+        if (data.failed && data.failed.length > 0) {
+          data.failed.forEach((f: any) => {
+            errors.push(`"${f.name}": ${f.error}`);
+          });
+        }
+      } catch (err: any) {
+        errors.push(`"${file.name}": ${err.message || 'Erro ao carregar imagem'}`);
+      }
+    }
+
+    setUploading(false);
+    setUploadProgress(null);
+
+    if (errors.length > 0) {
+      setError(errors.join(' | '));
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
+
+    const filesArray = Array.from(rawFiles);
+    // Limpa imediatamente o valor do input para permitir novas seleções seguidas no celular/desktop
+    e.target.value = '';
+
+    await uploadFiles(filesArray);
   }
 
   function handleRemoveImage(indexToRemove: number) {
@@ -242,6 +389,11 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
   async function handleSubmit(saveStatus: string) {
     setError(null);
+
+    if (uploading) {
+      setError('Aguarde a conclusão do envio das fotos antes de salvar o imóvel.');
+      return;
+    }
 
     if (!title.trim()) {
       setError('Por favor, informe o título do imóvel.');
@@ -1687,14 +1839,34 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
       {/* BLOCO 4: Fotos do Imóvel */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
-          <ImageIcon size={20} color="var(--color-primary)" />
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Fotos do Imóvel</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ImageIcon size={20} color="var(--color-primary)" />
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Fotos do Imóvel</h2>
+          </div>
+          {images.length > 1 && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              Arraste ou use as setas para reordenar
+            </span>
+          )}
         </div>
 
         <div>
           <label
             htmlFor="file-upload"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (uploading) return;
+              const dtFiles = e.dataTransfer?.files;
+              if (dtFiles && dtFiles.length > 0) {
+                uploadFiles(Array.from(dtFiles));
+              }
+            }}
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -1710,87 +1882,267 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           >
             <Upload size={28} color="var(--color-primary)" style={{ marginBottom: '8px' }} />
             <span style={{ fontSize: '0.94rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {uploading ? 'Enviando fotos...' : 'Clique para adicionar fotos ou arraste aqui'}
+              {uploading ? uploadProgress || 'Enviando fotos...' : 'Clique para adicionar fotos ou arraste aqui'}
             </span>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              A primeira foto será a capa principal do anúncio
+              Selecione uma ou mais fotos da galeria (a primeira será a capa)
             </span>
-            <input
-              id="file-upload"
-              type="file"
-              multiple
-              accept="image/*"
-              disabled={uploading}
-              onChange={handleFileUpload}
-              style={{ display: 'none' }}
-            />
           </label>
+          <input
+            id="file-upload"
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/webp,image/*"
+            disabled={uploading}
+            onChange={handleFileUpload}
+            style={{ display: 'none' }}
+          />
         </div>
 
         {/* Pré-visualização de Imagens */}
         {images.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            {images.map((url, idx) => (
-              <div
-                key={idx}
-                style={{
-                  position: 'relative',
-                  width: '100%',
-                  aspectRatio: '4/3',
-                  borderRadius: 'var(--radius-sm)',
-                  overflow: 'hidden',
-                  backgroundColor: '#F3F4F6',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: idx === 0 ? '2px solid var(--color-primary)' : '1px solid var(--border-light)',
-                }}
-              >
-                <img
-                  src={url}
-                  alt={`Foto ${idx + 1}`}
-                  style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-                {idx === 0 && (
-                  <span
-                    style={{
-                      position: 'absolute',
-                      bottom: 4,
-                      left: 4,
-                      backgroundColor: 'var(--color-primary)',
-                      color: 'white',
-                      fontSize: '0.65rem',
-                      fontWeight: 700,
-                      padding: '2px 6px',
-                      borderRadius: 'var(--radius-full)',
-                    }}
-                  >
-                    CAPA
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveImage(idx)}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', marginTop: '12px' }}>
+            {images.map((url, idx) => {
+              const isCover = idx === 0;
+              const isBeingDragged = draggedIdx === idx;
+              const isDragOver = dragOverIdx === idx;
+
+              return (
+                <div
+                  key={`${url}-${idx}`}
+                  data-image-index={idx}
+                  draggable={!uploading}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', String(idx));
+                    setDraggedIdx(idx);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (dragOverIdx !== idx) setDragOverIdx(idx);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (draggedIdx !== null && draggedIdx !== idx) {
+                      moveImage(draggedIdx, idx);
+                    }
+                    setDraggedIdx(null);
+                    setDragOverIdx(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedIdx(null);
+                    setDragOverIdx(null);
+                  }}
                   style={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 4,
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                    color: 'white',
+                    position: 'relative',
+                    width: '100%',
+                    aspectRatio: '4/3',
+                    borderRadius: 'var(--radius-sm)',
+                    overflow: 'hidden',
+                    backgroundColor: isDragOver ? 'rgba(45, 106, 79, 0.08)' : '#F3F4F6',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    border: 'none',
-                    cursor: 'pointer',
+                    border: isDragOver
+                      ? '2px dashed var(--color-primary)'
+                      : isCover
+                      ? '2px solid var(--color-primary)'
+                      : '1px solid var(--border-light)',
+                    opacity: isBeingDragged ? 0.45 : 1,
+                    transition: 'all var(--transition-fast)',
+                    boxShadow: isCover ? '0 2px 8px rgba(45, 106, 79, 0.15)' : 'none',
+                    userSelect: 'none',
                   }}
                 >
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
+                  <img
+                    src={url}
+                    alt={`Foto ${idx + 1}`}
+                    style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
+                  />
+                  {/* Handle de Arraste (Desktop + Mobile Touch) */}
+                  <div
+                    title="Segure e arraste para reordenar"
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      left: 6,
+                      width: 26,
+                      height: 26,
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'grab',
+                      touchAction: 'none',
+                      zIndex: 2,
+                    }}
+                    onTouchStart={(e) => {
+                      e.stopPropagation();
+                      setDraggedIdx(idx);
+                    }}
+                    onTouchMove={(e) => {
+                      e.stopPropagation();
+                      const touch = e.touches[0];
+                      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                      const card = element?.closest('[data-image-index]');
+                      if (card) {
+                        const targetIdx = Number(card.getAttribute('data-image-index'));
+                        if (!isNaN(targetIdx) && targetIdx !== dragOverIdx) {
+                          setDragOverIdx(targetIdx);
+                        }
+                      }
+                    }}
+                    onTouchEnd={(e) => {
+                      e.stopPropagation();
+                      if (draggedIdx !== null && dragOverIdx !== null && draggedIdx !== dragOverIdx) {
+                        moveImage(draggedIdx, dragOverIdx);
+                      }
+                      setDraggedIdx(null);
+                      setDragOverIdx(null);
+                    }}
+                  >
+                    <GripVertical size={14} />
+                  </div>
+
+                  {/* Botão de Remover Foto */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemoveImage(idx);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      width: 26,
+                      height: 26,
+                      borderRadius: '50%',
+                      backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                      color: 'white',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: 'none',
+                      cursor: 'pointer',
+                      zIndex: 2,
+                    }}
+                    title="Remover foto"
+                  >
+                    <X size={13} />
+                  </button>
+
+                  {/* Badge de Capa ou Contador de Posição */}
+                  {isCover ? (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        left: 6,
+                        backgroundColor: 'var(--color-primary)',
+                        color: 'white',
+                        fontSize: '0.66rem',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: 'var(--radius-full)',
+                        letterSpacing: '0.5px',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                        zIndex: 2,
+                      }}
+                    >
+                      CAPA
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        left: 6,
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        color: 'white',
+                        fontSize: '0.66rem',
+                        fontWeight: 600,
+                        padding: '2px 7px',
+                        borderRadius: 'var(--radius-full)',
+                        zIndex: 2,
+                      }}
+                    >
+                      {idx + 1}
+                    </span>
+                  )}
+
+                  {/* Controles de Reordenação por Toque/Clique (Setas Esquerda e Direita) */}
+                  {images.length > 1 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        right: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        zIndex: 2,
+                      }}
+                    >
+                      {idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveImage(idx, idx - 1);
+                          }}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                          title="Mover foto para a esquerda"
+                        >
+                          <ChevronLeft size={15} />
+                        </button>
+                      )}
+                      {idx < images.length - 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveImage(idx, idx + 1);
+                          }}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                            color: 'white',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            border: 'none',
+                            cursor: 'pointer',
+                          }}
+                          title="Mover foto para a direita"
+                        >
+                          <ChevronRight size={15} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2088,7 +2440,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       >
         <button
           type="button"
-          disabled={loading}
+          disabled={loading || uploading}
           onClick={() => handleSubmit('Inativo')}
           className="btn-secondary"
           style={{ padding: '12px 20px' }}
@@ -2098,13 +2450,13 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
         <button
           type="button"
-          disabled={loading}
+          disabled={loading || uploading}
           onClick={() => handleSubmit('Disponível')}
           className="btn-primary"
           style={{ padding: '12px 24px' }}
         >
           <Check size={18} />
-          <span>{loading ? 'Salvando...' : isEditing ? 'Salvar Alterações' : 'Publicar Imóvel'}</span>
+          <span>{loading ? 'Salvando...' : uploading ? 'Enviando fotos...' : isEditing ? 'Salvar Alterações' : 'Publicar Imóvel'}</span>
         </button>
       </div>
     </div>

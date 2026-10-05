@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     }
 
     const uploadedUrls: string[] = [];
+    const failedFiles: { name: string; error: string }[] = [];
 
     for (const file of files) {
       const bytes = await file.arrayBuffer();
@@ -67,7 +68,8 @@ export async function POST(req: NextRequest) {
         uploadedUrls.push(result.url);
       } catch (uploadErr: any) {
         console.warn(`[Upload Warning]: ${uploadErr.message}`);
-        // Se arquivo falhar validação (ex: não é imagem válida), ignora ou retorna erro se for único
+        failedFiles.push({ name: file.name, error: uploadErr.message || 'Falha no processamento.' });
+        // Se arquivo falhar validação e for envio único, retorna erro direto
         if (files.length === 1) {
           return NextResponse.json({ error: uploadErr.message }, { status: 400 });
         }
@@ -75,8 +77,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (uploadedUrls.length === 0) {
+      const firstError = failedFiles[0]?.error || 'Nenhuma imagem válida foi enviada. Formatos suportados: JPG, PNG, WEBP.';
       return NextResponse.json(
-        { error: 'Nenhuma imagem válida foi enviada. Formatos suportados: JPG, PNG, WEBP.' },
+        { error: firstError, failed: failedFiles },
         { status: 400 }
       );
     }
@@ -84,6 +87,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       urls: uploadedUrls,
+      failed: failedFiles.length > 0 ? failedFiles : undefined,
     });
   } catch (error: any) {
     console.error('Erro no upload de fotos:', error);
