@@ -33,6 +33,7 @@ import {
 import CircularMatchScore from '@/components/CircularMatchScore';
 import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
+import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 import { getWhatsAppUrl } from '@/lib/whatsapp';
 
 const SearchMatchesMap = dynamic(() => import('@/components/SearchMatchesMap'), { ssr: false });
@@ -843,13 +844,8 @@ export default function BuscaDetalhesPage({
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(offerPrice || 0)}
                       </div>
 
-                      {/* Mini tags de especificações */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                        {bedrooms > 0 && <span><strong>{bedrooms}</strong> dorms</span>}
-                        {suites > 0 && <span>• <strong>{suites}</strong> suíte</span>}
-                        {parkingSpaces > 0 && <span>• <strong>{parkingSpaces}</strong> vaga(s)</span>}
-                        {privateArea && <span>• <strong>{privateArea}</strong> m²</span>}
-                      </div>
+                      {/* Especificações Padronizadas */}
+                      <PropertyCompactFeatures property={isTypology ? m.typology : m.property} />
 
                       {/* Snippets rápidos de "Por que combina" */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: 8 }}>

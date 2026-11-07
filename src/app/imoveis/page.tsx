@@ -14,8 +14,13 @@ import {
   MoreVertical,
   Filter,
   Car,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Share2,
+  Globe,
+  User,
 } from 'lucide-react';
+import SharePropertyModal from '@/components/SharePropertyModal';
+import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
 
@@ -24,7 +29,9 @@ export default function ImoveisPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Todos');
+  const [scope, setScope] = useState<'mine' | 'shared'>('mine');
   const [locationModalItem, setLocationModalItem] = useState<any | null>(null);
+  const [shareModalProperty, setShareModalProperty] = useState<any | null>(null);
 
   useEffect(() => {
     async function fetchProperties() {
@@ -33,6 +40,7 @@ export default function ImoveisPage() {
         const queryParams = new URLSearchParams();
         if (search) queryParams.set('search', search);
         if (statusFilter !== 'Todos') queryParams.set('status', statusFilter);
+        if (scope === 'shared') queryParams.set('scope', 'shared');
 
         const res = await fetch(`/api/properties?${queryParams.toString()}`);
         const data = await res.json();
@@ -48,7 +56,7 @@ export default function ImoveisPage() {
 
     const timer = setTimeout(fetchProperties, 250);
     return () => clearTimeout(timer);
-  }, [search, statusFilter]);
+  }, [search, statusFilter, scope]);
 
   async function handleConfirmLocation(loc: { lat: number; lng: number; address: string; neighborhood?: string; city?: string }) {
     if (!locationModalItem) return;
@@ -129,6 +137,51 @@ export default function ImoveisPage() {
             color="#9CA3AF"
             style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }}
           />
+        </div>
+
+        {/* Seletor de Escopo: Meus Imóveis vs Imóveis da Rede */}
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '8px' }}>
+          <button
+            type="button"
+            onClick={() => setScope('mine')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              backgroundColor: scope === 'mine' ? '#ECFDF5' : 'transparent',
+              color: scope === 'mine' ? '#065F46' : 'var(--text-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <User size={15} />
+            <span>Meus Imóveis</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScope('shared')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              backgroundColor: scope === 'shared' ? '#EFF6FF' : 'transparent',
+              color: scope === 'shared' ? '#1E40AF' : 'var(--text-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <Globe size={15} />
+            <span>Imóveis da Rede</span>
+          </button>
         </div>
 
         {/* Status Pills */}
@@ -294,35 +347,8 @@ export default function ImoveisPage() {
                     </p>
                   </div>
 
-                  {/* Características */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      fontSize: '0.82rem',
-                      color: 'var(--text-secondary)',
-                      padding: '8px 0',
-                      borderTop: '1px solid var(--border-subtle)',
-                      borderBottom: '1px solid var(--border-subtle)',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Bed size={14} /> {p.bedrooms} qtos
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Bath size={14} /> {p.bathrooms} banh
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Car size={14} /> {p.parkingSpaces} vg
-                    </span>
-                    {p.privateArea && (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Maximize2 size={14} /> {p.privateArea} m²
-                      </span>
-                    )}
-                  </div>
+                  {/* Características Padronizadas */}
+                  <PropertyCompactFeatures property={p} />
 
                   {/* Preço e Ações */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: '6px', flexWrap: 'wrap', gap: '8px' }}>
@@ -345,6 +371,17 @@ export default function ImoveisPage() {
                       >
                         <MapPin size={12} color="var(--color-primary)" />
                         <span>{p.latitude && p.longitude ? 'Ajustar pino' : 'Localizar no mapa'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShareModalProperty(p)}
+                        className="btn-secondary"
+                        style={{ padding: '6px 8px', fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        title="Compartilhar apresentação deste imóvel"
+                      >
+                        <Share2 size={12} color="#059669" />
+                        <span>Compartilhar</span>
                       </button>
 
                       <Link
@@ -378,6 +415,29 @@ export default function ImoveisPage() {
           initialLat={locationModalItem.latitude || undefined}
           initialLng={locationModalItem.longitude || undefined}
           onConfirmLocation={handleConfirmLocation}
+        />
+      )}
+
+      {/* Modal de Compartilhamento Direto da Lista de Imóveis */}
+      {shareModalProperty && (
+        <SharePropertyModal
+          isOpen={Boolean(shareModalProperty)}
+          onClose={() => setShareModalProperty(null)}
+          offerId={shareModalProperty.id}
+          offerType="PROPERTY"
+          offerTitle={shareModalProperty.title}
+          initialIsPublic={shareModalProperty.isPublic}
+          initialPublicId={shareModalProperty.publicId}
+          initialPrecision={shareModalProperty.publicLocationPrecision || 'APPROXIMATE'}
+          onStatusChanged={(isPub, pubId) => {
+            setProperties((prev) =>
+              prev.map((item) =>
+                item.id === shareModalProperty.id
+                  ? { ...item, isPublic: isPub, publicId: pubId }
+                  : item
+              )
+            );
+          }}
         />
       )}
     </div>

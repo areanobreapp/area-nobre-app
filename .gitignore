@@ -24,6 +24,9 @@
 *.pem
 *.key
 *.cert
+.test-credentials.local
+*.credentials.local
+credentials.local
 
 # Database & SQLite files (CRITICAL: NEVER COMMIT LOCAL DBs)
 prisma/*.db

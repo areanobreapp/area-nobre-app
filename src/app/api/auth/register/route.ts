@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { hashPassword, signPayload, COOKIE_NAME } from '@/lib/auth';
+import { getActiveLegalDocument, recordUserAcceptance } from '@/lib/legal/service';
+import { LegalDocumentType, LegalAcceptanceAction } from '@/lib/legal/types';
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { name, email, password, confirmPassword, phone, creci, commercialName } = body;
+    const { name, email, password, confirmPassword, phone, creci, commercialName, acceptTerms, acknowledgePrivacy } = body;
 
     // 1. Validações de presença e formato
     if (!name || typeof name !== 'string' || name.trim().length < 3) {
@@ -36,6 +38,19 @@ export async function POST(req: NextRequest) {
     if (password !== confirmPassword) {
       return NextResponse.json(
         { error: 'A senha e a confirmação de senha não coincidem.' },
+        { status: 400 }
+      );
+    }
+
+    // Validação legal se houver documento publicado no banco
+    const [activeTerms, activePrivacy] = await Promise.all([
+      getActiveLegalDocument(LegalDocumentType.TERMS_OF_USE),
+      getActiveLegalDocument(LegalDocumentType.PRIVACY_POLICY),
+    ]);
+
+    if (activeTerms && !acceptTerms) {
+      return NextResponse.json(
+        { error: 'É necessário ler e concordar com os Termos de Uso para criar sua conta.' },
         { status: 400 }
       );
     }
@@ -75,6 +90,23 @@ export async function POST(req: NextRequest) {
         profile: true,
       },
     });
+
+    // Registra aceites legais no cadastro se houver documentos ativos
+    if (activeTerms && acceptTerms) {
+      await recordUserAcceptance({
+        userId: user.id,
+        documentId: activeTerms.id,
+        action: LegalAcceptanceAction.ACCEPTED,
+      }).catch((e) => console.error('Erro ao registrar aceite no cadastro:', e));
+    }
+
+    if (activePrivacy && acknowledgePrivacy) {
+      await recordUserAcceptance({
+        userId: user.id,
+        documentId: activePrivacy.id,
+        action: LegalAcceptanceAction.ACKNOWLEDGED,
+      }).catch((e) => console.error('Erro ao registrar ciência no cadastro:', e));
+    }
 
     // 4. Criação da sessão imediata
     const payload = {

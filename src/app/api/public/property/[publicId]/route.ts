@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
 import { toPublicPropertyDTO } from '@/lib/public-property-dto';
+import { resolvePublicOffer } from '@/lib/public-offer-resolver';
 
 export async function GET(
   request: NextRequest,
@@ -16,83 +16,38 @@ export async function GET(
       );
     }
 
-    // 1. Tenta encontrar como Property isolado
-    const property = await prisma.property.findUnique({
-      where: { publicId },
-      include: {
-        images: {
-          orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
-        },
-      },
-    });
+    const offer = await resolvePublicOffer(publicId);
 
-    if (property) {
-      if (!property.isPublic) {
-        return NextResponse.json(
-          {
-            isAvailable: false,
-            message: 'Este imóvel não está mais disponível para visualização.',
-          },
-          { status: 200, headers: { 'X-Robots-Tag': 'noindex, nofollow' } }
-        );
-      }
-
-      const dto = toPublicPropertyDTO(property, 'PROPERTY');
+    if (!offer) {
       return NextResponse.json(
-        { isAvailable: true, property: dto },
         {
-          headers: {
-            'X-Robots-Tag': 'noindex, nofollow',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-          },
-        }
+          isAvailable: false,
+          message: 'Este imóvel não está mais disponível para visualização.',
+        },
+        { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } }
       );
     }
 
-    // 2. Tenta encontrar como Typology de Empreendimento
-    const typology = await prisma.typology.findUnique({
-      where: { publicId },
-      include: {
-        development: {
-          include: {
-            images: {
-              orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
-            },
-          },
-        },
-      },
-    });
-
-    if (typology) {
-      if (!typology.isPublic) {
-        return NextResponse.json(
-          {
-            isAvailable: false,
-            message: 'Este imóvel não está mais disponível para visualização.',
-          },
-          { status: 200, headers: { 'X-Robots-Tag': 'noindex, nofollow' } }
-        );
-      }
-
-      const dto = toPublicPropertyDTO(typology, 'TYPOLOGY');
+    if (!offer.isAvailable || !offer.entity) {
       return NextResponse.json(
-        { isAvailable: true, property: dto },
         {
-          headers: {
-            'X-Robots-Tag': 'noindex, nofollow',
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
-          },
-        }
+          isAvailable: false,
+          message: offer.unavailabilityReason || 'Este imóvel não está mais disponível para visualização.',
+        },
+        { status: 200, headers: { 'X-Robots-Tag': 'noindex, nofollow' } }
       );
     }
 
-    // Não encontrado em nenhuma tabela
+    const dto = toPublicPropertyDTO(offer.entity, offer.offerType, offer.brokerOverride);
+
     return NextResponse.json(
+      { isAvailable: true, property: dto },
       {
-        isAvailable: false,
-        message: 'Este imóvel não está mais disponível para visualização.',
-      },
-      { status: 404, headers: { 'X-Robots-Tag': 'noindex, nofollow' } }
+        headers: {
+          'X-Robots-Tag': 'noindex, nofollow',
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
     );
   } catch (err: any) {
     console.error('Erro na consulta pública do imóvel:', err);

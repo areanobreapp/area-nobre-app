@@ -2,12 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { uploadFileBuffer, UploadOptions } from '@/lib/storage';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const formData = await req.formData();

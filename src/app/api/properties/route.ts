@@ -3,12 +3,19 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { recalculateMatchesForProperty } from '@/lib/matching';
 import { getGeoProvider } from '@/lib/geo';
+import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
+import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { searchParams } = new URL(req.url);
@@ -120,6 +127,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const body = await req.json();
     const {
       title,
@@ -131,6 +143,11 @@ export async function POST(req: NextRequest) {
       privateArea,
       totalArea,
       landArea,
+      builtArea,
+      coveredParkingSpaces,
+      uncoveredParkingSpaces,
+      socialBathrooms,
+      lavabos,
       bedrooms,
       suites,
       otherBedrooms,
@@ -171,28 +188,94 @@ export async function POST(req: NextRequest) {
       images, // array de URLs
     } = body;
 
-    if (!title || !propertyType || !purpose || price === undefined || price === null) {
+    if (!title || !propertyType || !purpose || price === undefined || price === null || String(price).trim() === '') {
       return NextResponse.json(
         { error: 'Título, tipo de imóvel, finalidade e valor são obrigatórios.' },
         { status: 400 }
       );
     }
 
-    const numericPrice = typeof price === 'string' ? parseFloat(price.replace(/\D/g, '')) / 100 || parseFloat(price) : Number(price);
+    const priceRes = validateNonNegativeFloat(price, 'Valor', { required: true, isCurrencyString: true });
+    if (priceRes.error) {
+      return NextResponse.json({ error: priceRes.error }, { status: 400 });
+    }
+    const numericPrice = priceRes.value!;
 
-    const parsedSuites = suites !== undefined && suites !== null ? parseInt(String(suites), 10) : 0;
-    const parsedOtherBedrooms = otherBedrooms !== undefined && otherBedrooms !== null ? parseInt(String(otherBedrooms), 10) : null;
-    const parsedOtherBathrooms = otherBathrooms !== undefined && otherBathrooms !== null ? parseInt(String(otherBathrooms), 10) : null;
+    const vSuites = validateNonNegativeInt(suites, 'Suítes', { defaultValue: 0 });
+    if (vSuites.error) return NextResponse.json({ error: vSuites.error }, { status: 400 });
 
-    // Se informou outros quartos, calcula total de dormitórios = suítes + outros quartos
+    const vOtherBedrooms = validateNonNegativeInt(otherBedrooms, 'Demais quartos');
+    if (vOtherBedrooms.error) return NextResponse.json({ error: vOtherBedrooms.error }, { status: 400 });
+
+    const vBedrooms = validateNonNegativeInt(bedrooms, 'Total de quartos');
+    if (vBedrooms.error) return NextResponse.json({ error: vBedrooms.error }, { status: 400 });
+
+    const vSocialBathrooms = validateNonNegativeInt(socialBathrooms, 'Banheiros sociais');
+    if (vSocialBathrooms.error) return NextResponse.json({ error: vSocialBathrooms.error }, { status: 400 });
+
+    const vLavabos = validateNonNegativeInt(lavabos, 'Lavabos');
+    if (vLavabos.error) return NextResponse.json({ error: vLavabos.error }, { status: 400 });
+
+    const vOtherBathrooms = validateNonNegativeInt(otherBathrooms, 'Demais banheiros');
+    if (vOtherBathrooms.error) return NextResponse.json({ error: vOtherBathrooms.error }, { status: 400 });
+
+    const vBathrooms = validateNonNegativeInt(bathrooms, 'Total de banheiros');
+    if (vBathrooms.error) return NextResponse.json({ error: vBathrooms.error }, { status: 400 });
+
+    const vCovered = validateNonNegativeInt(coveredParkingSpaces, 'Vagas cobertas');
+    if (vCovered.error) return NextResponse.json({ error: vCovered.error }, { status: 400 });
+
+    const vUncovered = validateNonNegativeInt(uncoveredParkingSpaces, 'Vagas descobertas');
+    if (vUncovered.error) return NextResponse.json({ error: vUncovered.error }, { status: 400 });
+
+    const vParkingSpaces = validateNonNegativeInt(parkingSpaces, 'Total de vagas');
+    if (vParkingSpaces.error) return NextResponse.json({ error: vParkingSpaces.error }, { status: 400 });
+
+    const vBuiltArea = validateNonNegativeFloat(builtArea, 'Área construída');
+    if (vBuiltArea.error) return NextResponse.json({ error: vBuiltArea.error }, { status: 400 });
+
+    const vPrivateArea = validateNonNegativeFloat(privateArea, 'Área privativa');
+    if (vPrivateArea.error) return NextResponse.json({ error: vPrivateArea.error }, { status: 400 });
+
+    const vTotalArea = validateNonNegativeFloat(totalArea, 'Área total');
+    if (vTotalArea.error) return NextResponse.json({ error: vTotalArea.error }, { status: 400 });
+
+    const vLandArea = validateNonNegativeFloat(landArea, 'Área do terreno');
+    if (vLandArea.error) return NextResponse.json({ error: vLandArea.error }, { status: 400 });
+
+    const parsedSuites = vSuites.value ?? 0;
+    const parsedOtherBedrooms = vOtherBedrooms.value;
     const computedBedrooms = parsedOtherBedrooms !== null
       ? parsedSuites + parsedOtherBedrooms
-      : (bedrooms ? parseInt(String(bedrooms), 10) : parsedSuites);
+      : (vBedrooms.value ?? parsedSuites);
 
-    // Se informou outros banheiros, calcula total de banheiros = suítes + outros banheiros
-    const computedBathrooms = parsedOtherBathrooms !== null
-      ? parsedSuites + parsedOtherBathrooms
-      : (bathrooms ? parseInt(String(bathrooms), 10) : parsedSuites);
+    const parsedSocialBathrooms = vSocialBathrooms.value;
+    const parsedLavabos = vLavabos.value;
+    const parsedOtherBathrooms = vOtherBathrooms.value;
+
+    let computedBathrooms: number;
+    if (parsedSocialBathrooms !== null || parsedLavabos !== null) {
+      computedBathrooms = parsedSuites + (parsedSocialBathrooms ?? 0) + (parsedLavabos ?? 0);
+    } else if (parsedOtherBathrooms !== null) {
+      computedBathrooms = parsedSuites + parsedOtherBathrooms;
+    } else {
+      computedBathrooms = vBathrooms.value ?? parsedSuites;
+    }
+
+    const parsedCovered = vCovered.value;
+    const parsedUncovered = vUncovered.value;
+
+    let computedParkingSpaces: number;
+    if (parsedCovered !== null || parsedUncovered !== null) {
+      computedParkingSpaces = (parsedCovered ?? 0) + (parsedUncovered ?? 0);
+    } else {
+      computedParkingSpaces = vParkingSpaces.value ?? 0;
+    }
+
+    const parsedBuiltArea = vBuiltArea.value;
+    const parsedPrivateArea = vPrivateArea.value;
+    const parsedTotalArea = vTotalArea.value;
+    const parsedLandArea = vLandArea.value;
 
     let finalLat = latitude !== null && latitude !== undefined && latitude !== '' && !isNaN(Number(latitude)) ? Number(latitude) : null;
     let finalLng = longitude !== null && longitude !== undefined && longitude !== '' && !isNaN(Number(longitude)) ? Number(longitude) : null;
@@ -221,6 +304,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const isAuthorized = body.hasOwnerAuthorization === true || body.hasOwnerAuthorization === 'true';
+    // Se o corretor confirmou a autorização, permite o status informado (padrão 'Disponível').
+    // Se NÃO confirmou, salva o imóvel obrigatoriamente como 'Inativo' e sem apresentação pública.
+    const finalStatus = isAuthorized ? (status || 'Disponível') : 'Inativo';
+
     const property = await prisma.property.create({
       data: {
         userId: user.id,
@@ -229,17 +317,24 @@ export async function POST(req: NextRequest) {
         internalCode: internalCode?.trim() || null,
         propertyType,
         purpose,
-        status: status || 'Disponível',
+        status: finalStatus,
+        isPublic: false,
+        legacyExemptFromAuthorization: false, // Novos imóveis nunca recebem isenção de legado
         price: numericPrice || 0,
-        privateArea: privateArea ? parseFloat(String(privateArea)) : null,
-        totalArea: totalArea ? parseFloat(String(totalArea)) : null,
-        landArea: landArea ? parseFloat(String(landArea)) : null,
+        builtArea: parsedBuiltArea,
+        privateArea: parsedPrivateArea,
+        totalArea: parsedTotalArea,
+        landArea: parsedLandArea,
         bedrooms: computedBedrooms,
         suites: parsedSuites,
         otherBedrooms: parsedOtherBedrooms,
         bathrooms: computedBathrooms,
         otherBathrooms: parsedOtherBathrooms,
-        parkingSpaces: parkingSpaces ? parseInt(String(parkingSpaces), 10) : 0,
+        socialBathrooms: parsedSocialBathrooms,
+        lavabos: parsedLavabos,
+        parkingSpaces: computedParkingSpaces,
+        coveredParkingSpaces: parsedCovered,
+        uncoveredParkingSpaces: parsedUncovered,
         description: description?.trim() || null,
         internalNotes: internalNotes?.trim() || null,
         address: address?.trim() || null,
@@ -287,10 +382,30 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Se o corretor declarou a autorização, registra no histórico legal auditável
+    let createdAuth = null;
+    if (isAuthorized) {
+      createdAuth = await recordPropertyAuthorization({
+        propertyId: property.id,
+        brokerId: user.id,
+      });
+    }
+
     // Recalcula matches imediatamente para a carteira
     const matchCount = await recalculateMatchesForProperty(property.id);
 
-    return NextResponse.json({ success: true, property, matchCount });
+    const message = isAuthorized
+      ? 'Imóvel cadastrado com sucesso.'
+      : 'Imóvel salvo como inativo. A publicação poderá ser realizada após a confirmação da autorização do proprietário.';
+
+    return NextResponse.json({
+      success: true,
+      property,
+      matchCount,
+      authorizationRecorded: !!createdAuth,
+      authorizationPending: !isAuthorized,
+      message,
+    });
   } catch (error) {
     console.error('Erro ao cadastrar imóvel:', error);
     return NextResponse.json({ error: 'Falha ao salvar imóvel.' }, { status: 500 });

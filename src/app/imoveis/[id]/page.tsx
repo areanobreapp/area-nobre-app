@@ -28,9 +28,32 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import CircularMatchScore from '@/components/CircularMatchScore';
+import { PropertyIndividualFeaturesGrid } from '@/components/PropertyFeaturesDisplay';
+import dynamic from 'next/dynamic';
 import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
 import { getWhatsAppUrl } from '@/lib/whatsapp';
+
+const PropertyDetailMap = dynamic(() => import('@/components/PropertyDetailMap'), {
+  ssr: false,
+  loading: () => (
+    <div
+      style={{
+        width: '100%',
+        height: '360px',
+        backgroundColor: '#F3F4F6',
+        borderRadius: 'var(--radius-md)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--text-muted)',
+        fontSize: '0.9rem',
+      }}
+    >
+      Carregando mapa...
+    </div>
+  ),
+});
 
 export default function ImovelDetalhesPage({
   params,
@@ -221,7 +244,7 @@ export default function ImovelDetalhesPage({
             </button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <span
               style={{
                 padding: '6px 14px',
@@ -238,6 +261,29 @@ export default function ImovelDetalhesPage({
             >
               <span>Imóvel de {property.responsibleBroker?.profile?.commercialName || property.responsibleBroker?.name || 'outro corretor'}</span>
             </span>
+
+            {/* Ação de Compartilhamento para Corretor Parceiro (Ponto 21) */}
+            {property.isPublic && property.status === 'Disponível' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setTargetShareClient(null);
+                  setShareModalOpen(true);
+                }}
+                className="btn-primary"
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '0.86rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Apresentar este imóvel da rede com a sua identidade profissional"
+              >
+                <Share2 size={15} />
+                <span>Compartilhar</span>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -343,6 +389,23 @@ export default function ImovelDetalhesPage({
               <span className={`badge ${property.status === 'Disponível' ? 'badge-success' : 'badge-neutral'}`}>
                 {property.status}
               </span>
+              {isOwner && property.authorizationState && (
+                property.authorizationState.allowed ? (
+                  property.authorizationState.isLegacy ? (
+                    <span className="badge" style={{ backgroundColor: '#EFF6FF', color: '#1E40AF', border: '1px solid #BFDBFE' }} title="Imóvel anterior à regra de autorização formal">
+                      ✓ Imóvel Histórico
+                    </span>
+                  ) : (
+                    <span className="badge" style={{ backgroundColor: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' }} title="Autorização do proprietário confirmada">
+                      ✓ Autorização Confirmada
+                    </span>
+                  )
+                ) : (
+                  <span className="badge" style={{ backgroundColor: '#FEF2F2', color: '#991B1B', border: '1px solid #FCA5A5' }} title={property.authorizationState.reason || 'Autorização necessária'}>
+                    {property.authorizationState.reason?.includes('revogada') ? '🚫 Autorização Revogada' : '⚠️ Autorização Pendente'}
+                  </span>
+                )
+              )}
               <span className="badge badge-primary">{property.propertyType}</span>
               <span className="badge badge-neutral">{property.purpose}</span>
               {property.acceptsExchange && (
@@ -427,61 +490,8 @@ export default function ImovelDetalhesPage({
           </span>
         </div>
 
-        {/* Grid de Características Rápidas */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-            gap: '12px',
-            paddingTop: '8px',
-          }}
-        >
-          <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Bed size={18} color="var(--color-primary)" /></div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.bedrooms}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Quartos</div>
-          </div>
-
-          <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Bed size={18} color="var(--color-primary)" /></div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.suites}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Suítes</div>
-          </div>
-
-          <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Bath size={18} color="var(--color-primary)" /></div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.bathrooms}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Banheiros</div>
-          </div>
-
-          <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Car size={18} color="var(--color-primary)" /></div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.parkingSpaces}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Vagas</div>
-          </div>
-
-          <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Maximize2 size={18} color="var(--color-primary)" /></div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.privateArea ? `${property.privateArea} m²` : '—'}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Área Privativa</div>
-          </div>
-
-          {property.totalArea ? (
-            <div style={{ padding: '12px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Maximize2 size={18} color="var(--color-primary)" /></div>
-              <div style={{ fontSize: '1.05rem', fontWeight: 800 }}>{property.totalArea} m²</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Área Informada</div>
-            </div>
-          ) : null}
-
-          {property.boundaryArea ? (
-            <div style={{ padding: '12px', backgroundColor: '#F0FDF4', borderRadius: 'var(--radius-sm)', textAlign: 'center', border: '1px solid #BBF7D0' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><Pentagon size={18} color="#15803D" /></div>
-              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#166534' }}>{property.boundaryArea.toLocaleString('pt-BR')} m²</div>
-              <div style={{ fontSize: '0.75rem', color: '#15803D', fontWeight: 600 }}>Área no Mapa (aprox.)</div>
-            </div>
-          ) : null}
-        </div>
+        {/* Grade de Características Individuais */}
+        <PropertyIndividualFeaturesGrid property={property} />
 
         {/* Comodidades & Características Adicionais (Fase 5.0.1) */}
         {(() => {
@@ -561,6 +571,23 @@ export default function ImovelDetalhesPage({
           </div>
         )}
       </div>
+
+      {/* Localização do Imóvel no Mapa (Etapa 3C / Ponto 12) */}
+      <PropertyDetailMap
+        latitude={property.latitude}
+        longitude={property.longitude}
+        boundary={property.boundary}
+        boundaryArea={property.boundaryArea}
+        title={property.title}
+        propertyType={property.propertyType}
+        address={property.address}
+        number={property.number}
+        neighborhood={property.neighborhood}
+        city={property.city}
+        state={property.state}
+        propertyId={property.id}
+        isOwner={isOwner}
+      />
 
       {/* Seção de Buscas Compatíveis da Carteira — Fluxo Inverso (Fase 5 — Requisito 8) */}
       <div id="secao-buscas-compativeis" className="card" style={{ padding: '24px' }}>

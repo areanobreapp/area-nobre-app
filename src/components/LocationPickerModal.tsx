@@ -158,6 +158,24 @@ export default function LocationPickerModal({
     mapInstanceRef.current = map;
     markerRef.current = marker;
 
+    // Observador de redimensionamento para garantir proporção e tiles íntegros (Etapa 3A / Ponto 1)
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
+    // Invalidação imediata após montagem do modal
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 150);
+
     // Se temos endereço para geocodificar e não tínhamos coordenadas salvas, executa a busca automática
     if ((effectiveAddress || addressComponents?.street || addressComponents?.postalCode) && !initialLat) {
       handleGeocodeAddress(effectiveAddress, addressComponents, map, marker);
@@ -167,6 +185,9 @@ export default function LocationPickerModal({
     }
 
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       map.remove();
       mapInstanceRef.current = null;
       markerRef.current = null;
@@ -283,8 +304,8 @@ export default function LocationPickerModal({
         className="card"
         style={{
           width: '100%',
-          maxWidth: '740px',
-          maxHeight: '92vh',
+          maxWidth: '920px',
+          maxHeight: '94vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -297,7 +318,7 @@ export default function LocationPickerModal({
         {/* Topo do Modal */}
         <div
           style={{
-            padding: '18px 24px',
+            padding: '16px 24px',
             borderBottom: '1px solid var(--border-light)',
             display: 'flex',
             alignItems: 'center',
@@ -345,175 +366,171 @@ export default function LocationPickerModal({
           </div>
         </div>
 
-        {/* Banner de Status UX com Diferenciação Precisa vs Aproximada (Itens 6 e 7) */}
-        <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border-light)', backgroundColor: '#FAFBFC' }}>
-          {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--color-primary)', fontSize: '0.9rem', fontWeight: 600, padding: '4px 0' }}>
-              <RefreshCw size={18} className="animate-spin" />
-              <span>Localizando endereço automaticamente via GeoBase...</span>
+        {/* Corpo com Layout Split: Mapa Quadrado 1:1 à esquerda e Controles à direita (Etapa 3A / Ponto 1) */}
+        <div className="map-modal-split-body">
+          {/* Coluna do Mapa Quadrado 1:1 */}
+          <div className="map-modal-square-side">
+            <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
+
+            {/* Dica flutuante sobre o mapa */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 10,
+                left: 10,
+                right: 10,
+                zIndex: 500,
+                backgroundColor: 'rgba(255, 255, 255, 0.94)',
+                backdropFilter: 'blur(4px)',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>💡 <strong>Dica:</strong> Arraste o pino para alinhar com o acesso do imóvel.</span>
             </div>
-          ) : foundStatus === 'found' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {precision === 'precise' ? (
-                    <>
-                      <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#D1FAE5', color: '#065F46', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Check size={14} strokeWidth={3} />
-                      </div>
-                      <span style={{ color: '#065F46', fontWeight: 800, fontSize: '0.95rem' }}>
-                        Localização precisa encontrada
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#DBEAFE', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Navigation size={14} strokeWidth={2.5} />
-                      </div>
-                      <span style={{ color: '#1E40AF', fontWeight: 800, fontSize: '0.95rem' }}>
-                        {precisionLevel === 'street'
-                          ? 'Localização aproximada na via encontrada'
-                          : 'Localização aproximada na região encontrada'}
-                      </span>
-                    </>
-                  )}
+          </div>
 
-                  {providerSource && (
-                    <span style={{ fontSize: '0.72rem', backgroundColor: '#E0E7FF', color: '#3730A3', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
-                      {providerSource}
-                    </span>
+          {/* Coluna de Ferramentas, Status e Coordenadas */}
+          <div className="map-modal-controls-side">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* Banner de Status UX com Diferenciação Precisa vs Aproximada */}
+              {loading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--color-primary)', fontSize: '0.88rem', fontWeight: 600, padding: '12px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+                  <RefreshCw size={18} className="animate-spin" />
+                  <span>Localizando endereço automaticamente via GeoBase...</span>
+                </div>
+              ) : foundStatus === 'found' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '14px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {precision === 'precise' ? (
+                      <>
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#D1FAE5', color: '#065F46', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Check size={14} strokeWidth={3} />
+                        </div>
+                        <span style={{ color: '#065F46', fontWeight: 800, fontSize: '0.90rem' }}>
+                          Localização precisa encontrada
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#DBEAFE', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Navigation size={14} strokeWidth={2.5} />
+                        </div>
+                        <span style={{ color: '#1E40AF', fontWeight: 800, fontSize: '0.90rem' }}>
+                          {precisionLevel === 'street'
+                            ? 'Localização aproximada na via'
+                            : 'Localização aproximada na região'}
+                        </span>
+                      </>
+                    )}
+
+                    {providerSource && (
+                      <span style={{ fontSize: '0.70rem', backgroundColor: '#E0E7FF', color: '#3730A3', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                        {providerSource}
+                      </span>
+                    )}
+                  </div>
+
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                    {addressFound || effectiveAddress}
+                  </p>
+
+                  {precision === 'approximate' && (
+                    <div style={{ fontSize: '0.76rem', color: '#4B5563', backgroundColor: '#F3F4F6', padding: '6px 10px', borderRadius: 6 }}>
+                      💡 O mapa centralizou na via. Você pode arrastar o pino para fixar o ponto exato.
+                    </div>
                   )}
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    title="Recalcular coordenadas para o endereço digitado"
-                    onClick={() => handleGeocodeAddress(effectiveAddress, addressComponents)}
-                    style={{
-                      padding: '5px 10px',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-color)',
-                      backgroundColor: 'white',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-                    <span>Recalcular</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAdjusting(true);
-                      if (mapInstanceRef.current) {
-                        mapInstanceRef.current.zoomIn();
-                      }
-                    }}
-                    style={{
-                      padding: '5px 12px',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-color)',
-                      backgroundColor: 'white',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <Crosshair size={14} />
-                    <span>Ajustar marcador</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    style={{
-                      padding: '5px 14px',
-                      fontSize: '0.8rem',
-                      fontWeight: 700,
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--color-primary)',
-                      color: 'white',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                    }}
-                  >
-                    <Check size={14} strokeWidth={2.5} />
-                    <span>Confirmar localização</span>
-                  </button>
-                </div>
-              </div>
-
-              <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0 }}>
-                {addressFound || effectiveAddress}
-              </p>
-
-              {precision === 'approximate' && (
-                <div style={{ fontSize: '0.78rem', color: '#4B5563', backgroundColor: '#F3F4F6', padding: '6px 10px', borderRadius: 4 }}>
-                  💡 <strong>Nota:</strong> O mapa centralizou na via correspondente. Você pode arrastar o marcador para posicionar exatamente sobre o lote ou portão de entrada do imóvel.
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#B45309', backgroundColor: '#FFFBEB', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid #FDE68A' }}>
+                  <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2, color: '#D97706' }} />
+                  <div style={{ fontSize: '0.84rem', lineHeight: '1.4' }}>
+                    <strong>Localização automática não encontrada:</strong>
+                    <div style={{ marginTop: '2px' }}>
+                      Não conseguimos localizar automaticamente este endereço. Posicione o marcador no mapa para confirmar.
+                    </div>
+                  </div>
                 </div>
               )}
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#B45309', backgroundColor: '#FFFBEB', padding: '10px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid #FDE68A' }}>
-              <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2, color: '#D97706' }} />
-              <div style={{ fontSize: '0.86rem', lineHeight: '1.4' }}>
-                <strong>Localização automática não encontrada:</strong>
-                <div style={{ marginTop: '2px' }}>
-                  Não conseguimos localizar automaticamente este endereço. Posicione o marcador no mapa para confirmar a localização.
+
+              {/* Bloco de Coordenadas Selecionadas */}
+              <div style={{ padding: '12px 14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>
+                  Coordenadas Geográficas
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px' }}>
+                  {lat.toFixed(6)}, {lng.toFixed(6)}
+                </div>
+                <div style={{ fontSize: '0.76rem', color: isAdjusting ? 'var(--color-primary)' : 'var(--text-muted)', fontWeight: isAdjusting ? 700 : 500, marginTop: '4px' }}>
+                  {isAdjusting
+                    ? '📍 Ajuste manual ativo pelo corretor'
+                    : 'Clique ou arraste o marcador para refinar a posição'}
                 </div>
               </div>
+
+              {/* Botões de Ação Rápida */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  title="Recalcular coordenadas para o endereço digitado"
+                  onClick={() => handleGeocodeAddress(effectiveAddress, addressComponents)}
+                  disabled={loading}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'white',
+                    color: 'var(--text-secondary)',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                  <span>Recalcular endereço</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdjusting(true);
+                    if (mapInstanceRef.current) {
+                      mapInstanceRef.current.zoomIn();
+                    }
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'white',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <Crosshair size={14} />
+                  <span>Aproximar pino</span>
+                </button>
+              </div>
             </div>
-          )}
 
-          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            <span>Coordenadas selecionadas: <strong>{lat.toFixed(6)}, {lng.toFixed(6)}</strong></span>
-            {isAdjusting ? (
-              <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-                📍 Modo de ajuste ativo: clique ou arraste o pino no mapa
-              </span>
-            ) : (
-              <span>Arraste o marcador no mapa para refinar a posição</span>
-            )}
-          </div>
-        </div>
-
-        {/* Container do Mapa */}
-        <div style={{ position: 'relative', width: '100%', height: '370px' }}>
-          <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
-
-          {/* Dica flutuante sobre o mapa */}
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 12,
-              left: 12,
-              right: 12,
-              zIndex: 500,
-              backgroundColor: 'rgba(255, 255, 255, 0.94)',
-              backdropFilter: 'blur(4px)',
-              padding: '8px 14px',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '0.8rem',
-              color: 'var(--text-secondary)',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
-          >
-            <span>💡 <strong>Dica:</strong> Arraste o pino para alinhar exatamente com o portão de entrada do imóvel.</span>
+            {/* Aviso informativo */}
+            <div style={{ fontSize: '0.74rem', color: '#6B7280', lineHeight: 1.4, padding: '8px 0' }}>
+              Este marcador determina o posicionamento do imóvel na carteira interna e a referência para cálculos de proximidade.
+            </div>
           </div>
         </div>
 

@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, hashPassword, comparePassword } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET() {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const fullUser = await prisma.user.findUnique({
@@ -37,6 +43,11 @@ export async function PUT(req: NextRequest) {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const body = await req.json();

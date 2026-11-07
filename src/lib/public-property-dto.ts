@@ -20,9 +20,14 @@ export interface PublicPropertyDTO {
   suites: number;
   otherBedrooms: number | null;
   bathrooms: number;
+  socialBathrooms: number | null;
+  lavabos: number | null;
   otherBathrooms: number | null;
   parkingSpaces: number;
+  coveredParkingSpaces: number | null;
+  uncoveredParkingSpaces: number | null;
   privateArea: number | null;
+  builtArea: number | null;
   totalArea: number | null;
   landArea: number | null;
   floor: number | null;
@@ -137,8 +142,8 @@ export function toPublicPropertyDTO(
       : null
   );
 
-  const phone = rawBroker?.phone || BROKER_CONFIG.phone;
-  const cleanPhone = phone.replace(/\D/g, '');
+  const phone = rawBroker?.phone || BROKER_CONFIG.phone || '';
+  const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
   const formattedPhone = cleanPhone.length === 11
     ? `(${cleanPhone.slice(0, 2)}) ${cleanPhone.slice(2, 7)}-${cleanPhone.slice(7)}`
     : phone;
@@ -146,12 +151,12 @@ export function toPublicPropertyDTO(
   const resolvedBroker = {
     name: rawBroker?.name || BROKER_CONFIG.name,
     brandName: rawBroker?.commercialName || (rawBroker?.name ? `${rawBroker.name} Imóveis` : BROKER_CONFIG.brandName),
-    creci: rawBroker?.creci || (rawBroker ? null : BROKER_CONFIG.creci),
+    creci: rawBroker?.creci || (rawBroker ? null : (BROKER_CONFIG.creci || null)),
     phone: cleanPhone,
     formattedPhone,
     email: rawBroker?.email || null,
     city: rawBroker?.city || 'Criciúma - SC',
-    tagline: rawBroker?.tagline || (rawBroker ? null : BROKER_CONFIG.tagline),
+    tagline: rawBroker?.tagline || (rawBroker ? null : (BROKER_CONFIG.tagline || null)),
     avatarUrl: rawBroker?.avatarUrl || null,
     logoUrl: rawBroker?.logoUrl || null,
   };
@@ -175,9 +180,14 @@ export function toPublicPropertyDTO(
       suites: entity.suites || 0,
       otherBedrooms: entity.otherBedrooms ?? null,
       bathrooms: entity.bathrooms || 0,
+      socialBathrooms: entity.socialBathrooms ?? null,
+      lavabos: entity.lavabos ?? null,
       otherBathrooms: entity.otherBathrooms ?? null,
       parkingSpaces: entity.parkingSpaces || 0,
+      coveredParkingSpaces: entity.coveredParkingSpaces ?? null,
+      uncoveredParkingSpaces: entity.uncoveredParkingSpaces ?? null,
       privateArea: entity.privateArea ?? null,
+      builtArea: entity.builtArea ?? null,
       totalArea: entity.totalArea ?? null,
       landArea: null,
       floor: null,
@@ -259,9 +269,14 @@ export function toPublicPropertyDTO(
     suites: entity.suites || 0,
     otherBedrooms: entity.otherBedrooms ?? null,
     bathrooms: entity.bathrooms || 0,
+    socialBathrooms: entity.socialBathrooms ?? null,
+    lavabos: entity.lavabos ?? null,
     otherBathrooms: entity.otherBathrooms ?? null,
     parkingSpaces: entity.parkingSpaces || 0,
+    coveredParkingSpaces: entity.coveredParkingSpaces ?? null,
+    uncoveredParkingSpaces: entity.uncoveredParkingSpaces ?? null,
     privateArea: entity.privateArea ?? null,
+    builtArea: entity.builtArea ?? null,
     totalArea: entity.totalArea ?? null,
     landArea: entity.landArea ?? null,
     floor: entity.floor ?? null,

@@ -13,6 +13,7 @@ import {
   Check,
   ArrowLeft,
   AlertCircle,
+  AlertTriangle,
   Compass,
   Car,
   Sliders,
@@ -21,6 +22,7 @@ import {
   Sparkles,
   ShieldCheck,
 } from 'lucide-react';
+import FieldHelper from './FieldHelper';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 const RadiusLocationPickerModal = dynamic(() => import('./RadiusLocationPickerModal'), { ssr: false });
@@ -148,11 +150,39 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
   const [minPrice, setMinPrice] = useState(initialData?.minPrice ? String(initialData.minPrice) : '');
   const [maxPrice, setMaxPrice] = useState(initialData?.maxPrice ? String(initialData.maxPrice) : '');
 
-  // Características Básicas
-  const [minBedrooms, setMinBedrooms] = useState(initialData?.minBedrooms !== undefined ? String(initialData.minBedrooms) : '2');
-  const [minSuites, setMinSuites] = useState(initialData?.minSuites !== undefined ? String(initialData.minSuites) : '1');
-  const [minParkingSpaces, setMinParkingSpaces] = useState(initialData?.minParkingSpaces !== undefined ? String(initialData.minParkingSpaces) : '1');
+  // Características Padronizadas de Busca
+  const [minBedrooms, setMinBedrooms] = useState(
+    initialData?.minBedrooms !== undefined && initialData?.minBedrooms !== null ? String(initialData.minBedrooms) : '2'
+  );
+  const [minSuites, setMinSuites] = useState(
+    initialData?.minSuites !== undefined && initialData?.minSuites !== null ? String(initialData.minSuites) : '1'
+  );
+  const [minOtherBedrooms, setMinOtherBedrooms] = useState(
+    initialData?.minOtherBedrooms !== undefined && initialData?.minOtherBedrooms !== null ? String(initialData.minOtherBedrooms) : ''
+  );
+
+  const [minSocialBathrooms, setMinSocialBathrooms] = useState(
+    initialData?.minSocialBathrooms !== undefined && initialData?.minSocialBathrooms !== null ? String(initialData.minSocialBathrooms) : ''
+  );
+  const [minLavabos, setMinLavabos] = useState(
+    initialData?.minLavabos !== undefined && initialData?.minLavabos !== null ? String(initialData.minLavabos) : ''
+  );
+  const legacyOtherBathrooms = initialData?.minOtherBathrooms !== undefined && initialData?.minOtherBathrooms !== null
+    ? Number(initialData.minOtherBathrooms)
+    : null;
+
+  const [minParkingSpaces, setMinParkingSpaces] = useState(
+    initialData?.minParkingSpaces !== undefined && initialData?.minParkingSpaces !== null ? String(initialData.minParkingSpaces) : '1'
+  );
+  const [minCoveredParkingSpaces, setMinCoveredParkingSpaces] = useState(
+    initialData?.minCoveredParkingSpaces !== undefined && initialData?.minCoveredParkingSpaces !== null ? String(initialData.minCoveredParkingSpaces) : ''
+  );
+  const [minUncoveredParkingSpaces, setMinUncoveredParkingSpaces] = useState(
+    initialData?.minUncoveredParkingSpaces !== undefined && initialData?.minUncoveredParkingSpaces !== null ? String(initialData.minUncoveredParkingSpaces) : ''
+  );
+
   const [minArea, setMinArea] = useState(initialData?.minArea ? String(initialData.minArea) : '');
+  const [minBuiltArea, setMinBuiltArea] = useState(initialData?.minBuiltArea ? String(initialData.minBuiltArea) : '');
   const [minLandArea, setMinLandArea] = useState(initialData?.minLandArea ? String(initialData.minLandArea) : '');
 
   // Permuta & Averbada
@@ -297,11 +327,18 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
       neighborhoods: neighborhoods.split(',').map((n) => n.trim()).filter(Boolean),
       minPrice: cleanMin ? Number(cleanMin) : null,
       maxPrice: Number(cleanMax),
-      minBedrooms: isTerrainOnly ? 0 : parseInt(minBedrooms, 10) || 0,
-      minSuites: isTerrainOnly ? 0 : parseInt(minSuites, 10) || 0,
-      minParkingSpaces: parseInt(minParkingSpaces, 10) || 0,
-      minArea: minArea ? parseFloat(minArea) : null,
-      minLandArea: minLandArea ? parseFloat(minLandArea) : null,
+      minBedrooms: isTerrainOnly ? 0 : (minBedrooms !== '' ? Math.max(0, parseInt(minBedrooms, 10)) : 0),
+      minSuites: isTerrainOnly ? 0 : (minSuites !== '' ? Math.max(0, parseInt(minSuites, 10)) : 0),
+      minOtherBedrooms: isTerrainOnly ? null : (minOtherBedrooms !== '' ? Math.max(0, parseInt(minOtherBedrooms, 10)) : null),
+      minSocialBathrooms: isTerrainOnly ? null : (minSocialBathrooms !== '' ? Math.max(0, parseInt(minSocialBathrooms, 10)) : null),
+      minLavabos: isTerrainOnly ? null : (minLavabos !== '' ? Math.max(0, parseInt(minLavabos, 10)) : null),
+      minOtherBathrooms: legacyOtherBathrooms,
+      minParkingSpaces: minParkingSpaces !== '' ? Math.max(0, parseInt(minParkingSpaces, 10)) : 0,
+      minCoveredParkingSpaces: minCoveredParkingSpaces !== '' ? Math.max(0, parseInt(minCoveredParkingSpaces, 10)) : null,
+      minUncoveredParkingSpaces: minUncoveredParkingSpaces !== '' ? Math.max(0, parseInt(minUncoveredParkingSpaces, 10)) : null,
+      minArea: minArea !== '' ? Math.max(0, parseFloat(minArea)) : null,
+      minBuiltArea: minBuiltArea !== '' ? Math.max(0, parseFloat(minBuiltArea)) : null,
+      minLandArea: minLandArea !== '' ? Math.max(0, parseFloat(minLandArea)) : null,
       acceptsExchange,
       requiresRegistered,
       wantsPool,
@@ -1117,15 +1154,19 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
           </div>
         </div>
 
-        {/* Requisitos Estruturais Adaptativos */}
+        {/* Requisitos Estruturais Padronizados */}
         {isTerrainOnly ? (
           /* Apenas Terreno */
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área Mínima do Terreno (m²)
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                <label htmlFor="field-search-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                  Área do Terreno Mínima (m²)
+                </label>
+                <FieldHelper helpKey="landArea" />
+              </div>
               <input
+                id="field-search-land-area"
                 type="number"
                 min="0"
                 value={minLandArea}
@@ -1141,148 +1182,330 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
               />
             </div>
           </div>
-        ) : isCommercialOnly ? (
-          /* Apenas Comercial */
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área Útil Mínima (m²)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minArea}
-                onChange={(e) => setMinArea(e.target.value)}
-                placeholder="Ex: 50"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Vagas Mínimas
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minParkingSpaces}
-                onChange={(e) => setMinParkingSpaces(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-          </div>
         ) : (
-          /* Residencial ou Misto */
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Dormitórios Mín.
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minBedrooms}
-                onChange={(e) => setMinBedrooms(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Aviso informativo de independência dos critérios mínimos */}
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.45, backgroundColor: '#F9FAFB', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)' }}>
+              💡 <strong>Critérios mínimos independentes:</strong> As exigências abaixo não se somam automaticamente (ex: exigir 3 quartos totais e 1 suíte busca imóveis com no mínimo 3 quartos onde ao menos 1 seja suíte). Campos opcionais em branco significam sem restrição.
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Suítes Mín.
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minSuites}
-                onChange={(e) => setMinSuites(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
+            {/* GRUPO 1: Dormitórios e Suítes */}
+            <div style={{ padding: '14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '10px' }}>
+                1. Quartos e Suítes
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-bedrooms" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Mínimo de quartos totais
+                    </label>
+                    <FieldHelper helpKey="totalBedrooms" />
+                  </div>
+                  <input
+                    id="field-search-bedrooms"
+                    type="number"
+                    min="0"
+                    value={minBedrooms}
+                    onChange={(e) => setMinBedrooms(e.target.value)}
+                    placeholder="Ex: 2"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Vagas Mín.
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minParkingSpaces}
-                onChange={(e) => setMinParkingSpaces(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-suites" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Mínimo de suítes
+                    </label>
+                    <FieldHelper helpKey="suites" />
+                  </div>
+                  <input
+                    id="field-search-suites"
+                    type="number"
+                    min="0"
+                    value={minSuites}
+                    onChange={(e) => setMinSuites(e.target.value)}
+                    placeholder="Ex: 1"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área Mín. (m²)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={minArea}
-                onChange={(e) => setMinArea(e.target.value)}
-                placeholder="Ex: 80"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-
-            {includesHouse && (
-              <div>
-                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                  Área Terreno Mín. (m²)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={minLandArea}
-                  onChange={(e) => setMinLandArea(e.target.value)}
-                  placeholder="Ex: 300"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-light)',
-                    backgroundColor: 'var(--bg-subtle)',
-                  }}
-                />
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-dormitories" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Dormitórios sem suíte mín. (opcional)
+                    </label>
+                    <FieldHelper helpKey="dormitories" />
+                  </div>
+                  <input
+                    id="field-search-dormitories"
+                    type="number"
+                    min="0"
+                    value={minOtherBedrooms}
+                    onChange={(e) => setMinOtherBedrooms(e.target.value)}
+                    placeholder="Sem exigência"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
               </div>
-            )}
+            </div>
+
+            {/* GRUPO 2: Banheiros Sociais e Lavabos */}
+            <div style={{ padding: '14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  2. Banheiros Sociais e Lavabos (Opcional)
+                </span>
+                {legacyOtherBathrooms !== null && (
+                  <span style={{ fontSize: '0.74rem', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+                    Critério legado: {legacyOtherBathrooms} outro(s) banheiro(s)
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-social-bathrooms" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Banheiros sociais mín.
+                    </label>
+                    <FieldHelper helpKey="socialBathrooms" />
+                  </div>
+                  <input
+                    id="field-search-social-bathrooms"
+                    type="number"
+                    min="0"
+                    value={minSocialBathrooms}
+                    onChange={(e) => setMinSocialBathrooms(e.target.value)}
+                    placeholder="Sem exigência"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-lavabos" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Lavabos mín.
+                    </label>
+                    <FieldHelper helpKey="lavabos" />
+                  </div>
+                  <input
+                    id="field-search-lavabos"
+                    type="number"
+                    min="0"
+                    value={minLavabos}
+                    onChange={(e) => setMinLavabos(e.target.value)}
+                    placeholder="Sem exigência"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* GRUPO 3: Vagas de Garagem */}
+            <div style={{ padding: '14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '10px' }}>
+                3. Vagas de Garagem
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-parking" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Mínimo de vagas totais
+                    </label>
+                    <FieldHelper helpKey="totalParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-search-parking"
+                    type="number"
+                    min="0"
+                    value={minParkingSpaces}
+                    onChange={(e) => setMinParkingSpaces(e.target.value)}
+                    placeholder="Ex: 1"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-covered-parking" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Vagas cobertas mín. (opcional)
+                    </label>
+                    <FieldHelper helpKey="coveredParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-search-covered-parking"
+                    type="number"
+                    min="0"
+                    value={minCoveredParkingSpaces}
+                    onChange={(e) => setMinCoveredParkingSpaces(e.target.value)}
+                    placeholder="Sem exigência"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                    <label htmlFor="field-search-uncovered-parking" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                      Vagas descobertas mín. (opcional)
+                    </label>
+                    <FieldHelper helpKey="uncoveredParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-search-uncovered-parking"
+                    type="number"
+                    min="0"
+                    value={minUncoveredParkingSpaces}
+                    onChange={(e) => setMinUncoveredParkingSpaces(e.target.value)}
+                    placeholder="Sem exigência"
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: 'white',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* GRUPO 4: Áreas e Metragens */}
+            <div style={{ padding: '14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              <span style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '10px' }}>
+                4. Áreas e Metragens
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                {/* Apartamento / Comercial / Geral */}
+                {(includesApartment || includesCommercial || (!includesHouse && !includesTerrain)) && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-search-private-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área privativa mínima (m²)
+                      </label>
+                      <FieldHelper helpKey="privateArea" />
+                    </div>
+                    <input
+                      id="field-search-private-area"
+                      type="number"
+                      min="0"
+                      value={minArea}
+                      onChange={(e) => setMinArea(e.target.value)}
+                      placeholder="Ex: 80"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Casa */}
+                {includesHouse && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-search-built-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área construída mínima (m²)
+                      </label>
+                      <FieldHelper helpKey="builtArea" />
+                    </div>
+                    <input
+                      id="field-search-built-area"
+                      type="number"
+                      min="0"
+                      value={minBuiltArea}
+                      onChange={(e) => setMinBuiltArea(e.target.value)}
+                      placeholder="Ex: 150"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Terreno ou Casa */}
+                {(includesTerrain || includesHouse) && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-search-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área do terreno mínima (m²)
+                      </label>
+                      <FieldHelper helpKey="landArea" />
+                    </div>
+                    <input
+                      id="field-search-land-area"
+                      type="number"
+                      min="0"
+                      value={minLandArea}
+                      onChange={(e) => setMinLandArea(e.target.value)}
+                      placeholder="Ex: 360"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Aviso informativo sobre o matching futuro */}
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px' }}>
+              <span>ℹ️</span>
+              <span>Os novos critérios específicos de vagas cobertas/descobertas, banheiros sociais e lavabos estão salvos e serão integrados à pontuação automática no próximo update do motor de matching.</span>
+            </div>
           </div>
         )}
       </div>

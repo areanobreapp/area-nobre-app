@@ -27,6 +27,9 @@ model User {
   clients                 Client[]
   searches                Search[]      @relation("CreatedSearches")
   responsibleSearches     Search[]      @relation("ResponsibleSearches")
+  propertyShares          PropertyShare[]
+  legalAcceptances        LegalAcceptance[]
+  propertyAuthorizations  PropertyAuthorization[]
 }
 
 model BrokerProfile {
@@ -57,6 +60,7 @@ model Client {
   updatedAt DateTime   @updatedAt
 
   searches  Search[]
+  propertyShares PropertyShare[]
 }
 
 model Property {
@@ -99,6 +103,17 @@ model Property {
   otherBedrooms       Int?            // Outros quartos (além das suítes)
   otherBathrooms      Int?            // Outros banheiros (além das suítes)
 
+  // Vagas padronizadas (Pontos 14, 17 e 28 / Fase 1 Bloco 2)
+  coveredParkingSpaces   Int?         // Vagas cobertas
+  uncoveredParkingSpaces Int?         // Vagas descobertas
+
+  // Banheiros específicos (Pontos 14, 17 e 28 / Fase 1 Bloco 2)
+  socialBathrooms        Int?         // Banheiros sociais (com área de banho)
+  lavabos                Int?         // Lavabos (sem área de banho)
+
+  // Áreas adicionais
+  builtArea              Float?       // Área construída (m²) - principalmente casas
+
   // Áreas adicionais
   landArea            Float?          // Área do terreno documental (m²)
 
@@ -138,11 +153,17 @@ model Property {
   publishedAt              DateTime?
   publicLocationPrecision  String          @default("APPROXIMATE") // HIDDEN | APPROXIMATE | EXACT
 
+  // Transição segura de autorização (Fase 1 / Ponto 20 / Etapa 1.4)
+  // Identifica imóveis existentes antes da ativação da regra de autorização
+  legacyExemptFromAuthorization Boolean @default(false)
+
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
   images        PropertyImage[]
   matches       Match[]
+  shares        PropertyShare[]
+  authorizations PropertyAuthorization[]
 }
 
 model PropertyImage {
@@ -192,6 +213,11 @@ model Search {
   // Semântica de dormitórios e banheiros (Fase 5.0.1)
   minOtherBedrooms   Int?
   minOtherBathrooms  Int?
+  minCoveredParkingSpaces   Int?
+  minUncoveredParkingSpaces Int?
+  minSocialBathrooms        Int?
+  minLavabos                Int?
+  minBuiltArea              Float?
 
   // Terreno / Área documental do terreno
   minLandArea        Float?
@@ -312,6 +338,11 @@ model Typology {
   // Semântica e adicionais (Fase 5.0.1)
   otherBedrooms   Int?        // Outros quartos
   otherBathrooms  Int?        // Outros banheiros
+  coveredParkingSpaces   Int?
+  uncoveredParkingSpaces Int?
+  socialBathrooms        Int?
+  lavabos                Int?
+  builtArea              Float?
   acceptsExchange Boolean?    // Aceita permuta
   exchangeNotes   String?     // Observação da permuta
   hasBarbecue     Boolean?    // Churrasqueira na sacada/unidade
@@ -330,3 +361,111 @@ model Typology {
   updatedAt     DateTime     @updatedAt
 }
 
+// ==============================================================================
+// Compartilhamento Individual de Imóveis (Fase 5.4 / Ponto 21)
+// Permite que qualquer corretor parceiro gere seu link público exclusivo
+// para apresentar um imóvel da rede com sua própria identidade profissional.
+// Nota para evolução CRM: atualmente restringe 1 share por par (imóvel, corretor).
+// ==============================================================================
+model PropertyShare {
+  id         String   @id @default(cuid())
+  publicId   String   @unique
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  brokerId   String
+  broker     User     @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  clientId   String?
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([propertyId, brokerId])
+  @@index([propertyId])
+  @@index([brokerId])
+}
+
+// ==============================================================================
+// Configurações Globais da Plataforma (Fase 1 / Ponto 13)
+// Armazena configurações dinâmicas gerenciadas pelo Administrador (ex: WhatsApp de suporte)
+// ==============================================================================
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+}
+
+
+// ==============================================================================
+// Documentos Legais e Versionamento (Fase 1 / Ponto 20)
+// Suporta Termos de Uso, Política de Privacidade e Declaração de Autorização
+// ==============================================================================
+model LegalDocument {
+  id            String    @id @default(cuid())
+  type          String    // "TERMS_OF_USE" | "PRIVACY_POLICY" | "PROPERTY_AUTHORIZATION"
+  version       String    // Ex: "1.0", "1.1"
+  title         String
+  content       String    @db.Text
+  status        String    @default("DRAFT") // "DRAFT" | "PUBLISHED" | "ARCHIVED"
+  publishedAt   DateTime?
+  effectiveDate DateTime?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  acceptances    LegalAcceptance[]
+  authorizations PropertyAuthorization[]
+
+  @@unique([type, version])
+  @@index([type, status])
+}
+
+// ==============================================================================
+// Manifestações Gerais de Usuários aos Documentos Legais (Fase 1 / Ponto 20)
+// Registra aceites de Termos de Uso e ciência de Políticas de Privacidade
+// ==============================================================================
+model LegalAcceptance {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId      String
+  document        LegalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  documentType    String        // "TERMS_OF_USE" | "PRIVACY_POLICY"
+  documentVersion String        // Ex: "1.0"
+  action          String        @default("ACCEPTED") // "ACCEPTED" | "ACKNOWLEDGED"
+  acceptedAt      DateTime      @default(now())
+
+  @@unique([userId, documentId])
+  @@index([userId])
+  @@index([documentId])
+  @@index([documentType, documentVersion])
+}
+
+// ==============================================================================
+// Declaração de Autorização para Divulgação de Imóvel (Fase 1 / Ponto 20)
+// Vínculo individual e auditável entre Corretor, Imóvel e Versão da Declaração
+// ==============================================================================
+model PropertyAuthorization {
+  id               String        @id @default(cuid())
+  propertyId       String
+  property         Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  brokerId         String
+  broker           User          @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  documentId       String
+  document         LegalDocument @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  documentVersion  String        // Ex: "1.0"
+  status           String        @default("CONFIRMED") // "CONFIRMED" | "REVOKED"
+  confirmedAt      DateTime      @default(now())
+  revokedAt        DateTime?
+  revokedBy        String?       // ID do usuário ou admin responsável pela revogação
+  revocationReason String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([propertyId])
+  @@index([brokerId])
+  @@index([documentId])
+  @@index([propertyId, brokerId, status])
+}

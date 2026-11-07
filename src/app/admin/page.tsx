@@ -15,7 +15,14 @@ import {
   ArrowUpDown,
   Loader2,
   ExternalLink,
+  Phone,
+  Settings,
+  MessageCircle,
+  FileText,
+  Scale,
 } from 'lucide-react';
+import LegalDocumentsManager from '@/components/admin/LegalDocumentsManager';
+import LegalAuditViewer from '@/components/admin/LegalAuditViewer';
 
 interface AdminUser {
   id: string;
@@ -47,10 +54,76 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [adminTab, setAdminTab] = useState<'users' | 'legal' | 'audit'>('users');
+
+  // Configurações da Plataforma (Ponto 13)
+  const [supportPhone, setSupportPhone] = useState('5548999273694');
+  const [formattedSupportPhone, setFormattedSupportPhone] = useState('(48) 99927-3694');
+  const [inputPhone, setInputPhone] = useState('');
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingPhone, setSavingPhone] = useState(false);
+  const [settingFeedback, setSettingFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     loadUsers();
+    loadSettings();
   }, [roleFilter, statusFilter]);
+
+  async function loadSettings() {
+    try {
+      const res = await fetch('/api/admin/settings');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.phone) {
+          setSupportPhone(data.phone);
+          setFormattedSupportPhone(data.formattedPhone || data.phone);
+          setInputPhone(data.formattedPhone || data.phone);
+        }
+      }
+    } catch (err) {
+      console.error('Falha ao carregar configurações administrativas:', err);
+    } finally {
+      setLoadingSettings(false);
+    }
+  }
+
+  async function handleSaveSupportPhone(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inputPhone.trim()) {
+      setSettingFeedback({ type: 'error', text: 'Informe um número de telefone com DDD válido.' });
+      return;
+    }
+
+    setSavingPhone(true);
+    setSettingFeedback(null);
+
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: inputPhone }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar configuração.');
+      }
+
+      setSupportPhone(data.phone);
+      setFormattedSupportPhone(data.formattedPhone);
+      setInputPhone(data.formattedPhone);
+      setSettingFeedback({
+        type: 'success',
+        text: `WhatsApp de suporte atualizado para ${data.formattedPhone} com sucesso!`,
+      });
+    } catch (err: any) {
+      setSettingFeedback({
+        type: 'error',
+        text: err.message || 'Falha ao atualizar o WhatsApp de suporte.',
+      });
+    } finally {
+      setSavingPhone(false);
+    }
+  }
 
   async function loadUsers() {
     try {
@@ -187,7 +260,90 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Cards de Métricas Rápidas */}
+      {/* Navegação por Abas Principais (Fase 1 / Pontos 13 e 20) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          borderBottom: '2px solid #E5E7EB',
+          marginBottom: '28px',
+          overflowX: 'auto',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setAdminTab('users')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'users' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'users' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Users size={18} />
+          <span>Usuários e Plataforma</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('legal')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'legal' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'legal' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <FileText size={18} />
+          <span>Documentos Jurídicos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('audit')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'audit' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'audit' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Scale size={18} />
+          <span>Auditoria Jurídica</span>
+        </button>
+      </div>
+
+      {adminTab === 'users' && (
+        <>
+          {/* Cards de Métricas Rápidas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
@@ -223,6 +379,171 @@ export default function AdminPage() {
           <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#1E4620' }}>
             {totalSearches}
           </div>
+        </div>
+      </div>
+
+      {/* Seção: Configurações da Plataforma (Ponto 13) */}
+      <div
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: '16px',
+          border: '1px solid #E5E7EB',
+          padding: '22px 24px',
+          marginBottom: '28px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  backgroundColor: '#DCFCE7',
+                  color: '#166534',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Settings size={18} />
+              </div>
+              <h2 style={{ fontSize: '1.12rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                Configurações da Plataforma
+              </h2>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: '#6B7280', margin: '4px 0 0 40px' }}>
+              Gerencie parâmetros operacionais e canais de contato da Área Nobre.
+            </p>
+          </div>
+
+          {/* Badge com número atual */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 14px',
+              borderRadius: '20px',
+              backgroundColor: '#F3F4F6',
+              fontSize: '0.80rem',
+              color: '#374151',
+              fontWeight: 600,
+            }}
+          >
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#16A34A' }}></span>
+            <span>Ativo: <strong>{formattedSupportPhone || supportPhone}</strong></span>
+          </div>
+        </div>
+
+        {/* Feedback de Configuração */}
+        {settingFeedback && (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: settingFeedback.type === 'success' ? '#F0FDF4' : '#FEF2F2',
+              border: `1px solid ${settingFeedback.type === 'success' ? '#BBF7D0' : '#FECACA'}`,
+              color: settingFeedback.type === 'success' ? '#166534' : '#991B1B',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+            }}
+          >
+            {settingFeedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+            <span>{settingFeedback.text}</span>
+          </div>
+        )}
+
+        {/* Formulário do WhatsApp de Suporte */}
+        <div
+          style={{
+            padding: '18px 20px',
+            borderRadius: '12px',
+            backgroundColor: '#F9FAFB',
+            border: '1px solid #F3F4F6',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <MessageCircle size={17} color="#16A34A" />
+            <h3 style={{ fontSize: '0.94rem', fontWeight: 800, color: '#1F2937', margin: 0 }}>
+              WhatsApp de suporte
+            </h3>
+          </div>
+          <p style={{ fontSize: '0.82rem', color: '#6B7280', margin: '0 0 14px 0' }}>
+            Número utilizado para atendimento direto aos usuários nos botões "Falar com o suporte" (desktop, celular, perfil e login).
+          </p>
+
+          <form onSubmit={handleSaveSupportPhone} style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1', minWidth: '260px' }}>
+              <input
+                type="text"
+                placeholder="(48) 99927-3694"
+                value={inputPhone}
+                onChange={(e) => setInputPhone(e.target.value)}
+                disabled={savingPhone || loadingSettings}
+                style={{
+                  width: '100%',
+                  padding: '9px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  fontSize: '0.90rem',
+                  outline: 'none',
+                  backgroundColor: '#FFFFFF',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={savingPhone || loadingSettings}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '9px 18px',
+                borderRadius: '8px',
+                backgroundColor: '#1E4620',
+                color: '#FFFFFF',
+                border: 'none',
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                cursor: savingPhone ? 'not-allowed' : 'pointer',
+                opacity: savingPhone ? 0.7 : 1,
+              }}
+            >
+              {savingPhone && <Loader2 size={16} className="spin" />}
+              <span>{savingPhone ? 'Salvando...' : 'Salvar alterações'}</span>
+            </button>
+
+            <a
+              href={`https://wa.me/${supportPhone}?text=${encodeURIComponent('Olá! Teste de configuração do WhatsApp de suporte da Área Nobre.')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 14px',
+                borderRadius: '8px',
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #D1D5DB',
+                color: '#374151',
+                fontSize: '0.84rem',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              <ExternalLink size={14} color="#6B7280" />
+              <span>Testar no WhatsApp</span>
+            </a>
+          </form>
         </div>
       </div>
 
@@ -499,6 +820,14 @@ export default function AdminPage() {
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {/* Aba 2: Gestão de Documentos Jurídicos (Ponto 20 / Etapa 1.5) */}
+      {adminTab === 'legal' && <LegalDocumentsManager />}
+
+      {/* Aba 3: Auditoria Jurídica de Aceites e Autorizações (Ponto 20 / Etapa 1.5) */}
+      {adminTab === 'audit' && <LegalAuditViewer />}
     </div>
   );
 }

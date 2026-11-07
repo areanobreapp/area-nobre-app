@@ -26,6 +26,9 @@ import {
 } from 'lucide-react';
 import { PublicPropertyDTO } from '@/lib/public-property-dto';
 import { getContactBrokerWhatsAppUrl } from '@/lib/public-sharing';
+import { PublicPropertyFeaturesGrid } from './PropertyFeaturesDisplay';
+import AntifraudNoticeModal from './AntifraudNoticeModal';
+import { hasSeenAntifraudNoticeThisVisit, isSafeWhatsAppUrl } from '@/lib/antifraud-contact';
 
 const PublicPropertyMap = dynamic(() => import('./PublicPropertyMap'), {
   ssr: false,
@@ -67,6 +70,7 @@ export default function PublicPresentationView({
 }: PublicPresentationViewProps) {
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [antifraudModalOpen, setAntifraudModalOpen] = useState(false);
 
   const images = property.images && property.images.length > 0
     ? property.images
@@ -81,6 +85,22 @@ export default function PublicPresentationView({
     property.broker.phone,
     property.broker.name
   );
+
+  function handleInitiateBrokerContact(e: React.MouseEvent) {
+    e.preventDefault();
+    if (!contactWhatsAppUrl) return;
+
+    if (hasSeenAntifraudNoticeThisVisit()) {
+      if (isSafeWhatsAppUrl(contactWhatsAppUrl)) {
+        window.open(contactWhatsAppUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        console.warn('[PublicPresentationView] URL de contato rejeitada por validação de segurança:', contactWhatsAppUrl);
+      }
+      return;
+    }
+
+    setAntifraudModalOpen(true);
+  }
 
   const formatPrice = (val: number) =>
     new Intl.NumberFormat('pt-BR', {
@@ -120,8 +140,8 @@ export default function PublicPresentationView({
   }
 
   return (
-    <div style={{ backgroundColor: '#F8FAF9', minHeight: '100vh', paddingBottom: '90px' }}>
-      {/* Banner de Prévia Exclusivo para a Corretora Daiane */}
+    <div style={{ backgroundColor: '#F8FAF9', minHeight: '100vh' }}>
+      {/* Banner de Prévia Exclusivo */}
       {isPreview && (
         <div
           style={{
@@ -210,7 +230,7 @@ export default function PublicPresentationView({
         </div>
       )}
 
-      {/* Topo Institucional: Daiane Corrêa Imóveis */}
+      {/* Topo Institucional: Identidade Profissional */}
       <header
         style={{
           backgroundColor: '#FFFFFF',
@@ -311,29 +331,34 @@ export default function PublicPresentationView({
           </div>
 
           {/* Botão de Contato no Topo (Desktop) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <a
-              href={contactWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '9px 18px',
-                borderRadius: '9999px',
-                backgroundColor: '#25D366',
-                color: '#FFFFFF',
-                fontWeight: 700,
-                fontSize: '0.86rem',
-                boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)',
-                transition: 'transform 0.15s ease',
-              }}
-            >
-              <MessageCircle size={16} />
-              <span>Falar com Daiane</span>
-            </a>
-          </div>
+          {contactWhatsAppUrl && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <a
+                href={contactWhatsAppUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={handleInitiateBrokerContact}
+                className="header-contact-btn"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '9px 18px',
+                  borderRadius: '9999px',
+                  backgroundColor: '#25D366',
+                  color: '#FFFFFF',
+                  fontWeight: 700,
+                  fontSize: '0.86rem',
+                  boxShadow: '0 2px 8px rgba(37, 211, 102, 0.28)',
+                  transition: 'transform 0.15s ease',
+                  cursor: 'pointer',
+                }}
+              >
+                <MessageCircle size={16} />
+                <span>Falar com {property.broker.name ? (property.broker.name.startsWith('Corretor ') ? property.broker.name : property.broker.name.split(' ')[0]) : 'Corretor'}</span>
+              </a>
+            </div>
+          )}
         </div>
       </header>
 
@@ -545,19 +570,12 @@ export default function PublicPresentationView({
         </section>
 
         {/* Grade em 2 Colunas: Informações Detalhadas (Esq) + Card de Contato (Dir) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) 340px',
-            gap: '28px',
-            alignItems: 'start',
-          }}
-          className="presentation-grid"
-        >
+        <div className="presentation-grid">
           {/* Coluna da Esquerda: Dados Principais, Características e Localização */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div className="presentation-main-col">
             {/* Bloco de Título e Preço */}
             <div
+              className="order-title"
               style={{
                 backgroundColor: '#FFFFFF',
                 borderRadius: '16px',
@@ -566,25 +584,42 @@ export default function PublicPresentationView({
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
               }}
             >
-              {/* Localização formatada */}
+              {/* Localização formatada e Pavimento */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '8px',
                   color: '#6B7280',
                   fontSize: '0.88rem',
                   marginBottom: '8px',
+                  flexWrap: 'wrap',
                 }}
               >
-                <MapPin size={16} color="#059669" />
-                <span>
-                  {property.locationPrecision === 'HIDDEN'
-                    ? property.city
-                    : property.neighborhood
-                    ? `${property.neighborhood}, ${property.city} - ${property.state}`
-                    : `${property.city} - ${property.state}`}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <MapPin size={16} color="#059669" />
+                  <span>
+                    {property.locationPrecision === 'HIDDEN'
+                      ? property.city
+                      : property.neighborhood
+                      ? `${property.neighborhood}, ${property.city} - ${property.state}`
+                      : `${property.city} - ${property.state}`}
+                  </span>
+                </div>
+                {property.floor && (
+                  <span
+                    style={{
+                      fontSize: '0.74rem',
+                      fontWeight: 600,
+                      backgroundColor: '#F1F5F9',
+                      color: '#475569',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                    }}
+                  >
+                    {property.floor}º andar
+                  </span>
+                )}
               </div>
 
               <h1
@@ -610,125 +645,24 @@ export default function PublicPresentationView({
               </div>
             </div>
 
-            {/* Grid de Especificações Rápidas */}
+            {/* Grid de Características Padronizadas (Etapa 4B) */}
             <div
+              className="order-specs"
               style={{
                 backgroundColor: '#FFFFFF',
                 borderRadius: '16px',
-                padding: '22px 24px',
+                padding: '20px 22px',
                 border: '1px solid rgba(0, 0, 0, 0.06)',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: '16px',
               }}
             >
-              {property.privateArea && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Maximize2 size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.privateArea} m²
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Área privativa</div>
-                  </div>
-                </div>
-              )}
-
-              {property.landArea && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Layers size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.landArea} m²
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Área do terreno</div>
-                  </div>
-                </div>
-              )}
-
-              {property.suites > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Bed size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.suites} {property.suites === 1 ? 'suíte' : 'suítes'}
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
-                      {property.otherBedrooms && property.otherBedrooms > 0
-                        ? `+ ${property.otherBedrooms} dorms`
-                        : 'Dormitório master'}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {property.suites === 0 && property.bedrooms > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Bed size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.bedrooms} dormitórios
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Quartos</div>
-                  </div>
-                </div>
-              )}
-
-              {property.bathrooms > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Bath size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.bathrooms} {property.bathrooms === 1 ? 'banheiro' : 'banheiros'}
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Total</div>
-                  </div>
-                </div>
-              )}
-
-              {property.parkingSpaces > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Car size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.parkingSpaces} {property.parkingSpaces === 1 ? 'vaga' : 'vagas'}
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Garagem</div>
-                  </div>
-                </div>
-              )}
-
-              {property.floor && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: '#F1F5F9', color: '#334155' }}>
-                    <Building2 size={18} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A' }}>
-                      {property.floor}º andar
-                    </div>
-                    <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Pavimento</div>
-                  </div>
-                </div>
-              )}
+              <PublicPropertyFeaturesGrid property={property} />
             </div>
 
             {/* Contexto de Empreendimento (se for lançamento/em construção) */}
             {property.isDevelopmentOffer && property.development && (
               <div
+                className="order-dev"
                 style={{
                   backgroundColor: '#FFFFFF',
                   borderRadius: '16px',
@@ -793,6 +727,7 @@ export default function PublicPresentationView({
             {/* Descrição do Imóvel */}
             {property.description && (
               <div
+                className="order-desc"
                 style={{
                   backgroundColor: '#FFFFFF',
                   borderRadius: '16px',
@@ -820,6 +755,7 @@ export default function PublicPresentationView({
             {/* Diferenciais e Comodidades */}
             {amenities.length > 0 && (
               <div
+                className="order-amenities"
                 style={{
                   backgroundColor: '#FFFFFF',
                   borderRadius: '16px',
@@ -858,6 +794,7 @@ export default function PublicPresentationView({
 
             {/* Localização Permitida */}
             <div
+              className="order-location"
               style={{
                 backgroundColor: '#FFFFFF',
                 borderRadius: '16px',
@@ -919,13 +856,14 @@ export default function PublicPresentationView({
                   neighborhood={property.neighborhood}
                   city={property.city || 'Criciúma'}
                   title={property.title}
+                  brokerBrandName={property.broker.brandName}
                 />
               )}
             </div>
           </div>
 
-          {/* Coluna da Direita: Card de Apresentação e Contato com Daiane Corrêa */}
-          <aside style={{ position: 'sticky', top: '80px' }}>
+          {/* Coluna da Direita (Desktop) / Entre Especificações e Descrição (Mobile): Card do Corretor */}
+          <aside className="broker-aside">
             <div
               style={{
                 backgroundColor: '#FFFFFF',
@@ -989,32 +927,60 @@ export default function PublicPresentationView({
                 {property.broker.tagline}. Atendimento consultivo, rápido e focado nas melhores oportunidades de Criciúma.
               </p>
 
-              {/* Botão de Ação WhatsApp (CTA Principal) */}
-              <a
-                href={contactWhatsAppUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '10px',
-                  width: '100%',
-                  padding: '14px 20px',
-                  borderRadius: '12px',
-                  backgroundColor: '#25D366',
-                  color: '#FFFFFF',
-                  fontWeight: 800,
-                  fontSize: '0.98rem',
-                  textDecoration: 'none',
-                  boxShadow: '0 4px 14px rgba(37, 211, 102, 0.35)',
-                  marginBottom: '12px',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-                }}
-              >
-                <MessageCircle size={20} />
-                <span>Tenho Interesse neste Imóvel</span>
-              </a>
+              {/* Botão de Ação WhatsApp (CTA Principal) ou E-mail */}
+              {contactWhatsAppUrl ? (
+                <a
+                  href={contactWhatsAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleInitiateBrokerContact}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '10px',
+                    width: '100%',
+                    padding: '14px 20px',
+                    borderRadius: '12px',
+                    backgroundColor: '#25D366',
+                    color: '#FFFFFF',
+                    fontWeight: 800,
+                    fontSize: '0.98rem',
+                    textDecoration: 'none',
+                    boxShadow: '0 4px 14px rgba(37, 211, 102, 0.35)',
+                    marginBottom: '12px',
+                    transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <MessageCircle size={20} />
+                  <span>Tenho Interesse neste Imóvel</span>
+                </a>
+              ) : property.broker.email ? (
+                <a
+                  href={`mailto:${property.broker.email}?subject=Interesse no imóvel: ${encodeURIComponent(property.title)}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '10px',
+                    width: '100%',
+                    padding: '14px 20px',
+                    borderRadius: '12px',
+                    backgroundColor: '#1E4620',
+                    color: '#FFFFFF',
+                    fontWeight: 800,
+                    fontSize: '0.94rem',
+                    textDecoration: 'none',
+                    boxShadow: '0 4px 14px rgba(30, 70, 32, 0.25)',
+                    marginBottom: '12px',
+                    transition: 'transform 0.15s ease',
+                  }}
+                >
+                  <Mail size={18} />
+                  <span>Entrar em Contato por E-mail</span>
+                </a>
+              ) : null}
 
               {/* Informações de Contato Direto */}
               <div
@@ -1036,7 +1002,7 @@ export default function PublicPresentationView({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Mail size={14} color="#6B7280" />
-                  <span>{property.broker.email}</span>
+                  <span style={{ wordBreak: 'break-word' }}>{property.broker.email}</span>
                 </div>
               </div>
 
@@ -1059,57 +1025,6 @@ export default function PublicPresentationView({
           </aside>
         </div>
       </main>
-
-      {/* Barra Flutuante de Contato no Mobile (Sticky Bottom) */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          backgroundColor: '#FFFFFF',
-          borderTop: '1px solid rgba(0, 0, 0, 0.1)',
-          padding: '12px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-          boxShadow: '0 -4px 16px rgba(0, 0, 0, 0.08)',
-          zIndex: 50,
-        }}
-        className="mobile-cta-bar"
-      >
-        <div>
-          <div style={{ fontSize: '0.72rem', color: '#6B7280', textTransform: 'uppercase', fontWeight: 700 }}>
-            Valor
-          </div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1E4620' }}>
-            {formatPrice(property.price)}
-          </div>
-        </div>
-
-        <a
-          href={contactWhatsAppUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '11px 20px',
-            borderRadius: '10px',
-            backgroundColor: '#25D366',
-            color: '#FFFFFF',
-            fontWeight: 800,
-            fontSize: '0.9rem',
-            textDecoration: 'none',
-            boxShadow: '0 2px 8px rgba(37, 211, 102, 0.3)',
-          }}
-        >
-          <MessageCircle size={18} />
-          <span>Falar com {property.broker.name ? property.broker.name.split(' ')[0] : 'Corretor'}</span>
-        </a>
-      </div>
 
       {/* Lightbox / Visualizador em Tela Cheia */}
       {lightboxOpen && (
@@ -1239,6 +1154,13 @@ export default function PublicPresentationView({
           Tecnologia Área Nobre
         </p>
       </footer>
+
+      {/* Modal de Aviso Antifraude antes do primeiro contato WhatsApp da visita */}
+      <AntifraudNoticeModal
+        isOpen={antifraudModalOpen}
+        targetUrl={contactWhatsAppUrl}
+        onClose={() => setAntifraudModalOpen(false)}
+      />
     </div>
   );
 }

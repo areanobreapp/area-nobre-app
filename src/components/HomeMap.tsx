@@ -33,6 +33,9 @@ import {
   HelpCircle,
   ExternalLink,
   Compass,
+  LocateFixed,
+  Loader2,
+  Navigation,
 } from 'lucide-react';
 import CircularMatchScore from './CircularMatchScore';
 import MatchExplanationModal from './MatchExplanationModal';
@@ -44,6 +47,18 @@ import {
   setStoredBaseMapPreference,
 } from '@/lib/geo/basemaps';
 import BaseMapToggle from './BaseMapToggle';
+import {
+  getCurrentUserLocation,
+  createUserLocationMarker,
+  createUserAccuracyCircle,
+  type UserCoordinates,
+} from '@/lib/geo/geolocation';
+import {
+  isValidCoordinate,
+  getNavigationLinks,
+  getTwoPointsGoogleMapsUrl,
+} from '@/lib/geo/navigation-links';
+import NavigationActionButtons from './NavigationActionButtons';
 
 export interface BrokerIdentityInfo {
   id: string;
@@ -321,6 +336,55 @@ export default function HomeMap({
   // Basemap Ativo: Mapa Vetorial ou Imagem de Satélite (Fase 4.3)
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapType>(() => getStoredBaseMapPreference());
   const baseMapLayerRef = useRef<L.TileLayer | null>(null);
+
+  // Minha Localização no Mapa (Etapa 3B / Ponto 8)
+  const [isLocatingUser, setIsLocatingUser] = useState<boolean>(false);
+  const [userCoords, setUserCoords] = useState<UserCoordinates | null>(null);
+  const [locationFeedback, setLocationFeedback] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+  const userLocationLayerRef = useRef<L.LayerGroup | null>(null);
+
+  // Modo Traçar Rota entre Dois Pontos no Mapa (Etapa 3D.2 / Ponto 27)
+  const [isRouteMode, setIsRouteMode] = useState<boolean>(false);
+  const [routeOrigin, setRouteOrigin] = useState<{ lat: number; lng: number } | null>(null);
+  const [routeDestination, setRouteDestination] = useState<{ lat: number; lng: number } | null>(null);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const isRouteModeRef = useRef<boolean>(false);
+  const routeOriginRef = useRef<{ lat: number; lng: number } | null>(null);
+  const routeDestinationRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    isRouteModeRef.current = isRouteMode;
+  }, [isRouteMode]);
+
+  useEffect(() => {
+    routeOriginRef.current = routeOrigin;
+  }, [routeOrigin]);
+
+  useEffect(() => {
+    routeDestinationRef.current = routeDestination;
+  }, [routeDestination]);
+
+  const handleToggleRouteMode = () => {
+    if (isRouteMode) {
+      setIsRouteMode(false);
+      setRouteOrigin(null);
+      setRouteDestination(null);
+      if (routeLayerRef.current) {
+        routeLayerRef.current.clearLayers();
+      }
+    } else {
+      setIsRouteMode(true);
+      setSelectedItem(null);
+    }
+  };
+
+  const handleClearRoutePoints = () => {
+    setRouteOrigin(null);
+    setRouteDestination(null);
+    if (routeLayerRef.current) {
+      routeLayerRef.current.clearLayers();
+    }
+  };
 
   function scrollToCard(id: string) {
     setTimeout(() => {
@@ -612,9 +676,41 @@ export default function HomeMap({
     const markersLayer = L.layerGroup().addTo(map);
     markersLayerRef.current = markersLayer;
 
+    // 4. Camada de Localização Atual do Usuário (Etapa 3B / Ponto 8 - topo absoluto)
+    const userLocationLayer = L.layerGroup().addTo(map);
+    userLocationLayerRef.current = userLocationLayer;
+
+    // 5. Camada de Pontos de Rota (Etapa 3D.2 / Ponto 27 - Marcadores A e B)
+    const routeLayer = L.layerGroup().addTo(map);
+    routeLayerRef.current = routeLayer;
+
+    // Listener de clique no mapa para seleção de Origem (A) e Destino (B)
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      if (!isRouteModeRef.current) return;
+      const lat = Number(e.latlng.lat.toFixed(6));
+      const lng = Number(e.latlng.lng.toFixed(6));
+
+      if (!routeOriginRef.current) {
+        setRouteOrigin({ lat, lng });
+      } else if (!routeDestinationRef.current) {
+        setRouteDestination({ lat, lng });
+      }
+    });
+
     mapInstanceRef.current = map;
     if (typeof window !== 'undefined') {
       (window as any).__homeMap = map;
+    }
+
+    // Observador de redimensionamento para recalcular o Leaflet com fluidez (Etapa 3A / Ponto 1)
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      });
+      resizeObserver.observe(mapContainerRef.current);
     }
 
     // Listener reativo de zoom para camadas progressivas
@@ -623,14 +719,86 @@ export default function HomeMap({
     });
 
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       map.remove();
       mapInstanceRef.current = null;
       baseMapLayerRef.current = null;
       territoryLayerRef.current = null;
       parcelsLayerRef.current = null;
       markersLayerRef.current = null;
+      userLocationLayerRef.current = null;
+      routeLayerRef.current = null;
     };
   }, []);
+
+  // 1.2. Cursor do container do mapa durante o modo traçar rota
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const container = map.getContainer();
+    if (isRouteMode) {
+      container.style.cursor = 'crosshair';
+    } else {
+      container.style.cursor = '';
+    }
+  }, [isRouteMode]);
+
+  // 1.3. Renderização dos marcadores A e B da rota
+  useEffect(() => {
+    const layer = routeLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (routeOrigin) {
+      const iconA = L.divIcon({
+        className: 'route-marker-a',
+        html: `
+          <div style="position: relative; width: 36px; height: 44px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
+            <div style="position: absolute; bottom: 46px; background: #166534; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+              A • Origem
+            </div>
+            <svg width="36" height="44" viewBox="0 0 36 44" fill="none">
+              <path d="M18,44 C16.5,41 2,27 2,18 A16,16 0 1,1 34,18 C34,27 19.5,41 18,44 Z" fill="#16A34A" stroke="#FFFFFF" stroke-width="2.5"/>
+            </svg>
+            <div style="position: absolute; top: 0; left: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px;">
+              A
+            </div>
+          </div>
+        `,
+        iconSize: [36, 44],
+        iconAnchor: [18, 44],
+      });
+      const markerA = L.marker([routeOrigin.lat, routeOrigin.lng], { icon: iconA, zIndexOffset: 2000 });
+      markerA.bindTooltip('Ponto A (Origem)', { direction: 'top', offset: [0, -44] });
+      layer.addLayer(markerA);
+    }
+
+    if (routeDestination) {
+      const iconB = L.divIcon({
+        className: 'route-marker-b',
+        html: `
+          <div style="position: relative; width: 36px; height: 44px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
+            <div style="position: absolute; bottom: 46px; background: #991B1B; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+              B • Destino
+            </div>
+            <svg width="36" height="44" viewBox="0 0 36 44" fill="none">
+              <path d="M18,44 C16.5,41 2,27 2,18 A16,16 0 1,1 34,18 C34,27 19.5,41 18,44 Z" fill="#DC2626" stroke="#FFFFFF" stroke-width="2.5"/>
+            </svg>
+            <div style="position: absolute; top: 0; left: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px;">
+              B
+            </div>
+          </div>
+        `,
+        iconSize: [36, 44],
+        iconAnchor: [18, 44],
+      });
+      const markerB = L.marker([routeDestination.lat, routeDestination.lng], { icon: iconB, zIndexOffset: 2000 });
+      markerB.bindTooltip('Ponto B (Destino)', { direction: 'top', offset: [0, -44] });
+      layer.addLayer(markerB);
+    }
+  }, [routeOrigin, routeDestination]);
 
   // 1.1 Troca de Basemap (Mapa / Satélite) sem alterar zoom, centro, seleção, filtros ou carrossel (Fase 4.3)
   useEffect(() => {
@@ -738,6 +906,21 @@ export default function HomeMap({
              <span>Imóvel de ${brokerDisplayName}</span>
            </div>`;
 
+      // Links diretos para rotas externas (Google Maps e Waze) - Etapa 3D.2 / Ponto 27
+      const navLinks = getNavigationLinks(item.latitude, item.longitude);
+      const navButtonsHtml = navLinks
+        ? `<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #E5E7EB; display: flex; gap: 6px;">
+             <a href="${navLinks.googleMapsUrl}" target="_blank" rel="noopener noreferrer" title="Rota no Google Maps" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1E4620; background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; text-decoration: none;">
+               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+               <span>Google Maps</span>
+             </a>
+             <a href="${navLinks.wazeUrl}" target="_blank" rel="noopener noreferrer" title="Rota no Waze" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1D4ED8; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; text-decoration: none;">
+               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+               <span>Waze</span>
+             </a>
+           </div>`
+        : '';
+
       // Popup limpo e informativo
       marker.bindPopup(`
         <div style="font-family: inherit; font-size: 13px; min-width: 180px;">
@@ -748,10 +931,24 @@ export default function HomeMap({
             ${item.isDevelopment ? 'A partir de ' : ''}${priceLabel}
           </div>
           ${authorBadgeHtml}
+          ${navButtonsHtml}
         </div>
       `);
 
-      marker.on('click', () => {
+      marker.on('click', (e) => {
+        // Se estiver no modo de traçar rota, o clique no pin seleciona a coordenada como ponto A ou B
+        if (isRouteModeRef.current) {
+          L.DomEvent.stopPropagation(e);
+          const lat = Number(item.latitude!.toFixed(6));
+          const lng = Number(item.longitude!.toFixed(6));
+          if (!routeOriginRef.current) {
+            setRouteOrigin({ lat, lng });
+          } else if (!routeDestinationRef.current) {
+            setRouteDestination({ lat, lng });
+          }
+          return;
+        }
+
         setSelectedItem(item);
         // Centraliza no ponto do imóvel
         map.panTo([item.latitude!, item.longitude!], { animate: true, duration: 0.35 });
@@ -938,8 +1135,22 @@ export default function HomeMap({
         { sticky: true }
       );
 
-      // Sincronização: clicar no polígono seleciona o imóvel e sincroniza carrossel (Requisito 12)
-      polygon.on('click', () => {
+      // Sincronização: clicar no polígono seleciona o imóvel ou seleciona ponto na rota
+      polygon.on('click', (e) => {
+        if (isRouteModeRef.current) {
+          L.DomEvent.stopPropagation(e);
+          if (item.latitude && item.longitude) {
+            const lat = Number(item.latitude.toFixed(6));
+            const lng = Number(item.longitude.toFixed(6));
+            if (!routeOriginRef.current) {
+              setRouteOrigin({ lat, lng });
+            } else if (!routeDestinationRef.current) {
+              setRouteDestination({ lat, lng });
+            }
+          }
+          return;
+        }
+
         setSelectedItem(item);
         map.panTo([item.latitude!, item.longitude!], { animate: true, duration: 0.35 });
         scrollToCard(item.id);
@@ -1083,6 +1294,63 @@ export default function HomeMap({
     const bounds = L.latLngBounds(mappedItems.map((m) => [m.latitude!, m.longitude!]));
     map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15, animate: true });
     setSelectedItem(null);
+  }
+
+  // Obtém ou atualiza a localização atual do usuário e recentraliza o mapa (Etapa 3B / Ponto 8)
+  async function handleLocateUser() {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    setIsLocatingUser(true);
+    setLocationFeedback(null);
+
+    try {
+      const result = await getCurrentUserLocation();
+      if (!result.success || !result.coords) {
+        setLocationFeedback({
+          type: 'error',
+          message: result.errorMessage || 'Não foi possível obter sua localização no momento.',
+        });
+        setTimeout(() => setLocationFeedback(null), 7000);
+        return;
+      }
+
+      const coords = result.coords;
+      setUserCoords(coords);
+
+      // Renderiza o ponto azul e o círculo de precisão
+      if (userLocationLayerRef.current) {
+        userLocationLayerRef.current.clearLayers();
+        const marker = createUserLocationMarker(coords);
+        const circle = createUserAccuracyCircle(coords);
+        circle.addTo(userLocationLayerRef.current);
+        marker.addTo(userLocationLayerRef.current);
+        marker.openPopup();
+      }
+
+      // Centraliza e aproxima suavemente o mapa na posição do usuário
+      const currentZoom = map.getZoom();
+      const targetZoom = Math.max(currentZoom, 15);
+      map.flyTo([coords.lat, coords.lng], targetZoom, {
+        animate: true,
+        duration: 0.9,
+      });
+
+      setLocationFeedback({
+        type: 'success',
+        message: 'Localização atualizada com sucesso no mapa!',
+      });
+      setTimeout(() => setLocationFeedback(null), 5000);
+    } catch (err) {
+      console.error('[HomeMap] Erro ao obter geolocalização:', err);
+      setLocationFeedback({
+        type: 'error',
+        message: 'Ocorreu um erro ao buscar sua localização. Tente novamente.',
+      });
+      setTimeout(() => setLocationFeedback(null), 6000);
+    } finally {
+      setIsLocatingUser(false);
+    }
   }
 
   return (
@@ -1626,21 +1894,255 @@ export default function HomeMap({
         </div>
       </div>
 
-      {/* 4. CONTAINER PRINCIPAL DO MAPA (DOMINANTE E VISUALMENTE CENTRAL) */}
-      <div
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '620px',
-          borderRadius: 'var(--radius-lg)',
-          overflow: 'hidden',
-          border: '1px solid var(--border-light)',
-          boxShadow: 'var(--shadow-md)',
-          backgroundColor: '#E5E7EB',
-        }}
-      >
-        {/* Elemento do Leaflet */}
-        <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
+      {/* 4. CONTAINER PRINCIPAL DO MAPA COM FAIXA LATERAL DE ROLAGEM MOBILE (ETAPA 3A / PONTO 1) */}
+      <div className="home-map-outer-wrapper">
+        <div className="home-map-inner-container">
+          {/* Elemento do Leaflet */}
+          <div ref={mapContainerRef} style={{ width: '100%', height: '100%', zIndex: 1 }} />
+
+          {/* 4.0. BANNER FLUTUANTE DE FEEDBACK DE LOCALIZAÇÃO (Etapa 3B / Ponto 8) */}
+          {locationFeedback && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '56px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 650,
+                maxWidth: '90%',
+                padding: '8px 14px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.80rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                backgroundColor: locationFeedback.type === 'success' ? '#F0FDF4' : '#FEF2F2',
+                color: locationFeedback.type === 'success' ? '#166534' : '#991B1B',
+                border: `1px solid ${locationFeedback.type === 'success' ? '#BBF7D0' : '#FECACA'}`,
+                boxShadow: 'var(--shadow-md)',
+                backdropFilter: 'blur(6px)',
+              }}
+            >
+              <span>{locationFeedback.message}</span>
+              <button
+                type="button"
+                onClick={() => setLocationFeedback(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'inherit',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+                title="Fechar aviso"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* 4.0.B. PAINEL DO MODO TRAÇAR ROTA (Etapa 3D.2 / Ponto 27) */}
+          {isRouteMode && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '16px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 660,
+                width: 'calc(100% - 32px)',
+                maxWidth: '460px',
+                backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                backdropFilter: 'blur(8px)',
+                borderRadius: 'var(--radius-lg, 12px)',
+                border: '1.5px solid #1E4620',
+                boxShadow: 'var(--shadow-floating, 0 10px 25px -5px rgba(0,0,0,0.2))',
+                padding: '14px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              {/* Cabeçalho do Painel */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '50%',
+                      backgroundColor: '#F0FDF4',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#166534',
+                    }}
+                  >
+                    <Navigation size={15} />
+                  </div>
+                  <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#111827' }}>
+                    Traçar Rota no Mapa
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleRouteMode}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#6B7280',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRadius: '4px',
+                  }}
+                  title="Cancelar modo de rota"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Instrução Dinâmica por Passo */}
+              <div
+                style={{
+                  backgroundColor: !routeOrigin ? '#F0FDF4' : !routeDestination ? '#FEF2F2' : '#F9FAFB',
+                  border: `1px solid ${!routeOrigin ? '#BBF7D0' : !routeDestination ? '#FECACA' : '#E5E7EB'}`,
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color: !routeOrigin ? '#166534' : !routeDestination ? '#991B1B' : '#374151',
+                    }}
+                  >
+                    {!routeOrigin ? 'Passo 1 de 2 • Origem' : !routeDestination ? 'Passo 2 de 2 • Destino' : 'Pontos Definidos'}
+                  </span>
+                  {routeOrigin && (
+                    <span style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 700 }}>
+                      Origem A ✓
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1F2937' }}>
+                  {!routeOrigin ? (
+                    'Toque no mapa para escolher a origem (Ponto A).'
+                  ) : !routeDestination ? (
+                    'Agora toque no mapa para escolher o destino (Ponto B).'
+                  ) : (
+                    'Origem e destino definidos. Pronto para abrir rota!'
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.74rem', color: '#6B7280' }}>
+                  {!routeOrigin || !routeDestination
+                    ? 'Dica: você também pode tocar diretamente no pin de um imóvel cadastrado.'
+                    : 'A rota será calculada pelo Google Maps em uma nova aba com o trajeto em tempo real.'}
+                </div>
+              </div>
+
+              {/* Resumo dos pontos selecionados se houver ao menos 1 */}
+              {(routeOrigin || routeDestination) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.76rem' }}>
+                  {routeOrigin && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#16A34A', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>A</span>
+                      <span style={{ fontWeight: 700 }}>Origem:</span>
+                      <span>{routeOrigin.lat.toFixed(5)}, {routeOrigin.lng.toFixed(5)}</span>
+                    </div>
+                  )}
+                  {routeDestination && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991B1B' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#DC2626', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>B</span>
+                      <span style={{ fontWeight: 700 }}>Destino:</span>
+                      <span>{routeDestination.lat.toFixed(5)}, {routeDestination.lng.toFixed(5)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Ações: Abrir no Google Maps se ambos estiverem preenchidos, Limpar e Cancelar */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                {routeOrigin && routeDestination && (
+                  <a
+                    href={getTwoPointsGoogleMapsUrl(routeOrigin.lat, routeOrigin.lng, routeDestination.lat, routeDestination.lng) || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-primary"
+                    style={{
+                      flex: 1,
+                      minWidth: '180px',
+                      justifyContent: 'center',
+                      padding: '8px 14px',
+                      fontSize: '0.84rem',
+                      fontWeight: 800,
+                      backgroundColor: '#1E4620',
+                      color: 'white',
+                      borderRadius: 'var(--radius-sm, 6px)',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 4px rgba(30,70,32,0.25)',
+                    }}
+                  >
+                    <Navigation size={14} />
+                    <span>Abrir rota no Google Maps</span>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+
+                {(routeOrigin || routeDestination) && (
+                  <button
+                    type="button"
+                    onClick={handleClearRoutePoints}
+                    className="btn-secondary"
+                    style={{
+                      padding: '7px 11px',
+                      fontSize: '0.78rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                    }}
+                    title="Limpar pontos A e B para selecionar novamente"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Limpar pontos</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleToggleRouteMode}
+                  style={{
+                    background: 'none',
+                    border: '1px solid #D1D5DB',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                    padding: '7px 11px',
+                    fontSize: '0.78rem',
+                    color: '#4B5563',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
         {/* 4.1. CONTROLES FLUTUANTES DO MAPA */}
         <div
@@ -1655,6 +2157,61 @@ export default function HomeMap({
             alignItems: 'flex-end',
           }}
         >
+          {/* Botão Traçar Rota no Mapa (Etapa 3D.2 / Ponto 27) */}
+          <button
+            type="button"
+            onClick={handleToggleRouteMode}
+            title={isRouteMode ? 'Sair do modo de traçar rota' : 'Traçar rota entre dois pontos no mapa'}
+            style={{
+              backgroundColor: isRouteMode ? '#1E4620' : 'white',
+              color: isRouteMode ? 'white' : 'var(--text-primary)',
+              border: isRouteMode ? '1.5px solid #1E4620' : '1px solid var(--border-light)',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              boxShadow: 'var(--shadow-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              cursor: 'pointer',
+              fontSize: '0.80rem',
+              fontWeight: 700,
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <Navigation size={15} color={isRouteMode ? '#86EFAC' : 'var(--color-primary)'} />
+            <span>{isRouteMode ? 'Cancelar rota' : 'Traçar rota'}</span>
+          </button>
+
+          {/* Botão Minha Localização (Etapa 3B / Ponto 8) */}
+          <button
+            type="button"
+            onClick={handleLocateUser}
+            disabled={isLocatingUser}
+            title="Ver minha localização atual no mapa"
+            style={{
+              backgroundColor: userCoords ? '#EFF6FF' : 'white',
+              color: userCoords ? '#1D4ED8' : 'var(--text-primary)',
+              border: userCoords ? '1.5px solid #3B82F6' : '1px solid var(--border-light)',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              boxShadow: 'var(--shadow-md)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              cursor: isLocatingUser ? 'wait' : 'pointer',
+              fontSize: '0.80rem',
+              fontWeight: 700,
+              transition: 'all 0.2s ease',
+            }}
+          >
+            {isLocatingUser ? (
+              <Loader2 size={15} className="animate-spin" color="#2563EB" />
+            ) : (
+              <LocateFixed size={15} color={userCoords ? '#2563EB' : 'var(--color-primary)'} />
+            )}
+            <span>{isLocatingUser ? 'Localizando...' : 'Minha localização'}</span>
+          </button>
+
           {/* Botão de Controle de Território (Fase 4.2 - Requisito 3) */}
           <button
             type="button"
@@ -2366,6 +2923,16 @@ export default function HomeMap({
               );
             })()}
 
+            {/* Botões de Ação para Traçar Rota até este imóvel (Etapa 3D.2 / Ponto 27) */}
+            {isValidCoordinate(selectedItem.latitude, selectedItem.longitude) && (
+              <NavigationActionButtons
+                latitude={selectedItem.latitude}
+                longitude={selectedItem.longitude}
+                fullWidth
+                size="sm"
+              />
+            )}
+
             {/* Botão de Ação para Detalhes */}
             <Link
               href={selectedItem.isDevelopment ? `/empreendimentos/${selectedItem.id}` : `/imoveis/${selectedItem.id}`}
@@ -2383,6 +2950,18 @@ export default function HomeMap({
             </Link>
           </div>
         )}
+        </div>
+
+        {/* Faixa lateral livre à direita no mobile para rolagem suave da página (Etapa 3A / Ponto 1) */}
+        <div
+          className="home-map-scroll-strip"
+          title="Deslize o dedo nesta faixa lateral para rolar a página verticalmente"
+          aria-label="Faixa lateral para rolagem da página"
+        >
+          <div className="home-map-scroll-strip-text">
+            <span>↓ Rolar página</span>
+          </div>
+        </div>
       </div>
 
       {/* 4.5. CARROSSEL DE RESULTADOS VISUAIS SIMULTÂNEOS ASSOCIADO AO MAPA (FASE 4.1) */}

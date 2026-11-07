@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Building2, User, Mail, Lock, Phone, FileBadge, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
@@ -13,8 +13,18 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [creci, setCreci] = useState('');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [acknowledgePrivacy, setAcknowledgePrivacy] = useState(false);
+  const [legalStatus, setLegalStatus] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/legal/status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setLegalStatus(data))
+      .catch((err) => console.error('Erro ao verificar status legal no cadastro:', err));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,6 +32,11 @@ export default function RegisterPage() {
 
     if (password !== confirmPassword) {
       setError('A confirmação de senha não confere com a senha digitada.');
+      return;
+    }
+
+    if (legalStatus?.terms?.isPublished && !acceptTerms) {
+      setError('É necessário concordar com os Termos de Uso da Área Nobre para criar sua conta.');
       return;
     }
 
@@ -38,6 +53,8 @@ export default function RegisterPage() {
           confirmPassword,
           phone,
           creci,
+          acceptTerms,
+          acknowledgePrivacy,
         }),
       });
 
@@ -267,9 +284,68 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* Checkboxes de Documentos Legais (Ponto 20) */}
+            {legalStatus?.terms?.isPublished ? (
+              <div
+                style={{
+                  backgroundColor: '#F9FAFB',
+                  borderRadius: '10px',
+                  border: '1px solid #E5E7EB',
+                  padding: '12px 14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={acceptTerms}
+                    onChange={(e) => setAcceptTerms(e.target.checked)}
+                    style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#1E4620' }}
+                  />
+                  <span style={{ fontSize: '0.80rem', color: '#374151', lineHeight: 1.4 }}>
+                    Concordo com os{' '}
+                    <Link href="/termos-de-uso" target="_blank" style={{ color: '#1E4620', fontWeight: 700, textDecoration: 'underline' }}>
+                      Termos de Uso
+                    </Link>{' '}
+                    da Área Nobre *
+                  </span>
+                </label>
+
+                {legalStatus?.privacy?.isPublished && (
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={acknowledgePrivacy}
+                      onChange={(e) => setAcknowledgePrivacy(e.target.checked)}
+                      style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#1E4620' }}
+                    />
+                    <span style={{ fontSize: '0.80rem', color: '#374151', lineHeight: 1.4 }}>
+                      Estou ciente da{' '}
+                      <Link href="/politica-de-privacidade" target="_blank" style={{ color: '#1E4620', fontWeight: 700, textDecoration: 'underline' }}>
+                        Política de Privacidade
+                      </Link>
+                    </span>
+                  </label>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.76rem', color: '#6B7280', textAlign: 'center', lineHeight: 1.4, padding: '4px 0' }}>
+                Ao criar sua conta, você poderá consultar os{' '}
+                <Link href="/termos-de-uso" target="_blank" style={{ color: '#1E4620', fontWeight: 600 }}>
+                  Termos de Uso
+                </Link>{' '}
+                e a{' '}
+                <Link href="/politica-de-privacidade" target="_blank" style={{ color: '#1E4620', fontWeight: 600 }}>
+                  Política de Privacidade
+                </Link>.
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (legalStatus?.terms?.isPublished && !acceptTerms)}
               style={{
                 marginTop: '8px',
                 width: '100%',

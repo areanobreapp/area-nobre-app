@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { recalculateMatchesForProperty } from '@/lib/matching';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
+import { canPropertyBePubliclyExposed, recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(
   req: NextRequest,
@@ -12,6 +13,11 @@ export async function GET(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;
@@ -93,6 +99,8 @@ export async function GET(
       });
     }
 
+    const exposureCheck = (isOwner || isAdmin) ? await canPropertyBePubliclyExposed(property.id) : null;
+
     const sanitizedProperty: any = {
       ...property,
       internalNotes: (!isOwner && !isAdmin) ? null : property.internalNotes,
@@ -100,6 +108,7 @@ export async function GET(
       registryNumber: (!isOwner && !isAdmin) ? null : property.registryNumber,
       boundary: (!isOwner && !isAdmin) ? null : property.boundary,
       matches: formattedMatches,
+      authorizationState: exposureCheck,
     };
 
     return NextResponse.json({
@@ -123,6 +132,11 @@ export async function PUT(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
@@ -142,6 +156,30 @@ export async function PUT(
         { error: 'Imóvel não encontrado ou você não tem permissão para alterá-lo.' },
         { status: 403 }
       );
+    }
+
+    const targetStatus = body.status !== undefined ? body.status : existing.status;
+    const isActivating = targetStatus !== 'Inativo' && existing.status === 'Inativo';
+
+    // Se estiver ativando ou mantendo ativo em imóvel sem autorização válida
+    if (targetStatus !== 'Inativo') {
+      const exposureCheck = await canPropertyBePubliclyExposed(id);
+      if (!exposureCheck.allowed) {
+        if (body.hasOwnerAuthorization === true || body.hasOwnerAuthorization === 'true') {
+          await recordPropertyAuthorization({
+            propertyId: id,
+            brokerId: user.id,
+          });
+        } else if (isActivating) {
+          return NextResponse.json(
+            {
+              error: 'Para ativar o imóvel, é necessária a confirmação da autorização de divulgação do proprietário.',
+              authorizationRequired: true,
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const {
@@ -301,6 +339,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
@@ -310,6 +353,26 @@ export async function PATCH(
 
     if (!existing) {
       return NextResponse.json({ error: 'Imóvel não encontrado.' }, { status: 404 });
+    }
+
+    if (body.status !== undefined && body.status !== 'Inativo' && existing.status === 'Inativo') {
+      const exposureCheck = await canPropertyBePubliclyExposed(id);
+      if (!exposureCheck.allowed) {
+        if (body.hasOwnerAuthorization === true || body.hasOwnerAuthorization === 'true') {
+          await recordPropertyAuthorization({
+            propertyId: id,
+            brokerId: user.id,
+          });
+        } else {
+          return NextResponse.json(
+            {
+              error: 'Para ativar o imóvel, é necessária a confirmação da autorização de divulgação do proprietário.',
+              authorizationRequired: true,
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const updated = await prisma.property.update({
@@ -340,6 +403,11 @@ export async function DELETE(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;

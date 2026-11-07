@@ -13,8 +13,11 @@ import {
   CheckCircle2,
   XCircle,
   ArrowRight,
-  HardHat
+  HardHat,
+  Bed,
+  Maximize2
 } from 'lucide-react';
+import { resolveMainArea } from '@/lib/property-display';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
 
@@ -279,13 +282,16 @@ export default function EmpreendimentosPage() {
             const typologies = d.typologies || [];
             const minPrice = typologies.length > 0 ? Math.min(...typologies.map((t: any) => t.price).filter((p: number) => p > 0)) : null;
 
-            // Metragens e dormitórios min/max
-            const bedroomsList = typologies.map((t: any) => t.bedrooms).filter((b: number) => b > 0);
-            const areasList = typologies.map((t: any) => t.privateArea).filter((a: number) => a > 0);
+            // Metragens e dormitórios min/max das tipologias
+            const bedroomsList = typologies.map((t: any) => t.bedrooms).filter((b: number) => b !== null && b !== undefined && b > 0);
+            const resolvedAreas = typologies
+              .map((t: any) => resolveMainArea(t))
+              .filter(Boolean) as { value: number; formatted: string; label: string }[];
+            const areasList = resolvedAreas.map((a) => a.value);
 
             const minBed = bedroomsList.length > 0 ? Math.min(...bedroomsList) : null;
             const maxBed = bedroomsList.length > 0 ? Math.max(...bedroomsList) : null;
-            const bedLabel = minBed && maxBed ? (minBed === maxBed ? `${minBed} dorms` : `${minBed} a ${maxBed} dorms`) : null;
+            const bedLabel = minBed && maxBed ? (minBed === maxBed ? `${minBed} quartos` : `${minBed} a ${maxBed} quartos`) : null;
 
             const minArea = areasList.length > 0 ? Math.min(...areasList) : null;
             const maxArea = areasList.length > 0 ? Math.max(...areasList) : null;
@@ -415,8 +421,28 @@ export default function EmpreendimentosPage() {
 
                   {/* Resumo de Configurações das Plantas */}
                   {(bedLabel || areaLabel) && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      {[bedLabel, areaLabel].filter(Boolean).join(' • ')}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        fontSize: '0.8rem',
+                        color: 'var(--text-secondary)',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {bedLabel && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Bed size={13} color="var(--color-primary)" />
+                          <span>{bedLabel}</span>
+                        </span>
+                      )}
+                      {areaLabel && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                          <Maximize2 size={13} color="var(--color-primary)" />
+                          <span>{areaLabel}</span>
+                        </span>
+                      )}
                     </div>
                   )}
 

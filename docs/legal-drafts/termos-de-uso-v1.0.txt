@@ -1,0 +1,148 @@
+TERMOS DE USO E RESPONSABILIDADE
+Área Nobre — Tecnologia e Inteligência
+Versão preliminar 1.0 | Documento para revisão
+
+1. Boas-vindas à Área Nobre
+
+Seja bem-vindo à Área Nobre!
+Nossa plataforma foi criada para ajudar corretores de imóveis e profissionais do mercado imobiliário a organizar informações, encontrar oportunidades e apresentar imóveis de maneira mais prática, inteligente e profissional.
+Queremos construir uma ferramenta que facilite sua rotina e valorize seu trabalho.
+Para que todos possam utilizar a Área Nobre com tranquilidade, reunimos neste documento algumas orientações importantes sobre o funcionamento da plataforma, o cuidado com as informações e as responsabilidades de cada usuário.
+Ao aceitar estes Termos, você confirma que leu e concorda com as condições apresentadas.
+
+2. Quem somos
+A plataforma Área Nobre é disponibilizada por:
+Razão social: AREA NOBRE TECNOLOGIA E INTELIGENCIA LTDA
+Nome fantasia: AREA NOBRE
+CNPJ: 69.723.459/0001-10
+Endereço: Rua Henrique Lage, 690, Centro, Criciúma/SC — CEP 88801-010
+E-mail de contato: areanobreapp@gmail.com
+Neste documento, utilizamos o nome Área Nobre para nos referirmos à empresa responsável pela plataforma.
+
+3. O que a Área Nobre oferece
+A Área Nobre é uma plataforma tecnológica de apoio às atividades do mercado imobiliário.
+Entre suas funcionalidades, estão:
+Cadastro e organização de imóveis.
+Registro de informações relacionadas a clientes e suas preferências.
+Ferramentas de busca e identificação de oportunidades.
+Visualização de imóveis em mapas.
+Criação e compartilhamento de apresentações de imóveis.
+Recursos para facilitar a comunicação e o trabalho dos profissionais.
+As funcionalidades disponíveis poderão ser ampliadas, ajustadas ou modificadas conforme a evolução do serviço.
+A Área Nobre oferece ferramentas tecnológicas e não substitui a atuação profissional do corretor, a verificação de documentos, a autorização do proprietário ou as demais exigências legais aplicáveis às atividades imobiliárias.
+
+4. Cadastro e acesso à plataforma
+Para utilizar as funcionalidades que exigem autenticação, o usuário deverá fornecer informações verdadeiras, atualizadas e compatíveis com seu perfil profissional.
+Cada usuário é responsável por:
+Manter seus dados cadastrais atualizados.
+Proteger suas credenciais de acesso.
+Não compartilhar sua senha com pessoas não autorizadas.
+Comunicar à Área Nobre situações suspeitas relacionadas à sua conta.
+Utilizar a plataforma de maneira ética, responsável e de acordo com a legislação aplicável.
+A Área Nobre poderá adotar medidas proporcionais para proteger o serviço e seus usuários, inclusive restringir temporariamente acessos em caso de indícios de fraude, uso indevido ou riscos à segurança, observadas as condições aplicáveis.
+
+5. Responsabilidade pelas informações dos imóveis
+Sabemos que as informações de um imóvel podem mudar rapidamente. Por isso, a atenção do profissional que realiza o cadastro é essencial.
+O usuário responsável pelo imóvel compromete-se a fornecer, dentro de seu conhecimento e das informações legitimamente obtidas:
+Descrições corretas e atualizadas.
+Preços e condições comerciais informados de boa-fé.
+Fotografias, vídeos e demais materiais cuja utilização seja autorizada.
+Dados de localização adequados à divulgação pretendida.
+Informações sobre características, disponibilidade e condições do imóvel.
+Antes de compartilhar uma apresentação ou utilizar os dados em uma negociação, recomendamos que o profissional confirme se as informações continuam atualizadas.
+A Área Nobre disponibiliza ferramentas de cadastro, organização e apresentação, mas não realiza, como regra geral, a verificação individual de cada informação inserida pelos usuários.
+Isso não afasta os deveres legais de segurança, diligência e atuação responsável que possam caber à própria Área Nobre.
+
+6. Autorização do proprietário para divulgação
+Este é um cuidado especialmente importante.
+Antes de disponibilizar um imóvel para divulgação, o corretor deve possuir autorização legítima do proprietário ou de seu representante legal, compatível com a finalidade e a extensão da divulgação pretendida.
+Essa autorização deverá abranger, conforme as características do anúncio:
+A divulgação do imóvel e de suas características.
+A utilização de fotografias e vídeos.
+A apresentação do preço e das condições comerciais.
+A divulgação de endereço, localização e informações geográficas, quando aplicável.
+O compartilhamento de apresentações com potenciais interessados.
+A utilização de outras informações cuja divulgação dependa de autorização ou de fundamento legal adequado.
+Ao confirmar a declaração de autorização apresentada no fluxo de publicação, o usuário afirma que possui a autorização necessária e que as informações fornecidas são legítimas.
+A confirmação dessa declaração não substitui a autorização do proprietário nem comprova, por si só, que ela existe.
+O profissional deverá conservar os documentos ou outros elementos adequados que demonstrem a autorização e apresentá-los quando houver solicitação legítima e juridicamente fundamentada, observadas as regras de proteção de dados.
+A divulgação não autorizada de informações, imagens ou localização de imóveis poderá gerar reclamações, pedidos de remoção e responsabilização civil, administrativa ou profissional, conforme as circunstâncias e a legislação aplicável.
+Nosso objetivo com essa regra é simples: proteger proprietários, profissionais e a confiança nas informações compartilhadas pela plataforma.
+
+7. Privacidade e cuidado com os dados
+A Área Nobre permite o registro de informações relacionadas a corretores, clientes, proprietários e imóveis.
+Essas informações devem ser utilizadas exclusivamente para finalidades legítimas, relacionadas às atividades autorizadas e às funcionalidades da plataforma.
+O usuário compromete-se a:
+Cadastrar dados pessoais apenas quando houver fundamento legal adequado.
+Informar os titulares quando isso for necessário.
+Respeitar a confidencialidade de informações não públicas.
+Evitar o compartilhamento desnecessário de dados pessoais.
+Utilizar os recursos de privacidade disponíveis para controlar a divulgação de informações sobre imóveis.
+Atender às obrigações legais que lhe couberem no tratamento dos dados.
+A Área Nobre também possui responsabilidades próprias relacionadas à proteção de dados pessoais.
+As informações sobre o tratamento de dados realizado pela plataforma estarão disponíveis na Política de Privacidade, que deverá ser consultada em conjunto com estes Termos.
+
+8. Compartilhamento de imóveis e apresentações públicas
+A Área Nobre disponibiliza recursos para criar apresentações e compartilhar informações de imóveis com outras pessoas.
+Antes de gerar ou encaminhar um link, o usuário deverá conferir o conteúdo que será disponibilizado e verificar se possui autorização para sua divulgação.
+Quando houver opções de privacidade da localização, o usuário deverá selecionar aquela que melhor corresponda à autorização recebida e à finalidade da apresentação.
+É importante lembrar que links compartilhados podem ser encaminhados a outras pessoas. Por isso, informações confidenciais ou dados pessoais desnecessários não devem ser incluídos em materiais destinados à divulgação pública.
+A Área Nobre poderá adotar medidas técnicas para limitar a exposição de determinados dados, sem que isso substitua os cuidados necessários por parte do usuário.
+
+9. Uso adequado da plataforma
+Para manter um ambiente confiável, não é permitido utilizar a Área Nobre para:
+Cadastrar imóveis fictícios ou divulgar informações deliberadamente falsas.
+Publicar materiais sem os direitos ou autorizações necessários.
+Acessar dados de outros usuários sem permissão.
+Utilizar informações obtidas na plataforma para finalidades ilícitas.
+Praticar fraude, discriminação, assédio ou outras condutas ilegais.
+Tentar comprometer a segurança ou o funcionamento do sistema.
+Reproduzir, explorar ou distribuir indevidamente a tecnologia da plataforma, em violação aos direitos aplicáveis.
+Eventuais situações de uso indevido poderão ser analisadas pela Área Nobre, com adoção das medidas proporcionais e legalmente cabíveis.
+
+10. Plataforma em fase de testes
+A Área Nobre encontra-se em fase de testes e aperfeiçoamento.
+Estamos desenvolvendo e aprimorando a plataforma para oferecer uma experiência cada vez melhor.
+Durante esse período, poderão ocorrer:
+Ajustes nas funcionalidades.
+Atualizações de interface.
+Instabilidades ou interrupções temporárias.
+Erros técnicos.
+Alterações nos recursos disponibilizados.
+Recomendamos que os usuários mantenham cópias próprias de informações essenciais e confiram os dados antes de utilizá-los em divulgações, propostas ou negociações.
+A Área Nobre buscará corrigir problemas identificados e adotar medidas razoáveis de segurança e continuidade do serviço.
+A condição de fase de testes não elimina os direitos dos usuários nem as obrigações legais da empresa, inclusive aquelas relacionadas à proteção de dados pessoais.
+
+11. Disponibilidade e serviços de terceiros
+Algumas funcionalidades poderão depender de serviços externos, como provedores de infraestrutura, mapas e aplicativos de comunicação.
+Esses serviços podem apresentar limitações ou indisponibilidades que não estejam diretamente sob o controle da Área Nobre.
+A empresa procurará manter o funcionamento adequado de sua plataforma e tratar os problemas sob sua responsabilidade, observadas as condições legais aplicáveis.
+
+12. Direitos sobre a plataforma e os conteúdos
+A tecnologia, a identidade visual, os elementos próprios da interface e os demais materiais desenvolvidos pela Área Nobre são protegidos pelos direitos aplicáveis.
+O acesso à plataforma não transfere ao usuário a titularidade desses elementos.
+Os direitos sobre fotografias, descrições e demais conteúdos cadastrados permanecem com seus respectivos titulares.
+Ao inserir conteúdos na plataforma, o usuário declara possuir os direitos e autorizações necessários e concede à Área Nobre, na medida necessária, permissão não exclusiva para armazenar, processar, exibir e disponibilizar esses materiais conforme as funcionalidades utilizadas e as configurações de compartilhamento escolhidas.
+Essa permissão não autoriza usos desvinculados das finalidades do serviço.
+
+13. Solicitações de correção e remoção
+Caso um usuário, proprietário ou terceiro identifique informações incorretas, divulgação não autorizada ou possível violação de direitos, poderá entrar em contato com a Área Nobre.
+A empresa avaliará a solicitação e adotará as providências cabíveis, considerando a natureza da situação, os direitos envolvidos e as obrigações legais aplicáveis.
+Em situações justificadas, determinados conteúdos poderão ser temporariamente restringidos enquanto a solicitação é analisada.
+Contato: areanobreapp@gmail.com
+
+14. Atualizações destes Termos
+A Área Nobre poderá atualizar estes Termos para acompanhar mudanças nas funcionalidades, exigências legais ou condições de utilização da plataforma.
+Cada versão deverá ser identificada e preservada no histórico de documentos.
+Quando uma alteração relevante exigir nova manifestação do usuário, a plataforma poderá solicitar novo aceite antes da continuidade de determinadas funcionalidades.
+O registro do aceite deverá identificar a versão apresentada e a data da confirmação.
+
+15. Atendimento e comunicação
+Se você tiver dúvidas, sugestões ou precisar de ajuda, queremos ouvir você!
+E-mail: areanobreapp@gmail.com
+WhatsApp de suporte: disponível na opção "Falar com o suporte" dentro da plataforma.
+Para solicitações relacionadas a dados pessoais, utilize preferencialmente o e-mail oficial, indicando o assunto de sua solicitação.
+
+16. Legislação aplicável
+Estes Termos serão interpretados de acordo com a legislação brasileira, respeitadas as normas obrigatórias de proteção de dados, direitos dos usuários e demais disposições legais aplicáveis.
+Eventuais conflitos deverão ser tratados pelos meios legalmente adequados, sem prejuízo das regras obrigatórias de competência e dos direitos assegurados pela legislação.

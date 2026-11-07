@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Building2, Search, MapPin, Plus, User, LogOut, ChevronDown, Sparkles, Shield } from 'lucide-react';
+import { Building2, Search, MapPin, Plus, User, LogOut, ChevronDown, Sparkles, Shield, MessageCircle } from 'lucide-react';
+import { useSupportContact } from '@/lib/use-support-contact';
 
 interface HeaderProps {
   user?: {
@@ -22,6 +23,7 @@ interface HeaderProps {
 export default function Header({ user }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { defaultUrl: supportUrl } = useSupportContact();
 
   const [cadastrarOpen, setCadastrarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -215,6 +217,17 @@ export default function Header({ user }: HeaderProps) {
                         <User size={16} />
                         <span>Meu Perfil</span>
                       </Link>
+
+                      <a
+                        href={supportUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="dropdown-item"
+                        onClick={() => setUserMenuOpen(false)}
+                      >
+                        <MessageCircle size={16} color="#16A34A" />
+                        <span>Falar com o suporte</span>
+                      </a>
 
                       {user.role === 'ADMIN' && (
                         <Link

@@ -1,0 +1,204 @@
+POLÍTICA DE PRIVACIDADE
+Área Nobre — Tecnologia e Inteligência
+Versão preliminar 1.0 | Documento para revisão
+
+1. Sua privacidade é importante para nós
+Bem-vindo à Área Nobre!
+Criamos nossa plataforma para facilitar o trabalho de corretores e profissionais do mercado imobiliário, oferecendo ferramentas para organizar imóveis, acompanhar oportunidades e compartilhar apresentações.
+Sabemos que, para isso, é necessário lidar com informações de pessoas reais: profissionais, clientes, proprietários e interessados em imóveis.
+Por isso, queremos explicar de forma simples e transparente como os dados pessoais podem ser utilizados na Área Nobre e quais cuidados adotamos para protegê-los.
+Esta Política de Privacidade foi elaborada considerando a Lei Geral de Proteção de Dados Pessoais (LGPD — Lei nº 13.709/2018) e demais normas aplicáveis.
+
+2. Quem é a Área Nobre?
+A plataforma é disponibilizada por:
+Razão social: AREA NOBRE TECNOLOGIA E INTELIGENCIA LTDA
+Nome fantasia: AREA NOBRE
+CNPJ: 69.723.459/0001-10
+Endereço: Rua Henrique Lage, 690, Centro, Criciúma/SC — CEP 88801-010
+E-mail de contato: areanobreapp@gmail.com
+A Área Nobre é responsável pelas decisões relativas a determinados tratamentos de dados necessários à administração e ao funcionamento da plataforma.
+Em outras situações, especialmente quando um corretor cadastra informações de seus próprios clientes ou proprietários, as responsabilidades de cada participante dependerão da finalidade do tratamento e das decisões efetivamente tomadas sobre esses dados.
+Esses papéis devem ser analisados conforme cada atividade, não sendo definidos apenas pelo uso da plataforma.
+
+3. Quais informações podem ser tratadas?
+Conforme as funcionalidades utilizadas, a Área Nobre poderá tratar as seguintes categorias de informações.
+3.1. Dados dos usuários da plataforma
+Nome.
+E-mail.
+Telefone e WhatsApp.
+Informações profissionais, como número de CRECI.
+Informações sobre imobiliária ou vínculo profissional.
+Foto de perfil ou logotipo, quando fornecidos.
+Dados necessários para autenticação e gerenciamento da conta.
+As senhas não devem ser disponibilizadas em texto legível aos administradores ou a outros usuários. A forma técnica de proteção das credenciais será validada antes da publicação desta Política.
+3.2. Dados de clientes cadastrados pelos corretores
+Nome.
+Telefone ou WhatsApp.
+Preferências de localização.
+Faixa de orçamento.
+Características desejadas para imóveis.
+Outras informações pertinentes ao atendimento imobiliário, conforme os campos disponibilizados.
+Esses dados devem ser cadastrados para finalidades legítimas e compatíveis com a relação mantida entre o profissional e seu cliente.
+3.3. Dados relacionados aos proprietários e imóveis
+Nome e contato do proprietário, quando cadastrados.
+Endereço e localização do imóvel.
+Características físicas e comerciais.
+Preço e condições anunciadas.
+Fotografias, vídeos e descrições.
+Coordenadas geográficas e informações de demarcação, quando utilizadas.
+Algumas dessas informações podem identificar ou permitir identificar pessoas e, portanto, exigir cuidados de proteção de dados pessoais.
+3.4. Dados de utilização e segurança
+Poderão ser tratados dados técnicos estritamente necessários ao funcionamento, à proteção e à administração do serviço, conforme os mecanismos efetivamente utilizados.
+Antes da publicação definitiva desta Política, serão confirmados os registros técnicos existentes, sua finalidade e os respectivos períodos de conservação.
+3.5. Registros de aceite e declarações
+A Área Nobre pretende manter registros relacionados a:
+Aceite dos Termos de Uso.
+Ciência de versões da Política de Privacidade, quando aplicável.
+Consentimentos específicos, quando necessários.
+Declarações de autorização para divulgação de imóveis.
+Identificação do usuário responsável.
+Versão do documento apresentado.
+Data e horário da confirmação.
+Imóvel relacionado, quando pertinente.
+Esses registros terão como finalidade documentar as manifestações realizadas e apoiar a segurança jurídica, a administração da plataforma e o cumprimento de obrigações aplicáveis.
+
+4. Para que utilizamos essas informações?
+Os dados pessoais poderão ser utilizados para:
+Criar e administrar contas de usuários.
+Permitir acesso seguro à plataforma.
+Organizar imóveis, clientes e informações comerciais.
+Executar buscas e identificar oportunidades compatíveis com preferências cadastradas.
+Criar apresentações de imóveis.
+Permitir compartilhamentos solicitados pelos usuários.
+Disponibilizar funcionalidades de mapas e localização.
+Prestar suporte e responder solicitações.
+Proteger a plataforma contra acessos indevidos e uso irregular.
+Registrar aceites, declarações e operações relevantes.
+Cumprir obrigações legais e regulatórias.
+Exercer direitos em procedimentos administrativos, judiciais ou extrajudiciais, quando necessário.
+Não utilizaremos os dados para finalidades incompatíveis com aquelas legitimamente informadas e aplicáveis ao serviço.
+
+5. Quais são as bases legais para o tratamento?
+A LGPD prevê diferentes fundamentos que podem autorizar o tratamento de dados pessoais.
+Conforme a finalidade e a situação concreta, poderão ser aplicáveis:
+Execução de contrato ou procedimentos preliminares: quando o tratamento for necessário para disponibilizar serviços ao próprio titular.
+Cumprimento de obrigação legal ou regulatória: quando houver exigência aplicável.
+Legítimo interesse: quando juridicamente cabível, após avaliação dos direitos e expectativas dos titulares.
+Exercício regular de direitos: quando necessário para resguardar direitos em procedimentos legalmente previstos.
+Consentimento: quando essa for a base legal adequada e forem atendidos seus requisitos.
+O consentimento não será tratado como requisito universal para todas as operações da plataforma.
+O corretor ou a imobiliária que inserir dados de terceiros deverá verificar a existência de fundamento legal adequado para o tratamento realizado sob sua responsabilidade.
+
+6. Quem pode acessar os dados?
+O acesso às informações dependerá da finalidade, das funcionalidades utilizadas e das permissões existentes na plataforma.
+Em regra:
+O usuário autenticado poderá acessar os dados disponibilizados à sua conta conforme as permissões aplicáveis.
+Informações de clientes e proprietários não deverão ser disponibilizadas indiscriminadamente a outros usuários.
+Administradores e pessoas autorizadas poderão acessar informações necessárias à administração, ao suporte e à segurança do serviço, dentro dos limites de suas atribuições.
+Informações selecionadas para apresentações públicas poderão ser acessadas por pessoas que recebam ou obtenham os respectivos links.
+A Área Nobre deverá manter controles técnicos e organizacionais proporcionais aos riscos envolvidos.
+
+7. Apresentações públicas e localização dos imóveis
+A plataforma permite criar apresentações de imóveis para compartilhamento com interessados.
+Essas apresentações podem incluir fotografias, características, preços e informações de localização.
+Para reduzir a exposição desnecessária de dados, a Área Nobre dispõe de configurações de precisão da localização, conforme a funcionalidade utilizada:
+Localização exata: permite apresentar a posição precisa do imóvel.
+Localização aproximada: permite apresentar uma referência geográfica menos precisa.
+Localização oculta: evita a divulgação da posição do imóvel na apresentação pública.
+A escolha adequada depende da finalidade da divulgação e das autorizações existentes.
+O profissional responsável deve conferir as informações antes de compartilhar a apresentação e respeitar a vontade do proprietário, os direitos de terceiros e a legislação aplicável.
+A Área Nobre deverá aplicar os controles técnicos correspondentes às opções escolhidas, sem presumir que toda informação cadastrada internamente pode ser divulgada publicamente.
+
+8. Compartilhamento de informações com terceiros
+Para oferecer suas funcionalidades, a Área Nobre utiliza ou poderá utilizar prestadores de serviços tecnológicos.
+Entre os serviços identificados no diagnóstico técnico estão:
+Supabase/PostgreSQL: infraestrutura de armazenamento de dados.
+OpenStreetMap e serviços de mapas associados: apresentação de informações geográficas.
+Serviços de consulta de localidades: apoio à identificação e padronização de municípios e regiões.
+WhatsApp: comunicação externa iniciada pelo usuário.
+A lista definitiva de prestadores, suas funções e eventuais transferências internacionais será confirmada antes da publicação oficial.
+A Área Nobre não deve compartilhar dados pessoais de forma indiscriminada ou para finalidades incompatíveis com aquelas legitimamente estabelecidas.
+Ao optar por abrir um serviço externo, como WhatsApp ou aplicativo de navegação, o usuário também poderá ficar sujeito às políticas e práticas de privacidade do respectivo fornecedor.
+9. Geolocalização do usuário
+Algumas funcionalidades de mapas poderão solicitar acesso à localização do dispositivo.
+Quando isso ocorrer:
+A solicitação deverá depender de uma ação do usuário.
+O navegador ou sistema operacional poderá pedir autorização.
+O usuário poderá negar a permissão.
+A localização deverá ser utilizada para a finalidade informada na funcionalidade.
+Conforme o funcionamento atualmente planejado, a localização do dispositivo é utilizada para auxiliar a navegação no mapa, sem necessidade de armazenamento permanente pela Área Nobre.
+Esse comportamento será confirmado tecnicamente antes da publicação definitiva.
+
+10. Segurança das informações
+A Área Nobre busca adotar medidas técnicas e administrativas adequadas à proteção dos dados pessoais tratados na plataforma.
+Essas medidas poderão incluir, conforme os recursos efetivamente implementados:
+Autenticação de usuários.
+Controle de permissões.
+Restrição de acesso a informações não públicas.
+Proteção das comunicações.
+Medidas de segurança da infraestrutura.
+Monitoramento e correção de vulnerabilidades.
+Procedimentos de resposta a incidentes.
+Nenhum sistema conectado à internet está completamente livre de riscos.
+Por isso, também recomendamos que os usuários protejam suas credenciais, evitem compartilhamento de senhas e comuniquem situações suspeitas.
+Caso ocorra um incidente de segurança envolvendo dados pessoais, a Área Nobre avaliará as medidas necessárias, incluindo comunicações legalmente exigidas.
+
+11. Por quanto tempo os dados são mantidos?
+Os dados pessoais serão conservados pelo período necessário ao cumprimento das finalidades legítimas do tratamento, observadas as obrigações legais e as hipóteses de retenção permitidas.
+Os prazos poderão variar conforme a categoria de informação e sua finalidade.
+Por exemplo:
+Dados de conta poderão ser necessários durante a relação com o usuário.
+Dados de clientes e imóveis dependerão das funcionalidades utilizadas e das regras de conservação aplicáveis.
+Registros de aceite poderão precisar ser preservados para comprovação de manifestações e exercício regular de direitos.
+Determinadas informações poderão ser mantidas quando houver obrigação legal ou justificativa jurídica adequada.
+A Área Nobre deverá definir e documentar os critérios de retenção e descarte antes da publicação definitiva desta Política.
+
+12. Direitos dos titulares de dados
+A LGPD assegura direitos aos titulares de dados pessoais, observados os requisitos e limites previstos na legislação.
+Conforme o caso, o titular poderá solicitar:
+Confirmação da existência de tratamento.
+Acesso aos seus dados pessoais.
+Correção de dados incompletos, inexatos ou desatualizados.
+Anonimização, bloqueio ou eliminação nas hipóteses legais.
+Portabilidade, quando aplicável.
+Informações sobre compartilhamentos.
+Informações sobre a possibilidade de não fornecer consentimento e suas consequências.
+Revogação do consentimento, quando essa for a base legal utilizada.
+Revisão de decisões exclusivamente automatizadas, nas hipóteses legais.
+As solicitações serão analisadas conforme a legislação aplicável, inclusive quanto à verificação da identidade do solicitante e às responsabilidades dos participantes envolvidos.
+
+13. Como solicitar informações ou exercer seus direitos
+Queremos facilitar o contato com você.
+Para dúvidas sobre privacidade, solicitações relacionadas a dados pessoais ou exercício de direitos previstos na LGPD, utilize:
+E-mail: areanobreapp@gmail.com
+Assunto sugerido: Privacidade e Proteção de Dados — Área Nobre
+Para proteger as informações dos titulares, poderá ser necessário confirmar a identidade do solicitante antes de fornecer dados ou realizar determinadas operações.
+Quando a solicitação envolver informações cadastradas por um corretor ou imobiliária, a Área Nobre avaliará sua responsabilidade no tratamento e, quando adequado, a necessidade de encaminhamento ou cooperação com o profissional responsável.
+
+14. Dados de crianças e adolescentes
+A Área Nobre é voltada a atividades profissionais do mercado imobiliário e não foi desenvolvida especificamente para crianças e adolescentes.
+Os usuários não devem cadastrar dados pessoais de crianças ou adolescentes sem necessidade legítima e sem observar as exigências legais aplicáveis, incluindo a proteção de seu melhor interesse.
+
+15. Serviços externos e links
+A plataforma poderá disponibilizar links para aplicativos de comunicação, navegação e outros serviços externos.
+Ao acessar esses serviços, o usuário estará sujeito às condições e políticas de privacidade dos respectivos fornecedores.
+A Área Nobre não controla integralmente as práticas desses terceiros, mas deverá observar suas próprias responsabilidades legais na escolha e utilização de prestadores de serviços.
+
+16. Plataforma em fase de testes
+A Área Nobre encontra-se em fase de testes e aperfeiçoamento.
+Durante esse período, funcionalidades poderão ser ajustadas, ampliadas ou corrigidas.
+O desenvolvimento contínuo da plataforma não elimina a necessidade de proteger os dados pessoais nem afasta os direitos dos titulares.
+Sempre que uma alteração relevante modificar as práticas de tratamento de dados, esta Política deverá ser revista e as comunicações cabíveis deverão ser realizadas.
+
+17. Atualizações desta Política
+Esta Política de Privacidade poderá ser atualizada para refletir mudanças nas funcionalidades, nos tratamentos realizados ou na legislação aplicável.
+Cada versão publicada deverá ser identificada e preservada.
+Quando necessário, os usuários serão informados sobre alterações relevantes, e manifestações específicas serão solicitadas nos casos exigidos pela legislação.
+A simples atualização da Política não substitui a obtenção de consentimento quando ele for legalmente necessário.
+
+18. Fale com a Área Nobre
+Se alguma informação desta Política não estiver clara, entre em contato.
+Teremos satisfação em ajudar a esclarecer suas dúvidas.
+AREA NOBRE TECNOLOGIA E INTELIGENCIA LTDA
+CNPJ: 69.723.459/0001-10
+E-mail: areanobreapp@gmail.com

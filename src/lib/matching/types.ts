@@ -18,8 +18,13 @@ export interface NormalizedOffer {
   otherBedrooms: number;
   bathrooms: number;    // Total = suites + otherBathrooms
   otherBathrooms: number;
+  socialBathrooms: number | null;
+  lavabos: number | null;
   parkingSpaces: number;
+  coveredParkingSpaces: number | null;
+  uncoveredParkingSpaces: number | null;
   privateArea: number | null; // Área útil / privativa
+  builtArea: number | null;   // Área construída
   totalArea: number | null;   // Área total
   landArea: number | null;    // Área do terreno documental
   city: string | null;
@@ -86,9 +91,14 @@ export interface SearchCriteria {
   minSuites: number;
   minOtherBedrooms?: number | null;
   minOtherBathrooms?: number | null;
+  minSocialBathrooms?: number | null;
+  minLavabos?: number | null;
   minParkingSpaces: number;
-  minArea: number | null;     // Área útil mínima
-  minLandArea?: number | null; // Área de terreno mínima
+  minCoveredParkingSpaces?: number | null;
+  minUncoveredParkingSpaces?: number | null;
+  minArea: number | null;      // Área útil mínima
+  minBuiltArea?: number | null; // Área construída mínima
+  minLandArea?: number | null;  // Área de terreno mínima
   referenceAddress?: string | null;
   referenceLatitude?: number | null;
   referenceLongitude?: number | null;

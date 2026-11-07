@@ -3,11 +3,13 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Building2, Search, MapPin, Plus, X } from 'lucide-react';
+import { Home, Building2, Search, MapPin, Plus, X, MessageCircle } from 'lucide-react';
+import { useSupportContact } from '@/lib/use-support-contact';
 
 export default function MobileNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { defaultUrl: supportUrl } = useSupportContact();
   const [modalOpen, setModalOpen] = useState(false);
 
   if (pathname === '/login' || pathname.startsWith('/p/')) return null;
@@ -170,6 +172,35 @@ export default function MobileNav() {
                 <Search size={20} color="var(--color-primary)" />
                 <span style={{ fontWeight: 600 }}>Nova busca de cliente</span>
               </button>
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-light)' }}>
+              <a
+                href={supportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '12px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '0.90rem',
+                  fontWeight: 700,
+                  color: '#166534',
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  boxSizing: 'border-box',
+                }}
+                onClick={() => setModalOpen(false)}
+              >
+                <MessageCircle size={18} color="#16A34A" />
+                <span>Falar com o suporte</span>
+              </a>
             </div>
           </div>
         </div>

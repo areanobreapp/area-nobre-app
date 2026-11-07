@@ -123,7 +123,27 @@ export default function ParcelBoundaryModal({
 
     mapInstanceRef.current = map;
 
+    // Observador de redimensionamento para manter proporção quadrada perfeita (Etapa 3A / Ponto 1)
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 150);
+
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       map.remove();
       mapInstanceRef.current = null;
       baseMapLayerRef.current = null;
@@ -357,9 +377,8 @@ export default function ParcelBoundaryModal({
         className="card"
         style={{
           width: '100%',
-          maxWidth: '920px',
-          height: '92vh',
-          maxHeight: '820px',
+          maxWidth: '1040px',
+          maxHeight: '94vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -405,7 +424,7 @@ export default function ParcelBoundaryModal({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Seletor Mapa | Satélite (Fase 4.3 — Requisito 6) */}
+            {/* Seletor Mapa | Satélite */}
             <BaseMapToggle
               activeBaseMap={activeBaseMap}
               onChange={setActiveBaseMap}
@@ -430,185 +449,187 @@ export default function ParcelBoundaryModal({
           </div>
         </div>
 
-        {/* Barra de Instrução e Status dos Vértices */}
-        <div
-          style={{
-            padding: '10px 20px',
-            backgroundColor: activeBaseMap === 'satellite' ? '#0F172A' : '#F3F4F6',
-            color: activeBaseMap === 'satellite' ? '#F8FAFC' : '#374151',
-            borderBottom: '1px solid var(--border-light)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px',
-            fontSize: '0.84rem',
-            transition: 'background-color 0.2s ease',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {!isClosed ? (
-              <>
-                <MousePointerClick size={16} color={activeBaseMap === 'satellite' ? '#4ADE80' : '#1E4620'} />
-                <span>
-                  <strong>Passo {vertices.length + 1}:</strong> Clique no mapa para adicionar vértices (mínimo de 3).
-                  {activeBaseMap === 'satellite' && ' Use muros, construções e calçadas visíveis como referência.'}
-                  {vertices.length >= 3 && ' Clique no 1º ponto ou em "Fechar polígono" para concluir.'}
-                </span>
-              </>
-            ) : (
-              <>
-                <Move size={16} color={activeBaseMap === 'satellite' ? '#4ADE80' : '#15803D'} />
-                <span>
-                  <strong>Polígono Fechado:</strong> Arraste os vértices numerados para ajustar com precisão sobre {activeBaseMap === 'satellite' ? 'a imagem aérea' : 'o mapa'}.
-                </span>
-              </>
-            )}
+        {/* Corpo com Layout Split: Mapa Quadrado 1:1 à esquerda e Ferramentas à direita (Etapa 3A / Ponto 1) */}
+        <div className="map-modal-split-body">
+          {/* Coluna do Mapa Quadrado 1:1 (Livre de overlays que cubram o terreno) */}
+          <div className="map-modal-square-side" style={{ width: '520px', height: '520px', maxWidth: '520px', maxHeight: '520px' }}>
+            <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span
-              style={{
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                padding: '3px 10px',
-                borderRadius: '999px',
-                backgroundColor: vertices.length >= 3 ? '#DCFCE7' : '#FEF3C7',
-                color: vertices.length >= 3 ? '#166534' : '#92400E',
-              }}
-            >
-              {vertices.length} vértice(s) {isClosed ? '• Fechado' : '• Aberto'}
-            </span>
-          </div>
-        </div>
+          {/* Coluna de Ferramentas, Instruções e Métricas de Área */}
+          <div className="map-modal-controls-side">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Badge de Status dos Vértices */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+                <span style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  Status da Delimitação
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: '999px',
+                    backgroundColor: vertices.length >= 3 ? '#DCFCE7' : '#FEF3C7',
+                    color: vertices.length >= 3 ? '#166534' : '#92400E',
+                  }}
+                >
+                  {vertices.length} vértice(s) • {isClosed ? 'Polígono Fechado' : 'Em Aberto'}
+                </span>
+              </div>
 
-        {/* Container do Mapa */}
-        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-          <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
-
-          {/* Painel Flutuante Superior Esquerdo com Ferramentas de Desenho */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '14px',
-              left: '14px',
-              zIndex: 1000,
-              display: 'flex',
-              gap: '6px',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              padding: '6px',
-              borderRadius: '10px',
-              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.15)',
-              border: '1px solid var(--border-light)',
-            }}
-          >
-            {vertices.length >= 3 && !isClosed && (
-              <button
-                type="button"
-                onClick={handleClosePolygon}
+              {/* Instruções de Desenho */}
+              <div
                 style={{
-                  padding: '6px 12px',
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  backgroundColor: '#1E4620',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
+                  padding: '12px 14px',
+                  backgroundColor: activeBaseMap === 'satellite' ? '#0F172A' : '#F3F4F6',
+                  color: activeBaseMap === 'satellite' ? '#F8FAFC' : '#374151',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-light)',
+                  fontSize: '0.82rem',
+                  lineHeight: 1.45,
                 }}
               >
-                <Check size={14} />
-                Fechar Polígono
-              </button>
-            )}
+                {!isClosed ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <MousePointerClick size={16} color={activeBaseMap === 'satellite' ? '#4ADE80' : '#1E4620'} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      <strong>Passo {vertices.length + 1}:</strong> Clique no mapa para adicionar os cantos do terreno (mínimo de 3).
+                      {activeBaseMap === 'satellite' && ' Use muros e construções como referência.'}
+                      {vertices.length >= 3 && ' Clique no 1º ponto ou no botão "Fechar Polígono" para concluir.'}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <Move size={16} color={activeBaseMap === 'satellite' ? '#4ADE80' : '#15803D'} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      <strong>Polígono Fechado:</strong> Arraste os vértices numerados para ajustar o contorno sobre {activeBaseMap === 'satellite' ? 'a imagem aérea' : 'o mapa'}.
+                    </span>
+                  </div>
+                )}
+              </div>
 
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={vertices.length === 0}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                backgroundColor: '#FFFFFF',
-                color: vertices.length === 0 ? '#9CA3AF' : '#374151',
-                border: '1px solid var(--border-light)',
-                borderRadius: '6px',
-                cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Undo2 size={14} />
-              Desfazer
-            </button>
+              {/* Ferramentas de Desenho em Painel Dedicado */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {vertices.length >= 3 && !isClosed && (
+                  <button
+                    type="button"
+                    onClick={handleClosePolygon}
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      backgroundColor: '#1E4620',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Check size={15} />
+                    <span>Fechar Polígono</span>
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={handleClear}
-              disabled={vertices.length === 0}
-              style={{
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                backgroundColor: '#FFFFFF',
-                color: vertices.length === 0 ? '#9CA3AF' : '#DC2626',
-                border: '1px solid var(--border-light)',
-                borderRadius: '6px',
-                cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <Trash2 size={14} />
-              Limpar
-            </button>
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={vertices.length === 0}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    backgroundColor: '#FFFFFF',
+                    color: vertices.length === 0 ? '#9CA3AF' : '#374151',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Undo2 size={15} />
+                  <span>Desfazer</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  disabled={vertices.length === 0}
+                  style={{
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    backgroundColor: '#FFFFFF',
+                    color: vertices.length === 0 ? '#9CA3AF' : '#DC2626',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Trash2 size={15} />
+                  <span>Limpar</span>
+                </button>
+              </div>
+
+              {/* Informações de Área Delimitada */}
+              <div style={{ padding: '14px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '0.70rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>
+                    Área aproximada delimitada no mapa
+                  </div>
+                  <div style={{ fontSize: '1.30rem', fontWeight: 800, color: isClosed ? '#1E4620' : '#6B7280', marginTop: '2px' }}>
+                    {isClosed && calculatedArea > 0 ? `${calculatedArea.toLocaleString('pt-BR')} m²` : '— (feche o polígono)'}
+                  </div>
+                </div>
+
+                {informedArea && informedArea > 0 && (
+                  <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '8px' }}>
+                    <div style={{ fontSize: '0.70rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>
+                      Área informada documental
+                    </div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#374151', marginTop: '2px' }}>
+                      {Number(informedArea).toLocaleString('pt-BR')} m²
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontSize: '0.73rem', color: '#6B7280', lineHeight: 1.35 }}>
+                Traçado manual de referência visual pelo corretor. Não substitui levantamento topográfico ou certidão de matrícula.
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Rodapé: Área e Confirmação */}
+        {/* Rodapé: Confirmação e Ações */}
         <div
           style={{
-            padding: '16px 20px',
+            padding: '14px 20px',
             borderTop: '1px solid var(--border-light)',
             backgroundColor: '#FAFAFA',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             flexWrap: 'wrap',
-            gap: '16px',
+            gap: '12px',
           }}
         >
-          {/* Seção Informativa de Área Rigorosamente Separada */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>
-                Área aproximada delimitada no mapa
-              </div>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: isClosed ? '#1E4620' : '#6B7280' }}>
-                {isClosed && calculatedArea > 0 ? `${calculatedArea.toLocaleString('pt-BR')} m²` : '— (feche o polígono)'}
-              </div>
-            </div>
-
-            {informedArea && informedArea > 0 && (
-              <div style={{ borderLeft: '1px solid var(--border-light)', paddingLeft: '16px' }}>
-                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>
-                  Área informada (documental)
-                </div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#374151' }}>
-                  {Number(informedArea).toLocaleString('pt-BR')} m²
-                </div>
-              </div>
+          <div style={{ fontSize: '0.80rem', color: 'var(--text-muted)' }}>
+            {isClosed ? (
+              <span style={{ color: '#166534', fontWeight: 700 }}>
+                ✓ Delimitação fechada ({vertices.length} vértices • {calculatedArea > 0 ? `${calculatedArea.toLocaleString('pt-BR')} m²` : ''})
+              </span>
+            ) : (
+              <span>Adicione pelo menos 3 vértices e feche o polígono para salvar.</span>
             )}
-
-            <div style={{ fontSize: '0.74rem', color: '#6B7280', maxWidth: '300px', lineHeight: 1.3 }}>
-              Traçado manual do corretor. Não substitui medição topográfica ou matrícula registral.
-            </div>
           </div>
 
           {/* Botões de Ação */}
@@ -658,7 +679,7 @@ export default function ParcelBoundaryModal({
               }}
             >
               <Check size={16} />
-              Confirmar Delimitação
+              <span>Confirmar Delimitação</span>
             </button>
           </div>
         </div>

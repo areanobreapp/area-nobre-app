@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   User,
   Shield,
@@ -17,10 +18,16 @@ import {
   Eye,
   Loader2,
   Sparkles,
+  MessageCircle,
+  ShieldCheck,
+  ExternalLink,
+  FileText,
 } from 'lucide-react';
+import { useSupportContact } from '@/lib/use-support-contact';
 
 export default function ProfilePage() {
   const router = useRouter();
+  const { defaultUrl: supportUrl } = useSupportContact();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -46,7 +53,15 @@ export default function ProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
+  // Status de Documentos Legais e Privacidade (Ponto 20)
+  const [legalStatus, setLegalStatus] = useState<any>(null);
+
   useEffect(() => {
+    fetch('/api/legal/status')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setLegalStatus(data))
+      .catch((err) => console.error('Erro ao consultar status legal:', err));
+
     fetch('/api/profile')
       .then((res) => {
         if (!res.ok) {
@@ -750,6 +765,191 @@ export default function ProfilePage() {
                   }}
                 >
                   Tecnologia Área Nobre
+                </div>
+              </div>
+
+              {/* Cartão de Suporte ao Corretor (Ponto 13) */}
+              <div
+                style={{
+                  marginTop: '16px',
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '16px',
+                  border: '1px solid #E5E7EB',
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <div
+                    style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '8px',
+                      backgroundColor: '#DCFCE7',
+                      color: '#166534',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <MessageCircle size={16} />
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.94rem', color: '#111827' }}>
+                    Precisa de ajuda?
+                  </div>
+                </div>
+                <p style={{ fontSize: '0.82rem', color: '#4B5563', lineHeight: 1.45, margin: '0 0 14px 0' }}>
+                  Entre em contato com o suporte da Área Nobre pelo WhatsApp.
+                </p>
+                <a
+                  href={supportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    backgroundColor: '#1E4620',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                    fontSize: '0.86rem',
+                    textDecoration: 'none',
+                    boxSizing: 'border-box',
+                    boxShadow: '0 2px 6px rgba(30, 70, 32, 0.25)',
+                  }}
+                >
+                  <MessageCircle size={16} />
+                  <span>Falar com o suporte</span>
+                </a>
+              </div>
+
+              {/* Seção: Documentos e Privacidade (Ponto 20) */}
+              <div
+                style={{
+                  marginTop: '16px',
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '16px',
+                  border: '1px solid #E5E7EB',
+                  padding: '18px 20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <div
+                    style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '8px',
+                      backgroundColor: '#EEF2FF',
+                      color: '#4338CA',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ShieldCheck size={16} />
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.94rem', color: '#111827' }}>
+                    Documentos e privacidade
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {/* Termos de Uso */}
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#F9FAFB',
+                      border: '1px solid #F3F4F6',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.80rem', fontWeight: 700, color: '#1F2937' }}>
+                        Termos de Uso
+                      </span>
+                      {legalStatus?.terms?.userAccepted ? (
+                        <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#166534', backgroundColor: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
+                          Aceito ({legalStatus.terms.version})
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#92400E', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '12px' }}>
+                          {legalStatus?.terms?.isPublished ? 'Pendente' : 'Em homologação'}
+                        </span>
+                      )}
+                    </div>
+                    {legalStatus?.terms?.userAccepted && legalStatus?.terms?.acceptedAt && (
+                      <div style={{ fontSize: '0.72rem', color: '#6B7280', marginBottom: '6px' }}>
+                        Confirmado em {new Date(legalStatus.terms.acceptedAt).toLocaleDateString('pt-BR')}
+                      </div>
+                    )}
+                    <Link
+                      href="/termos-de-uso"
+                      target="_blank"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '0.76rem',
+                        color: '#1E4620',
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <span>Consultar documento</span>
+                      <ExternalLink size={12} />
+                    </Link>
+                  </div>
+
+                  {/* Política de Privacidade */}
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      backgroundColor: '#F9FAFB',
+                      border: '1px solid #F3F4F6',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.80rem', fontWeight: 700, color: '#1F2937' }}>
+                        Política de Privacidade
+                      </span>
+                      {legalStatus?.privacy?.userAcknowledged ? (
+                        <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#166534', backgroundColor: '#DCFCE7', padding: '2px 8px', borderRadius: '12px' }}>
+                          Ciente ({legalStatus.privacy.version})
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.70rem', fontWeight: 700, color: '#92400E', backgroundColor: '#FEF3C7', padding: '2px 8px', borderRadius: '12px' }}>
+                          {legalStatus?.privacy?.isPublished ? 'Pendente' : 'Em homologação'}
+                        </span>
+                      )}
+                    </div>
+                    {legalStatus?.privacy?.userAcknowledged && legalStatus?.privacy?.acknowledgedAt && (
+                      <div style={{ fontSize: '0.72rem', color: '#6B7280', marginBottom: '6px' }}>
+                        Confirmado em {new Date(legalStatus.privacy.acknowledgedAt).toLocaleDateString('pt-BR')}
+                      </div>
+                    )}
+                    <Link
+                      href="/politica-de-privacidade"
+                      target="_blank"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        fontSize: '0.76rem',
+                        color: '#1E4620',
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <span>Consultar política</span>
+                      <ExternalLink size={12} />
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>

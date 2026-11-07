@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { recalculateMatchesForSearch } from '@/lib/matching';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
+import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(
   req: NextRequest,
@@ -12,6 +14,11 @@ export async function GET(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;
@@ -122,6 +129,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
@@ -165,6 +177,11 @@ export async function PUT(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
@@ -179,6 +196,10 @@ export async function PUT(
     });
 
     if (!existing) {
+      const existsAny = await prisma.search.findUnique({ where: { id } });
+      if (existsAny) {
+        return NextResponse.json({ error: 'Você não tem permissão para editar esta busca.' }, { status: 403 });
+      }
       return NextResponse.json({ error: 'Busca não encontrada.' }, { status: 404 });
     }
 
@@ -196,8 +217,13 @@ export async function PUT(
       minSuites,
       minOtherBedrooms,
       minOtherBathrooms,
+      minSocialBathrooms,
+      minLavabos,
       minParkingSpaces,
+      minCoveredParkingSpaces,
+      minUncoveredParkingSpaces,
       minArea,
+      minBuiltArea,
       minLandArea,
       referenceAddress,
       maxRadiusKm,
@@ -272,6 +298,125 @@ export async function PUT(
       refLng = null;
     }
 
+    let finalMaxPrice = existing.maxPrice;
+    if (maxPrice !== undefined) {
+      const v = validateNonNegativeFloat(maxPrice, 'Valor máximo', { required: true, isCurrencyString: true });
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMaxPrice = v.value!;
+    }
+
+    let finalMinPrice = existing.minPrice;
+    if (minPrice !== undefined) {
+      const v = validateNonNegativeFloat(minPrice, 'Valor mínimo', { isCurrencyString: true });
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinPrice = v.value;
+    }
+
+    let finalMinBedrooms = existing.minBedrooms;
+    if (minBedrooms !== undefined) {
+      const v = validateNonNegativeInt(minBedrooms, 'Mínimo de quartos', { defaultValue: 0 });
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinBedrooms = v.value ?? 0;
+    }
+
+    let finalMinSuites = existing.minSuites;
+    if (minSuites !== undefined) {
+      const v = validateNonNegativeInt(minSuites, 'Mínimo de suítes', { defaultValue: 0 });
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinSuites = v.value ?? 0;
+    }
+
+    let finalMinOtherBedrooms = existing.minOtherBedrooms;
+    if (minOtherBedrooms !== undefined) {
+      const v = validateNonNegativeInt(minOtherBedrooms, 'Mínimo de demais quartos');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinOtherBedrooms = v.value;
+    }
+
+    let finalMinOtherBathrooms = existing.minOtherBathrooms;
+    if (minOtherBathrooms !== undefined) {
+      const v = validateNonNegativeInt(minOtherBathrooms, 'Mínimo de demais banheiros');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinOtherBathrooms = v.value;
+    }
+
+    let finalMinSocialBathrooms = existing.minSocialBathrooms;
+    if (minSocialBathrooms !== undefined) {
+      const v = validateNonNegativeInt(minSocialBathrooms, 'Mínimo de banheiros sociais');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinSocialBathrooms = v.value;
+    }
+
+    let finalMinLavabos = existing.minLavabos;
+    if (minLavabos !== undefined) {
+      const v = validateNonNegativeInt(minLavabos, 'Mínimo de lavabos');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinLavabos = v.value;
+    }
+
+    let finalMinParkingSpaces = existing.minParkingSpaces;
+    if (minParkingSpaces !== undefined) {
+      const v = validateNonNegativeInt(minParkingSpaces, 'Mínimo de vagas', { defaultValue: 0 });
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinParkingSpaces = v.value ?? 0;
+    }
+
+    let finalMinCovered = existing.minCoveredParkingSpaces;
+    if (minCoveredParkingSpaces !== undefined) {
+      const v = validateNonNegativeInt(minCoveredParkingSpaces, 'Mínimo de vagas cobertas');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinCovered = v.value;
+    }
+
+    let finalMinUncovered = existing.minUncoveredParkingSpaces;
+    if (minUncoveredParkingSpaces !== undefined) {
+      const v = validateNonNegativeInt(minUncoveredParkingSpaces, 'Mínimo de vagas descobertas');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinUncovered = v.value;
+    }
+
+    let finalMinArea = existing.minArea;
+    if (minArea !== undefined) {
+      const v = validateNonNegativeFloat(minArea, 'Área privativa mínima');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinArea = v.value;
+    }
+
+    let finalMinBuiltArea = existing.minBuiltArea;
+    if (minBuiltArea !== undefined) {
+      const v = validateNonNegativeFloat(minBuiltArea, 'Área construída mínima');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinBuiltArea = v.value;
+    }
+
+    let finalMinLandArea = existing.minLandArea;
+    if (minLandArea !== undefined) {
+      const v = validateNonNegativeFloat(minLandArea, 'Área do terreno mínima');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMinLandArea = v.value;
+    }
+
+    let finalMaxRadiusKm = existing.maxRadiusKm;
+    if (maxRadiusKm !== undefined) {
+      const v = validateNonNegativeFloat(maxRadiusKm, 'Raio máximo (km)');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMaxRadiusKm = v.value;
+    }
+
+    let finalSearchRadiusMeters = existing.searchRadiusMeters;
+    if (searchRadiusMeters !== undefined) {
+      const v = validateNonNegativeFloat(searchRadiusMeters, 'Raio de busca (metros)');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalSearchRadiusMeters = v.value;
+    }
+
+    let finalMaxTravelTime = existing.maxTravelTimeMinutes;
+    if (maxTravelTimeMinutes !== undefined) {
+      const v = validateNonNegativeInt(maxTravelTimeMinutes, 'Tempo de deslocamento máximo (minutos)');
+      if (v.error) return NextResponse.json({ error: v.error }, { status: 400 });
+      finalMaxTravelTime = v.value;
+    }
+
     const updated = await prisma.search.update({
       where: { id },
       data: {
@@ -280,19 +425,24 @@ export async function PUT(
         propertyTypes: typesArray ? JSON.stringify(typesArray) : existing.propertyTypes,
         cities: citiesArray ? JSON.stringify(citiesArray) : existing.cities,
         neighborhoods: neighborhoodsArray ? JSON.stringify(neighborhoodsArray) : existing.neighborhoods,
-        minPrice: minPrice !== undefined ? (minPrice ? parseFloat(String(minPrice)) : null) : existing.minPrice,
-        maxPrice: maxPrice !== undefined ? parseFloat(String(maxPrice)) || 0 : existing.maxPrice,
-        minBedrooms: minBedrooms !== undefined ? parseInt(String(minBedrooms), 10) : existing.minBedrooms,
-        minSuites: minSuites !== undefined ? parseInt(String(minSuites), 10) : existing.minSuites,
-        minOtherBedrooms: minOtherBedrooms !== undefined ? (minOtherBedrooms !== null ? parseInt(String(minOtherBedrooms), 10) : null) : existing.minOtherBedrooms,
-        minOtherBathrooms: minOtherBathrooms !== undefined ? (minOtherBathrooms !== null ? parseInt(String(minOtherBathrooms), 10) : null) : existing.minOtherBathrooms,
-        minParkingSpaces: minParkingSpaces !== undefined ? parseInt(String(minParkingSpaces), 10) : existing.minParkingSpaces,
-        minArea: minArea !== undefined ? (minArea ? parseFloat(String(minArea)) : null) : existing.minArea,
-        minLandArea: minLandArea !== undefined ? (minLandArea ? parseFloat(String(minLandArea)) : null) : existing.minLandArea,
+        minPrice: finalMinPrice,
+        maxPrice: finalMaxPrice,
+        minBedrooms: finalMinBedrooms,
+        minSuites: finalMinSuites,
+        minOtherBedrooms: finalMinOtherBedrooms,
+        minOtherBathrooms: finalMinOtherBathrooms,
+        minSocialBathrooms: finalMinSocialBathrooms,
+        minLavabos: finalMinLavabos,
+        minParkingSpaces: finalMinParkingSpaces,
+        minCoveredParkingSpaces: finalMinCovered,
+        minUncoveredParkingSpaces: finalMinUncovered,
+        minArea: finalMinArea,
+        minBuiltArea: finalMinBuiltArea,
+        minLandArea: finalMinLandArea,
         referenceAddress: newRefAddress,
         referenceLatitude: refLat,
         referenceLongitude: refLng,
-        maxRadiusKm: maxRadiusKm !== undefined ? (maxRadiusKm ? parseFloat(String(maxRadiusKm)) : null) : existing.maxRadiusKm,
+        maxRadiusKm: finalMaxRadiusKm,
         notes: notes !== undefined ? notes?.trim() || null : existing.notes,
         active: active !== undefined ? Boolean(active) : existing.active,
 
@@ -318,8 +468,8 @@ export async function PUT(
         locationStrategy: locationStrategy !== undefined ? locationStrategy : existing.locationStrategy,
         searchLatitude: searchLatitude !== undefined ? (searchLatitude !== null ? parseFloat(String(searchLatitude)) : null) : existing.searchLatitude,
         searchLongitude: searchLongitude !== undefined ? (searchLongitude !== null ? parseFloat(String(searchLongitude)) : null) : existing.searchLongitude,
-        searchRadiusMeters: searchRadiusMeters !== undefined ? (searchRadiusMeters !== null ? parseFloat(String(searchRadiusMeters)) : null) : existing.searchRadiusMeters,
-        maxTravelTimeMinutes: maxTravelTimeMinutes !== undefined ? (maxTravelTimeMinutes !== null ? parseInt(String(maxTravelTimeMinutes), 10) : null) : existing.maxTravelTimeMinutes,
+        searchRadiusMeters: finalSearchRadiusMeters,
+        maxTravelTimeMinutes: finalMaxTravelTime,
         travelMode: travelMode !== undefined ? travelMode : existing.travelMode,
       },
       include: {
@@ -345,6 +495,11 @@ export async function DELETE(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;

@@ -450,171 +450,346 @@ export function calculateMatch(
   earnedPoints += priceEarned;
 
   // ------------------------------------------
-  // 2.3 Dormitórios e Suítes (Para Casa, Apartamento, Em Construção)
+  // 2.3 Dormitórios, Suítes e Dormitórios sem Suíte (Teto máx: 20 Pontos)
   // Não aplicável a Terrenos ou Comerciais
   // ------------------------------------------
   if (!isTerreno && !isComercial) {
-    // Dormitórios
-    const bedMax: number = MATCH_CONFIG.WEIGHTS.BEDROOMS;
-    maxPossiblePoints += bedMax;
-    let bedEarned: number = bedMax;
+    const hasReqBedrooms = search.minBedrooms != null && search.minBedrooms > 0;
+    const hasReqSuites = search.minSuites != null && search.minSuites > 0;
+    const hasReqOtherBedrooms = search.minOtherBedrooms != null && search.minOtherBedrooms > 0;
 
-    if (!search.minBedrooms || search.minBedrooms <= 0) {
-      bedEarned = bedMax;
-      explanation.push({
-        category: 'bedrooms',
-        status: 'positive',
-        title: `${offer.bedrooms} dormitório(s)`,
-        detail: `Dormitórios não especificados como restrição mínima.`,
-        pointsAwarded: bedEarned,
-        maxPoints: bedMax,
-      });
-    } else if (offer.bedrooms >= search.minBedrooms) {
-      bedEarned = bedMax;
-      explanation.push({
-        category: 'bedrooms',
-        status: 'positive',
-        title: `${offer.bedrooms} dormitório(s)`,
-        detail: `Atende plenamente ao mínimo solicitado de ${search.minBedrooms} dormitório(s).`,
-        pointsAwarded: bedEarned,
-        maxPoints: bedMax,
-      });
-    } else if (offer.bedrooms === search.minBedrooms - 1) {
-      bedEarned = MATCH_CONFIG.ROOMS.BEDROOM_DEFICIT_1_POINTS;
-      explanation.push({
-        category: 'bedrooms',
-        status: 'warning',
-        title: `${offer.bedrooms} dormitório(s); cliente busca pelo menos ${search.minBedrooms}`,
-        detail: `Déficit de 1 quarto em relação ao desejado pelo cliente.`,
-        pointsAwarded: bedEarned,
-        maxPoints: bedMax,
-      });
+    let bedMax = 0;
+    let suiteMax = 0;
+    let otherBedMax = 0;
+
+    if (!hasReqOtherBedrooms) {
+      // Distribuição histórica exata (preserva 100% das buscas legadas)
+      bedMax = MATCH_CONFIG.WEIGHTS.BEDROOMS; // 12
+      suiteMax = MATCH_CONFIG.WEIGHTS.SUITES; // 8
     } else {
-      bedEarned = 0;
-      explanation.push({
-        category: 'bedrooms',
-        status: 'negative',
-        title: `${offer.bedrooms} dormitório(s); abaixo do mínimo de ${search.minBedrooms}`,
-        detail: `Déficit de ${search.minBedrooms - offer.bedrooms} quartos.`,
-        pointsAwarded: bedEarned,
-        maxPoints: bedMax,
-      });
+      // Distribuição adaptativa quando minOtherBedrooms é exigido
+      if (hasReqBedrooms && hasReqSuites) {
+        bedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_TRIO.TOTAL; // 8
+        suiteMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_TRIO.SUITES; // 8
+        otherBedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_TRIO.OTHER; // 4
+      } else if (!hasReqBedrooms && !hasReqSuites) {
+        otherBedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_ONLY_OTHER; // 20
+      } else if (hasReqBedrooms && !hasReqSuites) {
+        bedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_TOTAL_OTHER.TOTAL; // 12
+        otherBedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_TOTAL_OTHER.OTHER; // 8
+      } else {
+        // !hasReqBedrooms && hasReqSuites
+        suiteMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_SUITES_OTHER.SUITES; // 12
+        otherBedMax = MATCH_CONFIG.STANDARD_FIELDS.BEDROOMS_SUITES_OTHER.OTHER; // 8
+      }
     }
-    earnedPoints += bedEarned;
 
-    // Suítes
-    const suiteMax: number = MATCH_CONFIG.WEIGHTS.SUITES;
-    maxPossiblePoints += suiteMax;
-    let suiteEarned: number = suiteMax;
+    maxPossiblePoints += (bedMax + suiteMax + otherBedMax);
 
-    if (!search.minSuites || search.minSuites <= 0) {
-      suiteEarned = suiteMax;
-      if (offer.suites > 0) {
+    // Avaliação de Dormitórios Totais
+    if (bedMax > 0) {
+      let bedEarned = 0;
+      if (!hasReqBedrooms) {
+        bedEarned = bedMax;
+        explanation.push({
+          category: 'bedrooms',
+          status: 'positive',
+          title: `${offer.bedrooms} dormitório(s)`,
+          detail: `Dormitórios não especificados como restrição mínima.`,
+          pointsAwarded: bedEarned,
+          maxPoints: bedMax,
+        });
+      } else if (offer.bedrooms >= search.minBedrooms) {
+        bedEarned = bedMax;
+        explanation.push({
+          category: 'bedrooms',
+          status: 'positive',
+          title: `${offer.bedrooms} dormitório(s)`,
+          detail: `Atende plenamente ao mínimo solicitado de ${search.minBedrooms} dormitório(s).`,
+          pointsAwarded: bedEarned,
+          maxPoints: bedMax,
+        });
+      } else if (offer.bedrooms === search.minBedrooms - 1) {
+        bedEarned = Math.round(bedMax * (MATCH_CONFIG.ROOMS.BEDROOM_DEFICIT_1_POINTS / MATCH_CONFIG.WEIGHTS.BEDROOMS));
+        explanation.push({
+          category: 'bedrooms',
+          status: 'warning',
+          title: `${offer.bedrooms} dormitório(s); cliente busca pelo menos ${search.minBedrooms}`,
+          detail: `Déficit de 1 quarto em relação ao desejado pelo cliente.`,
+          pointsAwarded: bedEarned,
+          maxPoints: bedMax,
+        });
+      } else {
+        bedEarned = 0;
+        explanation.push({
+          category: 'bedrooms',
+          status: 'negative',
+          title: `${offer.bedrooms} dormitório(s); abaixo do mínimo de ${search.minBedrooms}`,
+          detail: `Déficit de ${search.minBedrooms - offer.bedrooms} quartos.`,
+          pointsAwarded: bedEarned,
+          maxPoints: bedMax,
+        });
+      }
+      earnedPoints += bedEarned;
+    }
+
+    // Avaliação de Suítes
+    if (suiteMax > 0) {
+      let suiteEarned = 0;
+      if (!hasReqSuites) {
+        suiteEarned = suiteMax;
+        if (offer.suites > 0) {
+          explanation.push({
+            category: 'suites',
+            status: 'positive',
+            title: `${offer.suites} suíte(s)`,
+            detail: `Diferencial positivo para a proposta.`,
+            pointsAwarded: suiteEarned,
+            maxPoints: suiteMax,
+          });
+        }
+      } else if (offer.suites >= search.minSuites) {
+        suiteEarned = suiteMax;
         explanation.push({
           category: 'suites',
           status: 'positive',
           title: `${offer.suites} suíte(s)`,
-          detail: `Diferencial positivo para a proposta.`,
+          detail: `Atende ao mínimo de ${search.minSuites} suíte(s) solicitada(s).`,
+          pointsAwarded: suiteEarned,
+          maxPoints: suiteMax,
+        });
+      } else if (offer.suites === search.minSuites - 1) {
+        suiteEarned = Math.round(suiteMax * (MATCH_CONFIG.ROOMS.SUITE_DEFICIT_1_POINTS / MATCH_CONFIG.WEIGHTS.SUITES));
+        explanation.push({
+          category: 'suites',
+          status: 'warning',
+          title: `${offer.suites} suíte(s); cliente busca pelo menos ${search.minSuites}`,
+          detail: `Déficit de 1 suíte em relação ao desejado.`,
+          pointsAwarded: suiteEarned,
+          maxPoints: suiteMax,
+        });
+      } else {
+        suiteEarned = 0;
+        explanation.push({
+          category: 'suites',
+          status: 'negative',
+          title: `Nenhuma suíte; cliente busca pelo menos ${search.minSuites}`,
+          detail: `Não possui as suítes solicitadas.`,
           pointsAwarded: suiteEarned,
           maxPoints: suiteMax,
         });
       }
-    } else if (offer.suites >= search.minSuites) {
-      suiteEarned = suiteMax;
-      explanation.push({
-        category: 'suites',
-        status: 'positive',
-        title: `${offer.suites} suíte(s)`,
-        detail: `Atende ao mínimo de ${search.minSuites} suíte(s) solicitada(s).`,
-        pointsAwarded: suiteEarned,
-        maxPoints: suiteMax,
-      });
-    } else if (offer.suites === search.minSuites - 1) {
-      suiteEarned = MATCH_CONFIG.ROOMS.SUITE_DEFICIT_1_POINTS;
-      explanation.push({
-        category: 'suites',
-        status: 'warning',
-        title: `${offer.suites} suíte(s); cliente busca pelo menos ${search.minSuites}`,
-        detail: `Déficit de 1 suíte em relação ao desejado.`,
-        pointsAwarded: suiteEarned,
-        maxPoints: suiteMax,
-      });
-    } else {
-      suiteEarned = 0;
-      explanation.push({
-        category: 'suites',
-        status: 'negative',
-        title: `Nenhuma suíte; cliente busca pelo menos ${search.minSuites}`,
-        detail: `Não possui as suítes solicitadas.`,
-        pointsAwarded: suiteEarned,
-        maxPoints: suiteMax,
-      });
+      earnedPoints += suiteEarned;
     }
-    earnedPoints += suiteEarned;
+
+    // Avaliação de Dormitórios sem Suíte
+    if (otherBedMax > 0) {
+      let otherBedEarned = 0;
+      if (offer.otherBedrooms >= search.minOtherBedrooms!) {
+        otherBedEarned = otherBedMax;
+        explanation.push({
+          category: 'bedrooms',
+          status: 'positive',
+          title: `${offer.otherBedrooms} dormitório(s) sem suíte`,
+          detail: `Atende ao mínimo solicitado de ${search.minOtherBedrooms} dormitório(s) sem suíte.`,
+          pointsAwarded: otherBedEarned,
+          maxPoints: otherBedMax,
+        });
+      } else if (offer.otherBedrooms === search.minOtherBedrooms! - 1) {
+        otherBedEarned = Math.round(otherBedMax * 0.5);
+        explanation.push({
+          category: 'bedrooms',
+          status: 'warning',
+          title: `${offer.otherBedrooms} dormitório(s) sem suíte; cliente busca pelo menos ${search.minOtherBedrooms}`,
+          detail: `Déficit de 1 dormitório sem suíte em relação ao desejado.`,
+          pointsAwarded: otherBedEarned,
+          maxPoints: otherBedMax,
+        });
+      } else {
+        otherBedEarned = 0;
+        explanation.push({
+          category: 'bedrooms',
+          status: 'negative',
+          title: `${offer.otherBedrooms} dormitório(s) sem suíte; abaixo do mínimo de ${search.minOtherBedrooms}`,
+          detail: `Déficit de ${search.minOtherBedrooms! - offer.otherBedrooms} dormitório(s) sem suíte.`,
+          pointsAwarded: otherBedEarned,
+          maxPoints: otherBedMax,
+        });
+      }
+      earnedPoints += otherBedEarned;
+    }
   }
 
   // ------------------------------------------
-  // 2.4 Vagas de Garagem (Não aplicável a Terrenos sem especificação)
+  // 2.4 Vagas de Garagem (Teto máx: 10 Pontos)
+  // Não aplicável a Terrenos sem especificação
   // ------------------------------------------
-  if (!isTerreno || search.minParkingSpaces > 0) {
-    const parkMax: number = MATCH_CONFIG.WEIGHTS.PARKING;
-    maxPossiblePoints += parkMax;
-    let parkEarned: number = parkMax;
+  const hasReqParking = search.minParkingSpaces != null && search.minParkingSpaces > 0;
+  const hasReqCovered = search.minCoveredParkingSpaces != null && search.minCoveredParkingSpaces > 0;
+  const hasReqUncovered = search.minUncoveredParkingSpaces != null && search.minUncoveredParkingSpaces > 0;
 
-    if (!search.minParkingSpaces || search.minParkingSpaces <= 0) {
-      parkEarned = parkMax;
-      if (offer.parkingSpaces > 0) {
+  if (!isTerreno || hasReqParking || hasReqCovered || hasReqUncovered) {
+    let parkMax = 0;
+    let coveredMax = 0;
+    let uncoveredMax = 0;
+
+    if (!hasReqCovered && !hasReqUncovered) {
+      parkMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_GROUP_TOTAL; // 10
+    } else if (hasReqParking && hasReqCovered && !hasReqUncovered) {
+      parkMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TOTAL_AND_COVERED.TOTAL; // 6
+      coveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TOTAL_AND_COVERED.COVERED; // 4
+    } else if (hasReqParking && !hasReqCovered && hasReqUncovered) {
+      parkMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TOTAL_AND_UNCOVERED.TOTAL; // 6
+      uncoveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TOTAL_AND_UNCOVERED.UNCOVERED; // 4
+    } else if (hasReqParking && hasReqCovered && hasReqUncovered) {
+      parkMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TRIO.TOTAL; // 4
+      coveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TRIO.COVERED; // 3
+      uncoveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_TRIO.UNCOVERED; // 3
+    } else if (!hasReqParking && hasReqCovered && !hasReqUncovered) {
+      coveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_ONLY_SUBTYPE; // 10
+    } else if (!hasReqParking && !hasReqCovered && hasReqUncovered) {
+      uncoveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_ONLY_SUBTYPE; // 10
+    } else {
+      // !hasReqParking && hasReqCovered && hasReqUncovered
+      coveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_COVERED_AND_UNCOVERED.COVERED; // 5
+      uncoveredMax = MATCH_CONFIG.STANDARD_FIELDS.PARKING_COVERED_AND_UNCOVERED.UNCOVERED; // 5
+    }
+
+    maxPossiblePoints += (parkMax + coveredMax + uncoveredMax);
+
+    // Vagas Totais
+    if (parkMax > 0) {
+      let parkEarned = 0;
+      if (!hasReqParking) {
+        parkEarned = parkMax;
+        if (offer.parkingSpaces > 0) {
+          explanation.push({
+            category: 'parking',
+            status: 'positive',
+            title: `${offer.parkingSpaces} vaga(s) de garagem`,
+            detail: `Disponibilidade de vagas sem restrição mínima prévia.`,
+            pointsAwarded: parkEarned,
+            maxPoints: parkMax,
+          });
+        }
+      } else if (offer.parkingSpaces >= search.minParkingSpaces) {
+        parkEarned = parkMax;
         explanation.push({
           category: 'parking',
           status: 'positive',
           title: `${offer.parkingSpaces} vaga(s) de garagem`,
-          detail: `Disponibilidade de vagas sem restrição mínima prévia.`,
+          detail: `Atende ao mínimo de ${search.minParkingSpaces} vaga(s) solicitada(s).`,
+          pointsAwarded: parkEarned,
+          maxPoints: parkMax,
+        });
+      } else if (offer.parkingSpaces === search.minParkingSpaces - 1) {
+        parkEarned = Math.round(parkMax * (MATCH_CONFIG.ROOMS.PARKING_DEFICIT_1_POINTS / MATCH_CONFIG.WEIGHTS.PARKING));
+        explanation.push({
+          category: 'parking',
+          status: 'warning',
+          title: `${offer.parkingSpaces} vaga(s); cliente busca pelo menos ${search.minParkingSpaces}`,
+          detail: `Déficit de 1 vaga de garagem.`,
+          pointsAwarded: parkEarned,
+          maxPoints: parkMax,
+        });
+      } else {
+        parkEarned = 0;
+        explanation.push({
+          category: 'parking',
+          status: 'negative',
+          title: `Sem vagas; cliente busca pelo menos ${search.minParkingSpaces}`,
+          detail: `Não atende ao requisito de estacionamento.`,
           pointsAwarded: parkEarned,
           maxPoints: parkMax,
         });
       }
-    } else if (offer.parkingSpaces >= search.minParkingSpaces) {
-      parkEarned = parkMax;
-      explanation.push({
-        category: 'parking',
-        status: 'positive',
-        title: `${offer.parkingSpaces} vaga(s) de garagem`,
-        detail: `Atende ao mínimo de ${search.minParkingSpaces} vaga(s) solicitada(s).`,
-        pointsAwarded: parkEarned,
-        maxPoints: parkMax,
-      });
-    } else if (offer.parkingSpaces === search.minParkingSpaces - 1) {
-      parkEarned = MATCH_CONFIG.ROOMS.PARKING_DEFICIT_1_POINTS;
-      explanation.push({
-        category: 'parking',
-        status: 'warning',
-        title: `${offer.parkingSpaces} vaga(s); cliente busca pelo menos ${search.minParkingSpaces}`,
-        detail: `Déficit de 1 vaga de garagem.`,
-        pointsAwarded: parkEarned,
-        maxPoints: parkMax,
-      });
-    } else {
-      parkEarned = 0;
-      explanation.push({
-        category: 'parking',
-        status: 'negative',
-        title: `Sem vagas; cliente busca pelo menos ${search.minParkingSpaces}`,
-        detail: `Não atende ao requisito de estacionamento.`,
-        pointsAwarded: parkEarned,
-        maxPoints: parkMax,
-      });
+      earnedPoints += parkEarned;
     }
-    earnedPoints += parkEarned;
+
+    // Vagas Cobertas
+    if (coveredMax > 0) {
+      let coveredEarned = 0;
+      const cov = offer.coveredParkingSpaces;
+      if (cov != null && cov >= search.minCoveredParkingSpaces!) {
+        coveredEarned = coveredMax;
+        explanation.push({
+          category: 'parking',
+          status: 'positive',
+          title: `${cov} vaga(s) coberta(s)`,
+          detail: `Atende ao mínimo de ${search.minCoveredParkingSpaces} vaga(s) coberta(s) solicitada(s).`,
+          pointsAwarded: coveredEarned,
+          maxPoints: coveredMax,
+        });
+      } else if (cov != null && search.minCoveredParkingSpaces! > 1 && cov === search.minCoveredParkingSpaces! - 1) {
+        coveredEarned = Math.round(coveredMax * 0.5);
+        explanation.push({
+          category: 'parking',
+          status: 'warning',
+          title: `${cov} vaga(s) coberta(s); cliente busca pelo menos ${search.minCoveredParkingSpaces}`,
+          detail: `Déficit de 1 vaga coberta em relação ao desejado.`,
+          pointsAwarded: coveredEarned,
+          maxPoints: coveredMax,
+        });
+      } else {
+        coveredEarned = 0;
+        explanation.push({
+          category: 'parking',
+          status: 'negative',
+          title: `${cov ?? 0} vaga(s) coberta(s); abaixo do mínimo de ${search.minCoveredParkingSpaces}`,
+          detail: `Não atende à exigência de vagas cobertas.`,
+          pointsAwarded: coveredEarned,
+          maxPoints: coveredMax,
+        });
+      }
+      earnedPoints += coveredEarned;
+    }
+
+    // Vagas Descobertas
+    if (uncoveredMax > 0) {
+      let uncoveredEarned = 0;
+      const uncov = offer.uncoveredParkingSpaces;
+      if (uncov != null && uncov >= search.minUncoveredParkingSpaces!) {
+        uncoveredEarned = uncoveredMax;
+        explanation.push({
+          category: 'parking',
+          status: 'positive',
+          title: `${uncov} vaga(s) descoberta(s)`,
+          detail: `Atende ao mínimo de ${search.minUncoveredParkingSpaces} vaga(s) descoberta(s) solicitada(s).`,
+          pointsAwarded: uncoveredEarned,
+          maxPoints: uncoveredMax,
+        });
+      } else if (uncov != null && search.minUncoveredParkingSpaces! > 1 && uncov === search.minUncoveredParkingSpaces! - 1) {
+        uncoveredEarned = Math.round(uncoveredMax * 0.5);
+        explanation.push({
+          category: 'parking',
+          status: 'warning',
+          title: `${uncov} vaga(s) descoberta(s); cliente busca pelo menos ${search.minUncoveredParkingSpaces}`,
+          detail: `Déficit de 1 vaga descoberta em relação ao desejado.`,
+          pointsAwarded: uncoveredEarned,
+          maxPoints: uncoveredMax,
+        });
+      } else {
+        uncoveredEarned = 0;
+        explanation.push({
+          category: 'parking',
+          status: 'negative',
+          title: `${uncov ?? 0} vaga(s) descoberta(s); abaixo do mínimo de ${search.minUncoveredParkingSpaces}`,
+          detail: `Não atende à exigência de vagas descobertas.`,
+          pointsAwarded: uncoveredEarned,
+          maxPoints: uncoveredMax,
+        });
+      }
+      earnedPoints += uncoveredEarned;
+    }
   }
 
   // ------------------------------------------
-  // 2.5 Área (Área Útil para Imóveis; Área do Terreno para Terrenos)
+  // 2.5 Área (Teto máx: 10 Pontos)
   // ------------------------------------------
-  const areaMax: number = MATCH_CONFIG.WEIGHTS.AREA;
-  maxPossiblePoints += areaMax;
-  let areaEarned: number = areaMax;
-
   if (isTerreno) {
+    const areaMax: number = MATCH_CONFIG.WEIGHTS.AREA;
+    maxPossiblePoints += areaMax;
+    let areaEarned: number = areaMax;
     const effectiveLandArea = offer.landArea || offer.privateArea || offer.totalArea;
     const requiredArea = search.minLandArea || search.minArea;
 
@@ -671,63 +846,168 @@ export function calculateMatch(
         maxPoints: areaMax,
       });
     }
+    earnedPoints += areaEarned;
   } else {
     // Casa / Apartamento / Comercial
-    if (!search.minArea || search.minArea <= 0) {
-      areaEarned = areaMax;
-      if (offer.privateArea) {
+    const hasReqArea = search.minArea != null && search.minArea > 0;
+    const hasReqBuiltArea = search.minBuiltArea != null && search.minBuiltArea > 0;
+
+    let privAreaMax = 0;
+    let builtAreaMax = 0;
+
+    if (hasReqArea && hasReqBuiltArea) {
+      privAreaMax = MATCH_CONFIG.STANDARD_FIELDS.AREA_PRIVATE_AND_BUILT.PRIVATE; // 6
+      builtAreaMax = MATCH_CONFIG.STANDARD_FIELDS.AREA_PRIVATE_AND_BUILT.BUILT; // 4
+    } else if (!hasReqArea && hasReqBuiltArea) {
+      builtAreaMax = MATCH_CONFIG.STANDARD_FIELDS.AREA_ONLY_BUILT; // 10
+    } else {
+      privAreaMax = MATCH_CONFIG.WEIGHTS.AREA; // 10
+    }
+
+    maxPossiblePoints += (privAreaMax + builtAreaMax);
+
+    // Avaliação de Área Privativa / Útil
+    if (privAreaMax > 0) {
+      let privEarned = 0;
+      if (!hasReqArea) {
+        privEarned = privAreaMax;
+        if (offer.privateArea) {
+          explanation.push({
+            category: 'area',
+            status: 'positive',
+            title: `${offer.privateArea} m² privativos`,
+            detail: `Metragem confortável informada no cadastro.`,
+            pointsAwarded: privEarned,
+            maxPoints: privAreaMax,
+          });
+        }
+      } else if (!offer.privateArea) {
+        privEarned = MATCH_CONFIG.AREA.UNSPECIFIED_AREA_POINTS;
+        explanation.push({
+          category: 'area',
+          status: 'warning',
+          title: `Área privativa não especificada na oferta`,
+          detail: `Cliente busca no mínimo ${search.minArea} m². Necessário confirmar metragem exata.`,
+          pointsAwarded: privEarned,
+          maxPoints: privAreaMax,
+        });
+      } else if (offer.privateArea >= search.minArea!) {
+        privEarned = privAreaMax;
         explanation.push({
           category: 'area',
           status: 'positive',
           title: `${offer.privateArea} m² privativos`,
-          detail: `Metragem confortável informada no cadastro.`,
-          pointsAwarded: areaEarned,
-          maxPoints: areaMax,
+          detail: `Atende ao mínimo solicitado pelo cliente (${search.minArea} m²).`,
+          pointsAwarded: privEarned,
+          maxPoints: privAreaMax,
+        });
+      } else if (offer.privateArea >= search.minArea! * 0.90) {
+        privEarned = MATCH_CONFIG.AREA.NEAR_AREA_POINTS;
+        explanation.push({
+          category: 'area',
+          status: 'warning',
+          title: `${offer.privateArea} m² privativos (próximo do mínimo)`,
+          detail: `Levemente abaixo dos ${search.minArea} m² solicitados, com boa distribuição.`,
+          pointsAwarded: privEarned,
+          maxPoints: privAreaMax,
+        });
+      } else {
+        privEarned = 0;
+        explanation.push({
+          category: 'area',
+          status: 'negative',
+          title: `${offer.privateArea} m² privativos (abaixo do mínimo)`,
+          detail: `Área abaixo do mínimo de ${search.minArea} m² solicitado pelo cliente.`,
+          pointsAwarded: privEarned,
+          maxPoints: privAreaMax,
         });
       }
-    } else if (!offer.privateArea) {
-      areaEarned = MATCH_CONFIG.AREA.UNSPECIFIED_AREA_POINTS;
-      explanation.push({
-        category: 'area',
-        status: 'warning',
-        title: `Área privativa não especificada na oferta`,
-        detail: `Cliente busca no mínimo ${search.minArea} m². Necessário confirmar metragem exata.`,
-        pointsAwarded: areaEarned,
-        maxPoints: areaMax,
-      });
-    } else if (offer.privateArea >= search.minArea) {
-      areaEarned = MATCH_CONFIG.AREA.FULL_AREA_POINTS;
-      explanation.push({
-        category: 'area',
-        status: 'positive',
-        title: `${offer.privateArea} m² privativos`,
-        detail: `Atende ao mínimo solicitado pelo cliente (${search.minArea} m²).`,
-        pointsAwarded: areaEarned,
-        maxPoints: areaMax,
-      });
-    } else if (offer.privateArea >= search.minArea * 0.90) {
-      areaEarned = MATCH_CONFIG.AREA.NEAR_AREA_POINTS;
-      explanation.push({
-        category: 'area',
-        status: 'warning',
-        title: `${offer.privateArea} m² privativos (próximo do mínimo)`,
-        detail: `Levemente abaixo dos ${search.minArea} m² solicitados, com boa distribuição.`,
-        pointsAwarded: areaEarned,
-        maxPoints: areaMax,
-      });
-    } else {
-      areaEarned = 0;
-      explanation.push({
-        category: 'area',
-        status: 'negative',
-        title: `${offer.privateArea} m² privativos (abaixo do mínimo)`,
-        detail: `Área abaixo do mínimo de ${search.minArea} m² solicitado pelo cliente.`,
-        pointsAwarded: areaEarned,
-        maxPoints: areaMax,
-      });
+      earnedPoints += privEarned;
+    }
+
+    // Avaliação de Área Construída
+    if (builtAreaMax > 0) {
+      let builtEarned = 0;
+      if (offer.builtArea != null && offer.builtArea >= search.minBuiltArea!) {
+        builtEarned = builtAreaMax;
+        explanation.push({
+          category: 'area',
+          status: 'positive',
+          title: `${offer.builtArea} m² de área construída`,
+          detail: `Atende ao mínimo solicitado de ${search.minBuiltArea} m² de área construída.`,
+          pointsAwarded: builtEarned,
+          maxPoints: builtAreaMax,
+        });
+      } else if (offer.builtArea != null && offer.builtArea >= search.minBuiltArea! * 0.90) {
+        builtEarned = Math.round(builtAreaMax * 0.5);
+        explanation.push({
+          category: 'area',
+          status: 'warning',
+          title: `${offer.builtArea} m² construídos (próximo do mínimo)`,
+          detail: `Levemente abaixo dos ${search.minBuiltArea} m² construídos solicitados.`,
+          pointsAwarded: builtEarned,
+          maxPoints: builtAreaMax,
+        });
+      } else {
+        builtEarned = 0;
+        explanation.push({
+          category: 'area',
+          status: 'negative',
+          title: `${offer.builtArea ?? 'Área'} construída abaixo do mínimo de ${search.minBuiltArea} m²`,
+          detail: `Não atende à exigência de área construída especificada.`,
+          pointsAwarded: builtEarned,
+          maxPoints: builtAreaMax,
+        });
+      }
+      earnedPoints += builtEarned;
     }
   }
-  earnedPoints += areaEarned;
+
+  // ------------------------------------------
+  // 2.6 Banheiro Social (Adaptativo por Demanda - até 4 Pontos)
+  // ------------------------------------------
+  if (!isTerreno && search.minSocialBathrooms != null && search.minSocialBathrooms > 0) {
+    const socialBathMax = MATCH_CONFIG.STANDARD_FIELDS.SOCIAL_BATHROOMS_WEIGHT; // 4
+    maxPossiblePoints += socialBathMax;
+    let socialEarned = 0;
+
+    if (offer.socialBathrooms != null && offer.socialBathrooms >= search.minSocialBathrooms) {
+      socialEarned = socialBathMax;
+      explanation.push({
+        category: 'other',
+        status: 'positive',
+        title: `${offer.socialBathrooms} banheiro(s) social(is)`,
+        detail: `Atende ao mínimo de ${search.minSocialBathrooms} banheiro(s) social(is) solicitado(s).`,
+        pointsAwarded: socialEarned,
+        maxPoints: socialBathMax,
+      });
+    } else if (
+      offer.socialBathrooms != null &&
+      search.minSocialBathrooms > 1 &&
+      offer.socialBathrooms === search.minSocialBathrooms - 1
+    ) {
+      socialEarned = Math.round(socialBathMax * 0.5);
+      explanation.push({
+        category: 'other',
+        status: 'warning',
+        title: `${offer.socialBathrooms} banheiro(s) social(is); cliente busca pelo menos ${search.minSocialBathrooms}`,
+        detail: `Déficit de 1 banheiro social em relação ao desejado.`,
+        pointsAwarded: socialEarned,
+        maxPoints: socialBathMax,
+      });
+    } else {
+      socialEarned = 0;
+      explanation.push({
+        category: 'other',
+        status: 'negative',
+        title: `${offer.socialBathrooms ?? 0} banheiro(s) social(is); abaixo do mínimo de ${search.minSocialBathrooms}`,
+        detail: `Não atende ao requisito de banheiro(s) social(is) individualizado(s).`,
+        pointsAwarded: socialEarned,
+        maxPoints: socialBathMax,
+      });
+    }
+    earnedPoints += socialEarned;
+  }
 
   // ------------------------------------------
   // 2.6 Outras Compatibilidades / Cadastro (5 Pontos Base)

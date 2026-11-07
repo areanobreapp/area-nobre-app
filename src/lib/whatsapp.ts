@@ -77,3 +77,29 @@ export function getWhatsAppUrl(
 
   return baseUrl;
 }
+
+/**
+ * Constantes oficiais para o canal de suporte da Área Nobre (Ponto 13)
+ */
+export const DEFAULT_SUPPORT_WHATSAPP = '5548999273694';
+export const DEFAULT_SUPPORT_MESSAGE = 'Olá! Preciso de ajuda com a Área Nobre.';
+export const LOGIN_SUPPORT_MESSAGE = 'Olá! Preciso de ajuda para acessar a Área Nobre.';
+
+/**
+ * Formata um número brasileiro para exibição amigável na interface:
+ * Ex: 5548999273694 -> (48) 99927-3694
+ */
+export function formatBrazilianPhoneDisplay(phone?: string | null): string {
+  if (!phone) return '';
+  const normalized = normalizeBrazilianPhone(phone);
+  if (!normalized) return phone;
+
+  const ddd = normalized.slice(2, 4);
+  const rest = normalized.slice(4);
+  if (rest.length === 9) {
+    return `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
+  } else if (rest.length === 8) {
+    return `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+  }
+  return normalized;
+}

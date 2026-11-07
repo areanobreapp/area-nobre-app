@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1E4620"/>
+      <stop offset="100%" stop-color="#2D5A27"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <!-- Floor & Room Lines -->
+  <polygon points="0,520 1200,520 1200,800 0,800" fill="#182234"/>
+  <line x1="0" y1="520" x2="1200" y2="520" stroke="#334155" stroke-width="2"/>
+  <line x1="280" y1="0" x2="280" y2="520" stroke="#1E293B" stroke-width="2"/>
+  <line x1="920" y1="0" x2="920" y2="520" stroke="#1E293B" stroke-width="2"/>
+  <!-- Big Window View -->
+  <rect x="340" y="80" width="520" height="320" rx="12" fill="#0284C7" fill-opacity="0.15" stroke="#38BDF8" stroke-width="2"/>
+  <line x1="600" y1="80" x2="600" y2="400" stroke="#38BDF8" stroke-width="2"/>
+  <!-- Sofa -->
+  <rect x="420" y="440" width="360" height="130" rx="18" fill="#334155" stroke="#475569" stroke-width="3"/>
+  <rect x="450" y="460" width="140" height="90" rx="10" fill="#475569"/>
+  <rect x="610" y="460" width="140" height="90" rx="10" fill="#475569"/>
+  <!-- Coffee Table -->
+  <ellipse cx="600" cy="620" rx="130" ry="32" fill="#1E4620" fill-opacity="0.7" stroke="#1E4620" stroke-width="2"/>
+  <!-- Test Banner -->
+  <rect x="250" y="24" width="700" height="44" rx="22" fill="#059669" fill-opacity="0.95"/>
+  <text x="600" y="52" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="#FFFFFF" text-anchor="middle" letter-spacing="2">
+    IMÓVEL DE DEMONSTRAÇÃO • LIVING INTEGRADO (TESTE)
+  </text>
+  <text x="600" y="740" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="#94A3B8" text-anchor="middle">
+    Ambiente de desenvolvimento Área Nobre • Dados e imagem exclusivamente para teste
+  </text>
+</svg>

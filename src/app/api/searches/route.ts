@@ -3,12 +3,19 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { recalculateMatchesForSearch } from '@/lib/matching';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
+import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { searchParams } = new URL(req.url);
@@ -76,6 +83,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const body = await req.json();
     const {
       clientName,
@@ -91,8 +103,13 @@ export async function POST(req: NextRequest) {
       minSuites,
       minOtherBedrooms,
       minOtherBathrooms,
+      minSocialBathrooms,
+      minLavabos,
       minParkingSpaces,
+      minCoveredParkingSpaces,
+      minUncoveredParkingSpaces,
       minArea,
+      minBuiltArea,
       minLandArea,
       referenceAddress,
       maxRadiusKm,
@@ -121,12 +138,63 @@ export async function POST(req: NextRequest) {
       travelMode,
     } = body;
 
-    if (!clientName || !purpose || maxPrice === undefined || maxPrice === null) {
+    if (!clientName || !purpose || maxPrice === undefined || maxPrice === null || String(maxPrice).trim() === '') {
       return NextResponse.json(
         { error: 'Nome do cliente, finalidade e valor máximo são obrigatórios.' },
         { status: 400 }
       );
     }
+
+    const vMaxPrice = validateNonNegativeFloat(maxPrice, 'Valor máximo', { required: true, isCurrencyString: true });
+    if (vMaxPrice.error) return NextResponse.json({ error: vMaxPrice.error }, { status: 400 });
+
+    const vMinPrice = validateNonNegativeFloat(minPrice, 'Valor mínimo', { isCurrencyString: true });
+    if (vMinPrice.error) return NextResponse.json({ error: vMinPrice.error }, { status: 400 });
+
+    const vMinBedrooms = validateNonNegativeInt(minBedrooms, 'Mínimo de quartos', { defaultValue: 0 });
+    if (vMinBedrooms.error) return NextResponse.json({ error: vMinBedrooms.error }, { status: 400 });
+
+    const vMinSuites = validateNonNegativeInt(minSuites, 'Mínimo de suítes', { defaultValue: 0 });
+    if (vMinSuites.error) return NextResponse.json({ error: vMinSuites.error }, { status: 400 });
+
+    const vMinOtherBedrooms = validateNonNegativeInt(minOtherBedrooms, 'Mínimo de demais quartos');
+    if (vMinOtherBedrooms.error) return NextResponse.json({ error: vMinOtherBedrooms.error }, { status: 400 });
+
+    const vMinOtherBathrooms = validateNonNegativeInt(minOtherBathrooms, 'Mínimo de demais banheiros');
+    if (vMinOtherBathrooms.error) return NextResponse.json({ error: vMinOtherBathrooms.error }, { status: 400 });
+
+    const vMinSocialBathrooms = validateNonNegativeInt(minSocialBathrooms, 'Mínimo de banheiros sociais');
+    if (vMinSocialBathrooms.error) return NextResponse.json({ error: vMinSocialBathrooms.error }, { status: 400 });
+
+    const vMinLavabos = validateNonNegativeInt(minLavabos, 'Mínimo de lavabos');
+    if (vMinLavabos.error) return NextResponse.json({ error: vMinLavabos.error }, { status: 400 });
+
+    const vMinParkingSpaces = validateNonNegativeInt(minParkingSpaces, 'Mínimo de vagas', { defaultValue: 0 });
+    if (vMinParkingSpaces.error) return NextResponse.json({ error: vMinParkingSpaces.error }, { status: 400 });
+
+    const vMinCovered = validateNonNegativeInt(minCoveredParkingSpaces, 'Mínimo de vagas cobertas');
+    if (vMinCovered.error) return NextResponse.json({ error: vMinCovered.error }, { status: 400 });
+
+    const vMinUncovered = validateNonNegativeInt(minUncoveredParkingSpaces, 'Mínimo de vagas descobertas');
+    if (vMinUncovered.error) return NextResponse.json({ error: vMinUncovered.error }, { status: 400 });
+
+    const vMinArea = validateNonNegativeFloat(minArea, 'Área privativa mínima');
+    if (vMinArea.error) return NextResponse.json({ error: vMinArea.error }, { status: 400 });
+
+    const vMinBuiltArea = validateNonNegativeFloat(minBuiltArea, 'Área construída mínima');
+    if (vMinBuiltArea.error) return NextResponse.json({ error: vMinBuiltArea.error }, { status: 400 });
+
+    const vMinLandArea = validateNonNegativeFloat(minLandArea, 'Área do terreno mínima');
+    if (vMinLandArea.error) return NextResponse.json({ error: vMinLandArea.error }, { status: 400 });
+
+    const vMaxRadiusKm = validateNonNegativeFloat(maxRadiusKm, 'Raio máximo (km)');
+    if (vMaxRadiusKm.error) return NextResponse.json({ error: vMaxRadiusKm.error }, { status: 400 });
+
+    const vSearchRadiusMeters = validateNonNegativeFloat(searchRadiusMeters, 'Raio de busca (metros)');
+    if (vSearchRadiusMeters.error) return NextResponse.json({ error: vSearchRadiusMeters.error }, { status: 400 });
+
+    const vMaxTravelTime = validateNonNegativeInt(maxTravelTimeMinutes, 'Tempo de deslocamento máximo (minutos)');
+    if (vMaxTravelTime.error) return NextResponse.json({ error: vMaxTravelTime.error }, { status: 400 });
 
     // Localiza ou cria o cliente isolado por usuário
     let client = await prisma.client.findFirst({
@@ -188,19 +256,24 @@ export async function POST(req: NextRequest) {
         propertyTypes: JSON.stringify(typesArray),
         cities: JSON.stringify(citiesArray),
         neighborhoods: JSON.stringify(neighborhoodsArray),
-        minPrice: minPrice ? parseFloat(String(minPrice)) : null,
-        maxPrice: parseFloat(String(maxPrice)) || 0,
-        minBedrooms: minBedrooms ? parseInt(String(minBedrooms), 10) : 0,
-        minSuites: minSuites ? parseInt(String(minSuites), 10) : 0,
-        minOtherBedrooms: minOtherBedrooms !== undefined && minOtherBedrooms !== null ? parseInt(String(minOtherBedrooms), 10) : null,
-        minOtherBathrooms: minOtherBathrooms !== undefined && minOtherBathrooms !== null ? parseInt(String(minOtherBathrooms), 10) : null,
-        minParkingSpaces: minParkingSpaces ? parseInt(String(minParkingSpaces), 10) : 0,
-        minArea: minArea ? parseFloat(String(minArea)) : null,
-        minLandArea: minLandArea ? parseFloat(String(minLandArea)) : null,
+        minPrice: vMinPrice.value,
+        maxPrice: vMaxPrice.value!,
+        minBedrooms: vMinBedrooms.value ?? 0,
+        minSuites: vMinSuites.value ?? 0,
+        minOtherBedrooms: vMinOtherBedrooms.value,
+        minOtherBathrooms: vMinOtherBathrooms.value,
+        minSocialBathrooms: vMinSocialBathrooms.value,
+        minLavabos: vMinLavabos.value,
+        minParkingSpaces: vMinParkingSpaces.value ?? 0,
+        minCoveredParkingSpaces: vMinCovered.value,
+        minUncoveredParkingSpaces: vMinUncovered.value,
+        minArea: vMinArea.value,
+        minBuiltArea: vMinBuiltArea.value,
+        minLandArea: vMinLandArea.value,
         referenceAddress: referenceAddress?.trim() || null,
         referenceLatitude: refLat,
         referenceLongitude: refLng,
-        maxRadiusKm: maxRadiusKm ? parseFloat(String(maxRadiusKm)) : null,
+        maxRadiusKm: vMaxRadiusKm.value,
         notes: notes?.trim() || null,
         active: true,
 
@@ -226,8 +299,8 @@ export async function POST(req: NextRequest) {
         locationStrategy: locationStrategy || (maxTravelTimeMinutes ? 'TRAVEL_TIME' : (searchRadiusMeters ? 'RADIUS' : 'NEIGHBORHOODS')),
         searchLatitude: searchLatitude !== undefined && searchLatitude !== null ? parseFloat(String(searchLatitude)) : (refLat || null),
         searchLongitude: searchLongitude !== undefined && searchLongitude !== null ? parseFloat(String(searchLongitude)) : (refLng || null),
-        searchRadiusMeters: searchRadiusMeters !== undefined && searchRadiusMeters !== null ? parseFloat(String(searchRadiusMeters)) : (maxRadiusKm ? parseFloat(String(maxRadiusKm)) * 1000 : null),
-        maxTravelTimeMinutes: maxTravelTimeMinutes !== undefined && maxTravelTimeMinutes !== null ? parseInt(String(maxTravelTimeMinutes), 10) : null,
+        searchRadiusMeters: vSearchRadiusMeters.value !== null ? vSearchRadiusMeters.value : (vMaxRadiusKm.value !== null ? vMaxRadiusKm.value * 1000 : null),
+        maxTravelTimeMinutes: vMaxTravelTime.value,
         travelMode: travelMode || 'DRIVING',
       },
       include: {

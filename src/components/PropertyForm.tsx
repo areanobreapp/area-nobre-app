@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import FieldHelper from './FieldHelper';
 import {
   Building2,
   DollarSign,
@@ -14,6 +15,8 @@ import {
   ArrowLeft,
   Image as ImageIcon,
   AlertCircle,
+  AlertTriangle,
+  Info,
   Compass,
   Pentagon,
   ChevronDown,
@@ -28,6 +31,7 @@ import {
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 const ParcelBoundaryModal = dynamic(() => import('./ParcelBoundaryModal'), { ssr: false });
+import PropertyAuthorizationModal from './PropertyAuthorizationModal';
 
 interface PropertyFormProps {
   initialData?: any;
@@ -43,6 +47,61 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [error, setError] = useState<string | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
 
+  // Autorização do Proprietário (Fase 1 / Ponto 20 / Etapa 1.4)
+  const [hasOwnerAuthorization, setHasOwnerAuthorization] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authDetails, setAuthDetails] = useState<any>(null);
+  const [loadingAuth, setLoadingAuth] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+
+  React.useEffect(() => {
+    if (isEditing && initialData?.id) {
+      setLoadingAuth(true);
+      fetch(`/api/properties/${initialData.id}/authorization`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (!data.error) {
+            setAuthDetails(data);
+          }
+        })
+        .catch((err) => console.error('Erro ao consultar autorização do imóvel:', err))
+        .finally(() => setLoadingAuth(false));
+    }
+  }, [isEditing, initialData?.id]);
+
+  async function handleRevokeAuthorization() {
+    if (!initialData?.id) return;
+    const confirm = window.confirm(
+      'Tem certeza de que deseja revogar a autorização de divulgação deste imóvel?\n\nA divulgação pública e os links compartilhados serão suspensos imediatamente e o imóvel ficará inativo.'
+    );
+    if (!confirm) return;
+
+    setRevoking(true);
+    try {
+      const res = await fetch(`/api/properties/${initialData.id}/authorization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'revoke' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao revogar autorização.');
+
+      // Atualiza detalhes locais
+      setAuthDetails((prev: any) => ({
+        ...prev,
+        currentStatus: 'REVOKED',
+        canBePubliclyExposed: false,
+        isPublic: false,
+      }));
+      setStatus('Inativo');
+      alert('Autorização revogada com sucesso. A divulgação foi suspensa.');
+    } catch (err: any) {
+      alert(err.message || 'Falha ao revogar autorização.');
+    } finally {
+      setRevoking(false);
+    }
+  }
+
   // Campos do formulário
   const [title, setTitle] = useState(initialData?.title || '');
   const [internalCode, setInternalCode] = useState(initialData?.internalCode || '');
@@ -51,25 +110,94 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [status, setStatus] = useState(initialData?.status || 'Disponível');
   const [price, setPrice] = useState(initialData?.price ? String(initialData.price) : '');
 
-  // Semântica de dormitórios e banheiros (Fase 5.0.1)
-  const initialSuites = initialData?.suites !== undefined ? String(initialData.suites) : '1';
+  // Suítes e Quartos (Pontos 14, 17 e 28 / Fase 1 Bloco 2)
+  const initialSuites = initialData?.suites !== undefined ? String(initialData.suites) : (isEditing ? '0' : '1');
   const initialOtherBedrooms = initialData?.otherBedrooms !== undefined && initialData?.otherBedrooms !== null
     ? String(initialData.otherBedrooms)
-    : String(Math.max(0, (initialData?.bedrooms ?? 2) - (initialData?.suites ?? 1)));
-  const initialOtherBathrooms = initialData?.otherBathrooms !== undefined && initialData?.otherBathrooms !== null
-    ? String(initialData.otherBathrooms)
-    : String(Math.max(0, (initialData?.bathrooms ?? 2) - (initialData?.suites ?? 1)));
+    : (isEditing && initialData?.bedrooms !== undefined
+        ? String(Math.max(0, (initialData.bedrooms || 0) - (initialData.suites || 0)))
+        : (isEditing ? '0' : '1'));
 
   const [suites, setSuites] = useState(initialSuites);
   const [otherBedrooms, setOtherBedrooms] = useState(initialOtherBedrooms);
-  const [otherBathrooms, setOtherBathrooms] = useState(initialOtherBathrooms);
+
+  // Banheiros Sociais e Lavabos
+  // Identifica se é um imóvel legado sem discriminação de banheiros
+  const isLegacyUnclassifiedBaths = Boolean(
+    isEditing &&
+    initialData &&
+    initialData.socialBathrooms == null &&
+    initialData.lavabos == null &&
+    (initialData.bathrooms ?? 0) > (initialData.suites ?? 0)
+  );
+
+  const [isClassifyingBaths, setIsClassifyingBaths] = useState<boolean>(!isLegacyUnclassifiedBaths);
+  const [socialBathrooms, setSocialBathrooms] = useState<string>(
+    initialData?.socialBathrooms !== undefined && initialData?.socialBathrooms !== null
+      ? String(initialData.socialBathrooms)
+      : ''
+  );
+  const [lavabos, setLavabos] = useState<string>(
+    initialData?.lavabos !== undefined && initialData?.lavabos !== null
+      ? String(initialData.lavabos)
+      : ''
+  );
+  const legacyBathrooms = initialData?.bathrooms !== undefined ? Number(initialData.bathrooms) : null;
+
+  // Vagas de Garagem (Cobertas e Descobertas)
+  // Identifica se é um imóvel legado sem discriminação de cobertura de vagas
+  const isLegacyUnclassifiedParking = Boolean(
+    isEditing &&
+    initialData &&
+    initialData.coveredParkingSpaces == null &&
+    initialData.uncoveredParkingSpaces == null &&
+    (initialData.parkingSpaces ?? 0) > 0
+  );
+
+  const [isClassifyingParking, setIsClassifyingParking] = useState<boolean>(!isLegacyUnclassifiedParking);
+  const [coveredParkingSpaces, setCoveredParkingSpaces] = useState<string>(
+    initialData?.coveredParkingSpaces !== undefined && initialData?.coveredParkingSpaces !== null
+      ? String(initialData.coveredParkingSpaces)
+      : ''
+  );
+  const [uncoveredParkingSpaces, setUncoveredParkingSpaces] = useState<string>(
+    initialData?.uncoveredParkingSpaces !== undefined && initialData?.uncoveredParkingSpaces !== null
+      ? String(initialData.uncoveredParkingSpaces)
+      : ''
+  );
+  const legacyParkingSpaces = initialData?.parkingSpaces !== undefined ? Number(initialData.parkingSpaces) : null;
 
   // Áreas
+  const [builtArea, setBuiltArea] = useState(initialData?.builtArea ? String(initialData.builtArea) : '');
   const [privateArea, setPrivateArea] = useState(initialData?.privateArea ? String(initialData.privateArea) : '');
   const [totalArea, setTotalArea] = useState(initialData?.totalArea ? String(initialData.totalArea) : '');
   const [landArea, setLandArea] = useState(initialData?.landArea ? String(initialData.landArea) : '');
 
-  const [parkingSpaces, setParkingSpaces] = useState(initialData?.parkingSpaces !== undefined ? String(initialData.parkingSpaces) : '1');
+  // Flag para alertar casa antiga com metragem em privateArea
+  const isLegacyHouseWithPrivateArea = Boolean(
+    isEditing &&
+    propertyType === 'Casa' &&
+    !initialData?.builtArea &&
+    initialData?.privateArea
+  );
+  const [legacyAreaConfirmed, setLegacyAreaConfirmed] = useState<boolean>(false);
+
+  // Cálculos Automáticos Derivados em Tempo Real
+  const parsedSuitesCount = Math.max(0, parseInt(suites, 10) || 0);
+  const parsedOtherBedCount = Math.max(0, parseInt(otherBedrooms, 10) || 0);
+  const totalBedroomsCalculated = parsedSuitesCount + parsedOtherBedCount;
+
+  const parsedSocialCount = Math.max(0, parseInt(socialBathrooms, 10) || 0);
+  const parsedLavabosCount = Math.max(0, parseInt(lavabos, 10) || 0);
+  const totalBathroomsCalculated = isClassifyingBaths
+    ? parsedSuitesCount + parsedSocialCount + parsedLavabosCount
+    : (legacyBathrooms ?? (parsedSuitesCount + parsedSocialCount + parsedLavabosCount));
+
+  const parsedCoveredCount = Math.max(0, parseInt(coveredParkingSpaces, 10) || 0);
+  const parsedUncoveredCount = Math.max(0, parseInt(uncoveredParkingSpaces, 10) || 0);
+  const totalParkingCalculated = isClassifyingParking
+    ? parsedCoveredCount + parsedUncoveredCount
+    : (legacyParkingSpaces ?? (parsedCoveredCount + parsedUncoveredCount));
   const [description, setDescription] = useState(initialData?.description || '');
   const [internalNotes, setInternalNotes] = useState(initialData?.internalNotes || '');
 
@@ -443,9 +571,27 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       }
     }
 
-    const parsedSuitesNum = parseInt(suites, 10) || 0;
-    const parsedOtherBedNum = parseInt(otherBedrooms, 10) || 0;
-    const parsedOtherBathNum = parseInt(otherBathrooms, 10) || 0;
+    // Confirmação de alteração do total de banheiros em imóveis legados
+    if (isLegacyUnclassifiedBaths && isClassifyingBaths && legacyBathrooms !== null && totalBathroomsCalculated !== legacyBathrooms) {
+      const confirmChange = window.confirm(
+        `A soma dos banheiros (${totalBathroomsCalculated}: ${parsedSuitesCount} suíte(s) + ${parsedSocialCount} social + ${parsedLavabosCount} lavabo) difere do total cadastrado anteriormente (${legacyBathrooms} banheiros).\n\nDeseja confirmar a alteração do total para ${totalBathroomsCalculated}?`
+      );
+      if (!confirmChange) return;
+    }
+
+    // Confirmação de alteração do total de vagas em imóveis legados
+    if (isLegacyUnclassifiedParking && isClassifyingParking && legacyParkingSpaces !== null && totalParkingCalculated !== legacyParkingSpaces) {
+      const confirmChange = window.confirm(
+        `A soma das vagas (${totalParkingCalculated}: ${parsedCoveredCount} coberta(s) + ${parsedUncoveredCount} descoberta(s)) difere do total cadastrado anteriormente (${legacyParkingSpaces} vagas).\n\nDeseja confirmar a alteração do total para ${totalParkingCalculated}?`
+      );
+      if (!confirmChange) return;
+    }
+
+    const parsePositiveFloat = (val: string) => {
+      if (!val || !val.trim()) return null;
+      const num = parseFloat(val.replace(',', '.'));
+      return isNaN(num) || num < 0 ? null : num;
+    };
 
     const payload = {
       title,
@@ -454,15 +600,20 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       purpose,
       status: saveStatus,
       price: Number(price),
-      privateArea: privateArea ? parseFloat(privateArea) : null,
-      totalArea: totalArea ? parseFloat(totalArea) : null,
-      landArea: landArea ? parseFloat(landArea) : null,
-      suites: parsedSuitesNum,
-      otherBedrooms: parsedOtherBedNum,
-      bedrooms: parsedSuitesNum + parsedOtherBedNum,
-      otherBathrooms: parsedOtherBathNum,
-      bathrooms: parsedSuitesNum + parsedOtherBathNum,
-      parkingSpaces: parseInt(parkingSpaces, 10) || 0,
+      builtArea: parsePositiveFloat(builtArea),
+      privateArea: parsePositiveFloat(privateArea),
+      totalArea: parsePositiveFloat(totalArea),
+      landArea: parsePositiveFloat(landArea),
+      suites: parsedSuitesCount,
+      otherBedrooms: parsedOtherBedCount,
+      bedrooms: totalBedroomsCalculated,
+      socialBathrooms: isClassifyingBaths ? parsedSocialCount : null,
+      lavabos: isClassifyingBaths ? parsedLavabosCount : null,
+      bathrooms: totalBathroomsCalculated,
+      otherBathrooms: null,
+      coveredParkingSpaces: isClassifyingParking ? parsedCoveredCount : null,
+      uncoveredParkingSpaces: isClassifyingParking ? parsedUncoveredCount : null,
+      parkingSpaces: totalParkingCalculated,
       description,
       internalNotes,
       zipcode,
@@ -495,6 +646,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       streetPaving: streetPaving || null,
       commercialType: commercialType || null,
       images,
+      hasOwnerAuthorization,
     };
 
     try {
@@ -794,397 +946,480 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           </span>
         </div>
 
-        {/* Layout para Terreno */}
+        {/* Layout Condicional conforme o Tipo de Imóvel */}
         {propertyType === 'Terreno' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área do Terreno (m²) Documental *
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={landArea}
-                onChange={(e) => setLandArea(e.target.value)}
-                placeholder="Ex: 360"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                Metragem da escritura/matrícula (independente da delimitação no mapa).
-              </span>
-            </div>
+          /* TERRENO */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                  <label htmlFor="field-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                    Área do Terreno (m²) Documental *
+                  </label>
+                  <FieldHelper helpKey="landArea" />
+                </div>
+                <input
+                  id="field-land-area"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={landArea}
+                  onChange={(e) => setLandArea(e.target.value)}
+                  placeholder="Ex: 360"
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'var(--bg-subtle)',
+                  }}
+                />
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                  Metragem da escritura/matrícula (independente da delimitação no mapa).
+                </span>
+              </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Terreno de Esquina?
-              </label>
-              <select
-                value={isCorner === null ? '' : isCorner ? 'true' : 'false'}
-                onChange={(e) => setIsCorner(e.target.value === '' ? null : e.target.value === 'true')}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              >
-                <option value="">Não informado</option>
-                <option value="true">Sim, de esquina</option>
-                <option value="false">Não (meio de quadra)</option>
-              </select>
-            </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                  Terreno de Esquina?
+                </label>
+                <select
+                  value={isCorner === null ? '' : isCorner ? 'true' : 'false'}
+                  onChange={(e) => setIsCorner(e.target.value === '' ? null : e.target.value === 'true')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'var(--bg-subtle)',
+                  }}
+                >
+                  <option value="">Não informado</option>
+                  <option value="true">Sim, de esquina</option>
+                  <option value="false">Não (meio de quadra)</option>
+                </select>
+              </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Em Condomínio Fechado?
-              </label>
-              <select
-                value={inGatedCommunity === null ? '' : inGatedCommunity ? 'true' : 'false'}
-                onChange={(e) => setInGatedCommunity(e.target.value === '' ? null : e.target.value === 'true')}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              >
-                <option value="">Não informado</option>
-                <option value="true">Sim, em condomínio</option>
-                <option value="false">Não (lote aberto / rua pública)</option>
-              </select>
-            </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                  Em Condomínio Fechado?
+                </label>
+                <select
+                  value={inGatedCommunity === null ? '' : inGatedCommunity ? 'true' : 'false'}
+                  onChange={(e) => setInGatedCommunity(e.target.value === '' ? null : e.target.value === 'true')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'var(--bg-subtle)',
+                  }}
+                >
+                  <option value="">Não informado</option>
+                  <option value="true">Sim, em condomínio</option>
+                  <option value="false">Não (lote aberto / rua pública)</option>
+                </select>
+              </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Em Loteamento Planejado?
-              </label>
-              <select
-                value={inAllotment === null ? '' : inAllotment ? 'true' : 'false'}
-                onChange={(e) => setInAllotment(e.target.value === '' ? null : e.target.value === 'true')}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              >
-                <option value="">Não informado</option>
-                <option value="true">Sim, em loteamento</option>
-                <option value="false">Não</option>
-              </select>
-            </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                  Em Loteamento Planejado?
+                </label>
+                <select
+                  value={inAllotment === null ? '' : inAllotment ? 'true' : 'false'}
+                  onChange={(e) => setInAllotment(e.target.value === '' ? null : e.target.value === 'true')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'var(--bg-subtle)',
+                  }}
+                >
+                  <option value="">Não informado</option>
+                  <option value="true">Sim, em loteamento</option>
+                  <option value="false">Não</option>
+                </select>
+              </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Calçamento da Rua
-              </label>
-              <select
-                value={streetPaving}
-                onChange={(e) => setStreetPaving(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              >
-                <option value="Asfalto">Asfalto</option>
-                <option value="Lajota">Lajota</option>
-                <option value="Paralelepípedo">Paralelepípedo</option>
-                <option value="Terra">Terra / Saibro</option>
-              </select>
-            </div>
-          </div>
-        ) : propertyType === 'Comercial' ? (
-          /* Layout para Comercial */
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Tipo de Sala / Posição
-              </label>
-              <select
-                value={commercialType}
-                onChange={(e) => setCommercialType(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              >
-                <option value="Térrea">Térrea (com vitrine de rua)</option>
-                <option value="Aérea">Aérea (em edifício comercial)</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área Útil / Privativa (m²)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={privateArea}
-                onChange={(e) => setPrivateArea(e.target.value)}
-                placeholder="Ex: 60"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área Total (m²)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={totalArea}
-                onChange={(e) => setTotalArea(e.target.value)}
-                placeholder="Ex: 85"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Área do Terreno (m²)
-              </label>
-              <input
-                type="number"
-                min="0"
-                step="0.1"
-                value={landArea}
-                onChange={(e) => setLandArea(e.target.value)}
-                placeholder="Ex: 300"
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Banheiros
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={otherBathrooms}
-                onChange={(e) => setOtherBathrooms(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                Vagas de Garagem
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={parkingSpaces}
-                onChange={(e) => setParkingSpaces(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
-                }}
-              />
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                  Calçamento da Rua
+                </label>
+                <select
+                  value={streetPaving}
+                  onChange={(e) => setStreetPaving(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: 'var(--bg-subtle)',
+                  }}
+                >
+                  <option value="Asfalto">Asfalto</option>
+                  <option value="Lajota">Lajota</option>
+                  <option value="Paralelepípedo">Paralelepípedo</option>
+                  <option value="Terra">Terra / Saibro</option>
+                </select>
+              </div>
             </div>
           </div>
         ) : (
-          /* Layout para Casa e Apartamento */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Bloco de Dormitórios e Banheiros com Semântica Precisa (Requisito 2) */}
+          /* APARTAMENTO, CASA, COMERCIAL OU OUTROS */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* GRUPO 1: Dormitórios e Suítes */}
+            {propertyType !== 'Comercial' && (
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                  <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                    1. Dormitórios e Suítes
+                  </span>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#ECFDF5', color: '#065F46', padding: '3px 10px', borderRadius: '12px', border: '1px solid #A7F3D0' }}>
+                    Total: {totalBedroomsCalculated} dormitório(s)
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                      <label htmlFor="field-suites" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                        Suítes
+                      </label>
+                      <FieldHelper helpKey="suites" />
+                    </div>
+                    <input
+                      id="field-suites"
+                      type="number"
+                      min="0"
+                      value={suites}
+                      onChange={(e) => setSuites(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                      <label htmlFor="field-other-bedrooms" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                        Dormitórios (sem suíte)
+                      </label>
+                      <FieldHelper helpKey="dormitories" />
+                    </div>
+                    <input
+                      id="field-other-bedrooms"
+                      type="number"
+                      min="0"
+                      value={otherBedrooms}
+                      onChange={(e) => setOtherBedrooms(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'white',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                      <label htmlFor="field-total-bedrooms" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                        Total de quartos (calculado)
+                      </label>
+                      <FieldHelper helpKey="totalBedrooms" />
+                    </div>
+                    <input
+                      id="field-total-bedrooms"
+                      type="number"
+                      disabled
+                      value={totalBedroomsCalculated}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-primary-subtle)',
+                        backgroundColor: 'var(--color-primary-light)',
+                        color: 'var(--color-primary)',
+                        fontWeight: 700,
+                        cursor: 'not-allowed',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* GRUPO 2: Banheiros Sociais e Lavabos */}
             <div style={{ padding: '16px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                  Composição de Quartos e Banheiros
+                  {propertyType === 'Comercial' ? '1. Sanitários e Banheiros' : '2. Banheiros e Lavabos'}
                 </span>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#ECFDF5', color: '#065F46', padding: '2px 8px', borderRadius: '12px', border: '1px solid #A7F3D0' }}>
-                    Total: {(parseInt(suites, 10) || 0) + (parseInt(otherBedrooms, 10) || 0)} dormitório(s)
-                  </span>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#EFF6FF', color: '#1E40AF', padding: '2px 8px', borderRadius: '12px', border: '1px solid #BFDBFE' }}>
-                    Total: {(parseInt(suites, 10) || 0) + (parseInt(otherBathrooms, 10) || 0)} banheiro(s)
-                  </span>
-                </div>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#EFF6FF', color: '#1E40AF', padding: '3px 10px', borderRadius: '12px', border: '1px solid #BFDBFE' }}>
+                  Total: {totalBathroomsCalculated} banheiro(s)
+                </span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '14px' }}>
+              {/* Aviso para imóvel legado sem classificação */}
+              {!isClassifyingBaths && isLegacyUnclassifiedBaths ? (
+                <div style={{ padding: '12px', backgroundColor: '#FEF3C7', borderRadius: 'var(--radius-sm)', border: '1px solid #FDE68A', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <AlertTriangle size={18} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div style={{ fontSize: '0.82rem', color: '#92400E', lineHeight: 1.45 }}>
+                      <strong>Classificação detalhada não informada no cadastro anterior.</strong>
+                      <br />
+                      Total registrado: <strong>{legacyBathrooms} banheiros</strong> ({parsedSuitesCount} de suíte + {Math.max(0, (legacyBathrooms || 0) - parsedSuitesCount)} adicional não classificado entre social ou lavabo).
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '0.76rem', color: '#78350F' }}>
+                      O total legado será preservado normalmente ao salvar outros dados.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsClassifyingBaths(true);
+                        const residual = Math.max(0, (legacyBathrooms || 0) - parsedSuitesCount);
+                        setSocialBathrooms(String(residual));
+                        setLavabos('0');
+                      }}
+                      className="btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: '0.78rem', backgroundColor: '#FFFFFF', borderColor: '#F59E0B', color: '#B45309', fontWeight: 600 }}
+                    >
+                      Classificar banheiros agora
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                    Suítes
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-social-bathrooms" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                      Banheiros sociais
+                    </label>
+                    <FieldHelper helpKey="socialBathrooms" />
+                  </div>
                   <input
+                    id="field-social-bathrooms"
                     type="number"
                     min="0"
-                    value={suites}
-                    onChange={(e) => setSuites(e.target.value)}
+                    disabled={!isClassifyingBaths && isLegacyUnclassifiedBaths}
+                    value={socialBathrooms}
+                    onChange={(e) => setSocialBathrooms(e.target.value)}
+                    placeholder={!isClassifyingBaths ? 'Não classificado' : 'Ex: 1'}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-light)',
-                      backgroundColor: 'white',
+                      backgroundColor: !isClassifyingBaths && isLegacyUnclassifiedBaths ? 'var(--bg-subtle)' : 'white',
                     }}
                   />
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                    Outros Quartos
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-lavabos" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                      Lavabos
+                    </label>
+                    <FieldHelper helpKey="lavabos" />
+                  </div>
                   <input
+                    id="field-lavabos"
                     type="number"
                     min="0"
-                    value={otherBedrooms}
-                    onChange={(e) => setOtherBedrooms(e.target.value)}
+                    disabled={!isClassifyingBaths && isLegacyUnclassifiedBaths}
+                    value={lavabos}
+                    onChange={(e) => setLavabos(e.target.value)}
+                    placeholder={!isClassifyingBaths ? 'Não classificado' : 'Ex: 1'}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--border-light)',
-                      backgroundColor: 'white',
+                      backgroundColor: !isClassifyingBaths && isLegacyUnclassifiedBaths ? 'var(--bg-subtle)' : 'white',
                     }}
                   />
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                    Outros Banheiros
-                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-total-bathrooms" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#1E40AF' }}>
+                      Total de banheiros (calculado)
+                    </label>
+                    <FieldHelper helpKey="totalBathrooms" />
+                  </div>
                   <input
+                    id="field-total-bathrooms"
                     type="number"
-                    min="0"
-                    value={otherBathrooms}
-                    onChange={(e) => setOtherBathrooms(e.target.value)}
+                    disabled
+                    value={totalBathroomsCalculated}
                     style={{
                       width: '100%',
                       padding: '8px 12px',
                       borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-light)',
-                      backgroundColor: 'white',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                    Vagas de Garagem
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={parkingSpaces}
-                    onChange={(e) => setParkingSpaces(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--border-light)',
-                      backgroundColor: 'white',
+                      border: '1px solid #BFDBFE',
+                      backgroundColor: '#EFF6FF',
+                      color: '#1E40AF',
+                      fontWeight: 700,
+                      cursor: 'not-allowed',
                     }}
                   />
                 </div>
               </div>
             </div>
 
-            {/* Metragens e Específicos de Casa / Apartamento */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                  Área Privativa / Útil (m²)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={privateArea}
-                  onChange={(e) => setPrivateArea(e.target.value)}
-                  placeholder="Ex: 85"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-light)',
-                    backgroundColor: 'var(--bg-subtle)',
-                  }}
-                />
+            {/* GRUPO 3: Vagas de Garagem (Cobertas e Descobertas) */}
+            <div style={{ padding: '16px', backgroundColor: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  {propertyType === 'Comercial' ? '2. Estacionamento e Vagas' : '3. Vagas de Garagem'}
+                </span>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, backgroundColor: '#F3F4F6', color: '#374151', padding: '3px 10px', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
+                  Total: {totalParkingCalculated} vaga(s)
+                </span>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                  Área Total (m²)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={totalArea}
-                  onChange={(e) => setTotalArea(e.target.value)}
-                  placeholder="Ex: 110"
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-light)',
-                    backgroundColor: 'var(--bg-subtle)',
-                  }}
-                />
-              </div>
+              {/* Aviso para imóvel legado sem especificação de cobertura */}
+              {!isClassifyingParking && isLegacyUnclassifiedParking ? (
+                <div style={{ padding: '12px', backgroundColor: '#FEF3C7', borderRadius: 'var(--radius-sm)', border: '1px solid #FDE68A', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <AlertTriangle size={18} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div style={{ fontSize: '0.82rem', color: '#92400E', lineHeight: 1.45 }}>
+                      <strong>Cobertura das vagas não especificada no cadastro anterior.</strong>
+                      <br />
+                      Total registrado: <strong>{legacyParkingSpaces} vaga(s)</strong>.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                    <span style={{ fontSize: '0.76rem', color: '#78350F' }}>
+                      O total legado será preservado normalmente ao salvar outros dados.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsClassifyingParking(true);
+                        setCoveredParkingSpaces(String(legacyParkingSpaces || 0));
+                        setUncoveredParkingSpaces('0');
+                      }}
+                      className="btn-secondary"
+                      style={{ padding: '4px 10px', fontSize: '0.78rem', backgroundColor: '#FFFFFF', borderColor: '#F59E0B', color: '#B45309', fontWeight: 600 }}
+                    >
+                      Especificar cobertura agora
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
-              {propertyType === 'Casa' ? (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                      Área do Terreno (m²)
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-covered-parking" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                      Vagas cobertas
                     </label>
+                    <FieldHelper helpKey="coveredParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-covered-parking"
+                    type="number"
+                    min="0"
+                    disabled={!isClassifyingParking && isLegacyUnclassifiedParking}
+                    value={coveredParkingSpaces}
+                    onChange={(e) => setCoveredParkingSpaces(e.target.value)}
+                    placeholder={!isClassifyingParking ? 'Não especificado' : 'Ex: 2'}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: !isClassifyingParking && isLegacyUnclassifiedParking ? 'var(--bg-subtle)' : 'white',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-uncovered-parking" style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                      Vagas descobertas
+                    </label>
+                    <FieldHelper helpKey="uncoveredParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-uncovered-parking"
+                    type="number"
+                    min="0"
+                    disabled={!isClassifyingParking && isLegacyUnclassifiedParking}
+                    value={uncoveredParkingSpaces}
+                    onChange={(e) => setUncoveredParkingSpaces(e.target.value)}
+                    placeholder={!isClassifyingParking ? 'Não especificado' : 'Ex: 0'}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-light)',
+                      backgroundColor: !isClassifyingParking && isLegacyUnclassifiedParking ? 'var(--bg-subtle)' : 'white',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <label htmlFor="field-total-parking" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#374151' }}>
+                      Vagas totais (calculado)
+                    </label>
+                    <FieldHelper helpKey="totalParkingSpaces" />
+                  </div>
+                  <input
+                    id="field-total-parking"
+                    type="number"
+                    disabled
+                    value={totalParkingCalculated}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid #D1D5DB',
+                      backgroundColor: '#F3F4F6',
+                      color: '#374151',
+                      fontWeight: 700,
+                      cursor: 'not-allowed',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* GRUPO 4: Metragens e Áreas (conforme o tipo de imóvel) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                {propertyType === 'Comercial' ? '3. Metragens e Áreas' : '4. Metragens e Áreas'}
+              </span>
+
+              {/* Layout para Apartamento */}
+              {propertyType === 'Apartamento' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-apt-private-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área privativa (m²)
+                      </label>
+                      <FieldHelper helpKey="privateArea" />
+                    </div>
                     <input
+                      id="field-apt-private-area"
                       type="number"
                       min="0"
-                      step="0.1"
-                      value={landArea}
-                      onChange={(e) => setLandArea(e.target.value)}
-                      placeholder="Ex: 360"
+                      step="0.01"
+                      value={privateArea}
+                      onChange={(e) => setPrivateArea(e.target.value)}
+                      placeholder="Ex: 85"
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -1196,12 +1431,20 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                      Averbada (Financiável)?
-                    </label>
-                    <select
-                      value={isRegistered === null ? '' : isRegistered ? 'true' : 'false'}
-                      onChange={(e) => setIsRegistered(e.target.value === '' ? null : e.target.value === 'true')}
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-apt-total-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área total (m²)
+                      </label>
+                      <FieldHelper helpKey="totalArea" />
+                    </div>
+                    <input
+                      id="field-apt-total-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={totalArea}
+                      onChange={(e) => setTotalArea(e.target.value)}
+                      placeholder="Ex: 110"
                       style={{
                         width: '100%',
                         padding: '10px 14px',
@@ -1209,15 +1452,9 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                         border: '1px solid var(--border-light)',
                         backgroundColor: 'var(--bg-subtle)',
                       }}
-                    >
-                      <option value="">Não informado</option>
-                      <option value="true">Sim, averbada</option>
-                      <option value="false">Não averbada</option>
-                    </select>
+                    />
                   </div>
-                </>
-              ) : (
-                <>
+
                   <div>
                     <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
                       Andar
@@ -1257,7 +1494,342 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                       <option value="true">Sim, cobertura</option>
                     </select>
                   </div>
-                </>
+                </div>
+              )}
+
+              {/* Layout para Casa */}
+              {propertyType === 'Casa' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Aviso para casa antiga com metragem em privateArea */}
+                  {isLegacyHouseWithPrivateArea && !legacyAreaConfirmed && !builtArea && (
+                    <div style={{ padding: '12px', backgroundColor: '#FEF3C7', borderRadius: 'var(--radius-sm)', border: '1px solid #FDE68A', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                        <Info size={18} color="#B45309" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div style={{ fontSize: '0.82rem', color: '#92400E', lineHeight: 1.45 }}>
+                          <strong>Metragem de área privativa legada identificada: {initialData.privateArea} m².</strong>
+                          <br />
+                          No padrão atual de casas, o campo utilizado é <strong>Área construída (m²)</strong>.
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBuiltArea(String(initialData.privateArea));
+                            setLegacyAreaConfirmed(true);
+                          }}
+                          className="btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '0.78rem', backgroundColor: '#FFFFFF', borderColor: '#F59E0B', color: '#B45309', fontWeight: 600 }}
+                        >
+                          Confirmar como Área Construída
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                        <label htmlFor="field-house-built-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                          Área construída (m²) *
+                        </label>
+                        <FieldHelper helpKey="builtArea" />
+                      </div>
+                      <input
+                        id="field-house-built-area"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={builtArea}
+                        onChange={(e) => setBuiltArea(e.target.value)}
+                        placeholder="Ex: 180"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border-light)',
+                          backgroundColor: 'var(--bg-subtle)',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                        <label htmlFor="field-house-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                          Área do terreno (m²)
+                        </label>
+                        <FieldHelper helpKey="landArea" />
+                      </div>
+                      <input
+                        id="field-house-land-area"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={landArea}
+                        onChange={(e) => setLandArea(e.target.value)}
+                        placeholder="Ex: 360"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border-light)',
+                          backgroundColor: 'var(--bg-subtle)',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                        <label htmlFor="field-house-total-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                          Área total documental (m²)
+                        </label>
+                        <FieldHelper helpKey="totalArea" />
+                      </div>
+                      <input
+                        id="field-house-total-area"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={totalArea}
+                        onChange={(e) => setTotalArea(e.target.value)}
+                        placeholder="Opcional"
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border-light)',
+                          backgroundColor: 'var(--bg-subtle)',
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                        Averbada (Financiável)?
+                      </label>
+                      <select
+                        value={isRegistered === null ? '' : isRegistered ? 'true' : 'false'}
+                        onChange={(e) => setIsRegistered(e.target.value === '' ? null : e.target.value === 'true')}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--border-light)',
+                          backgroundColor: 'var(--bg-subtle)',
+                        }}
+                      >
+                        <option value="">Não informado</option>
+                        <option value="true">Sim, averbada</option>
+                        <option value="false">Não averbada</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Layout para Comercial */}
+              {propertyType === 'Comercial' && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                      Tipo de Sala / Posição
+                    </label>
+                    <select
+                      value={commercialType}
+                      onChange={(e) => setCommercialType(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    >
+                      <option value="Térrea">Térrea (com vitrine de rua)</option>
+                      <option value="Aérea">Aérea (em edifício comercial)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-comm-private-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área privativa (m²)
+                      </label>
+                      <FieldHelper helpKey="privateArea" />
+                    </div>
+                    <input
+                      id="field-comm-private-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={privateArea}
+                      onChange={(e) => setPrivateArea(e.target.value)}
+                      placeholder="Ex: 60"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-comm-built-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área construída (m²)
+                      </label>
+                      <FieldHelper helpKey="builtArea" />
+                    </div>
+                    <input
+                      id="field-comm-built-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={builtArea}
+                      onChange={(e) => setBuiltArea(e.target.value)}
+                      placeholder="Ex: 80"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-comm-total-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área total (m²)
+                      </label>
+                      <FieldHelper helpKey="totalArea" />
+                    </div>
+                    <input
+                      id="field-comm-total-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={totalArea}
+                      onChange={(e) => setTotalArea(e.target.value)}
+                      placeholder="Ex: 95"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-comm-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área do terreno (m²)
+                      </label>
+                      <FieldHelper helpKey="landArea" />
+                    </div>
+                    <input
+                      id="field-comm-land-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={landArea}
+                      onChange={(e) => setLandArea(e.target.value)}
+                      placeholder="Ex: 300"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Layout para Outros Tipos (Galpão, Rural, Outro) */}
+              {!['Apartamento', 'Casa', 'Comercial'].includes(propertyType) && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-other-built-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área construída (m²)
+                      </label>
+                      <FieldHelper helpKey="builtArea" />
+                    </div>
+                    <input
+                      id="field-other-built-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={builtArea}
+                      onChange={(e) => setBuiltArea(e.target.value)}
+                      placeholder="Ex: 250"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-other-total-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área total (m²)
+                      </label>
+                      <FieldHelper helpKey="totalArea" />
+                    </div>
+                    <input
+                      id="field-other-total-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={totalArea}
+                      onChange={(e) => setTotalArea(e.target.value)}
+                      placeholder="Ex: 300"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                      <label htmlFor="field-other-land-area" style={{ fontSize: '0.84rem', fontWeight: 600 }}>
+                        Área do terreno (m²)
+                      </label>
+                      <FieldHelper helpKey="landArea" />
+                    </div>
+                    <input
+                      id="field-other-land-area"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={landArea}
+                      onChange={(e) => setLandArea(e.target.value)}
+                      placeholder="Ex: 500"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border-light)',
+                        backgroundColor: 'var(--bg-subtle)',
+                      }}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -2427,6 +2999,231 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           />
         </div>
       </div>
+
+      {/* Seção de Autorização do Proprietário (Ponto 20 / Etapa 1.4) */}
+      <div
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--border-light)',
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldCheck size={20} color="#166534" />
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>
+              Autorização para Divulgação do Imóvel
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowAuthModal(true)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#15803D',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              textDecoration: 'underline',
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            Ler texto integral da declaração
+          </button>
+        </div>
+
+        {!isEditing ? (
+          // Fluxo de Cadastro de Novo Imóvel
+          <div
+            style={{
+              backgroundColor: hasOwnerAuthorization ? '#F0FDF4' : '#F9FAFB',
+              border: hasOwnerAuthorization ? '1px solid #BBF7D0' : '1px solid #E5E7EB',
+              borderRadius: '12px',
+              padding: '16px 18px',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={hasOwnerAuthorization}
+                onChange={(e) => setHasOwnerAuthorization(e.target.checked)}
+                style={{ width: '18px', height: '18px', marginTop: '2px', accentColor: '#166534' }}
+              />
+              <div style={{ fontSize: '0.88rem', color: '#1F2937', lineHeight: 1.5 }}>
+                <span style={{ fontWeight: 600, color: '#111827' }}>
+                  Confirmo que possuo autorização do proprietário ou de seu representante legal para cadastrar e divulgar este imóvel nas condições informadas, incluindo imagens, preço e localização, conforme a Declaração de Autorização para Divulgação de Imóvel.
+                </span>
+                <p style={{ margin: '6px 0 0 0', fontSize: '0.80rem', color: '#6B7280' }}>
+                  Caso desmarcado, o imóvel será salvo como inativo e a publicação poderá ser realizada após a confirmação.
+                </p>
+              </div>
+            </label>
+          </div>
+        ) : (
+          // Fluxo de Edição de Imóvel Existente
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {authDetails?.currentStatus === 'CONFIRMED' ? (
+              <div
+                style={{
+                  backgroundColor: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534', fontWeight: 700, fontSize: '0.90rem' }}>
+                    <Check size={16} />
+                    <span>Autorização de divulgação confirmada</span>
+                  </div>
+                  <div style={{ fontSize: '0.80rem', color: '#4B5563', marginTop: '4px' }}>
+                    Versão {authDetails.activeAuthorization?.documentVersion || '1.0'}
+                    {authDetails.activeAuthorization?.confirmedAt && (
+                      <> • Confirmada em {new Date(authDetails.activeAuthorization.confirmedAt).toLocaleDateString('pt-BR')}</>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={revoking}
+                  onClick={handleRevokeAuthorization}
+                  style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    color: '#991B1B',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.80rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {revoking ? 'Revogando...' : 'Informar revogação da autorização'}
+                </button>
+              </div>
+            ) : authDetails?.currentStatus === 'LEGACY_EXEMPT' ? (
+              <div
+                style={{
+                  backgroundColor: '#EFF6FF',
+                  border: '1px solid #BFDBFE',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '12px',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#1E40AF', fontWeight: 700, fontSize: '0.90rem' }}>
+                    <Info size={16} />
+                    <span>Imóvel histórico preservado</span>
+                  </div>
+                  <div style={{ fontSize: '0.80rem', color: '#4B5563', marginTop: '4px' }}>
+                    Cadastro pré-existente à exigência formal. Permanece ativo e compartilhado normalmente.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={revoking}
+                  onClick={handleRevokeAuthorization}
+                  style={{
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    color: '#991B1B',
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.80rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {revoking ? 'Revogando...' : 'Informar revogação'}
+                </button>
+              </div>
+            ) : authDetails?.currentStatus === 'REVOKED' ? (
+              <div
+                style={{
+                  backgroundColor: '#FEF2F2',
+                  border: '1px solid #FCA5A5',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991B1B', fontWeight: 700, fontSize: '0.90rem' }}>
+                  <AlertTriangle size={16} />
+                  <span>Autorização revogada — divulgação suspensa</span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: '#6B7280' }}>
+                  A autorização anterior foi revogada. Para restabelecer a publicação deste imóvel, confirme abaixo que possui uma nova autorização legítima do proprietário.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginTop: '4px' }}>
+                  <input
+                    type="checkbox"
+                    checked={hasOwnerAuthorization}
+                    onChange={(e) => setHasOwnerAuthorization(e.target.checked)}
+                    style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#166534' }}
+                  />
+                  <span style={{ fontSize: '0.84rem', color: '#1F2937', fontWeight: 600 }}>
+                    Confirmo que possuo nova autorização válida do proprietário para voltar a divulgar este imóvel.
+                  </span>
+                </label>
+              </div>
+            ) : (
+              <div
+                style={{
+                  backgroundColor: '#FFFBEB',
+                  border: '1px solid #FDE68A',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#92400E', fontWeight: 700, fontSize: '0.90rem' }}>
+                  <AlertCircle size={16} />
+                  <span>Autorização ainda não confirmada — imóvel salvo como inativo</span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: '#6B7280' }}>
+                  Este imóvel não possui confirmação registrada e não pode ser publicado. Confirme abaixo para habilitar a publicação.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', marginTop: '4px' }}>
+                  <input
+                    type="checkbox"
+                    checked={hasOwnerAuthorization}
+                    onChange={(e) => setHasOwnerAuthorization(e.target.checked)}
+                    style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#166534' }}
+                  />
+                  <span style={{ fontSize: '0.84rem', color: '#1F2937', fontWeight: 600 }}>
+                    Confirmo que possuo autorização legítima do proprietário conforme a Declaração de Autorização.
+                  </span>
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <PropertyAuthorizationModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
 
       {/* Ações Finais */}
       <div

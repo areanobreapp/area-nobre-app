@@ -3,10 +3,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Building2, Lock, Mail, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Building2, Lock, Mail, ArrowRight, ShieldCheck, MessageCircle } from 'lucide-react';
+import { useSupportContact } from '@/lib/use-support-contact';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { loginUrl } = useSupportContact();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -337,6 +339,64 @@ export default function LoginPage() {
               }}
             >
               Criar conta de corretor
+            </Link>
+          </div>
+
+          <div
+            style={{
+              marginTop: '12px',
+              textAlign: 'center',
+              fontSize: '0.80rem',
+            }}
+          >
+            <a
+              href={loginUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                color: 'var(--text-muted)',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'color 0.2s',
+              }}
+            >
+              <MessageCircle size={14} color="#16A34A" />
+              <span>Precisa de ajuda para acessar? Fale com o suporte.</span>
+            </a>
+          </div>
+
+          <div
+            style={{
+              marginTop: '16px',
+              paddingTop: '12px',
+              borderTop: '1px solid var(--border-light)',
+              textAlign: 'center',
+              fontSize: '0.74rem',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '10px',
+            }}
+          >
+            <Link
+              href="/termos-de-uso"
+              style={{ color: 'var(--text-muted)', textDecoration: 'none' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              Termos de Uso
+            </Link>
+            <span>•</span>
+            <Link
+              href="/politica-de-privacidade"
+              style={{ color: 'var(--text-muted)', textDecoration: 'none' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+            >
+              Política de Privacidade
             </Link>
           </div>
         </form>

@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { generatePublicId, getPublicPropertyUrl } from '@/lib/public-sharing';
 import { toPublicPropertyDTO } from '@/lib/public-property-dto';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(
   req: NextRequest,
@@ -12,6 +13,11 @@ export async function GET(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;
@@ -63,6 +69,11 @@ export async function POST(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;

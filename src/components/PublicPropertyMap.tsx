@@ -5,6 +5,7 @@ import type L from 'leaflet';
 import { MapPin, Compass, ShieldCheck } from 'lucide-react';
 import { BaseMapType, createBaseMapTileLayer } from '@/lib/geo/basemaps';
 import BaseMapToggle from './BaseMapToggle';
+import NavigationActionButtons from './NavigationActionButtons';
 
 interface PublicPropertyMapProps {
   locationPrecision: 'HIDDEN' | 'APPROXIMATE' | 'EXACT';
@@ -14,6 +15,7 @@ interface PublicPropertyMapProps {
   neighborhood?: string | null;
   city?: string | null;
   title?: string;
+  brokerBrandName?: string | null;
 }
 
 export default function PublicPropertyMap({
@@ -24,6 +26,7 @@ export default function PublicPropertyMap({
   neighborhood,
   city = 'Criciúma',
   title = 'Imóvel',
+  brokerBrandName,
 }: PublicPropertyMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -295,12 +298,17 @@ export default function PublicPropertyMap({
           <ShieldCheck size={14} color="#059669" />
           <span>
             {isExact
-              ? `Endereço confirmado pela Daiane Corrêa Imóveis em ${city}.`
+              ? `Endereço confirmado por ${brokerBrandName || 'consultoria credenciada'} em ${city}.`
               : `Região territorial aproximada de ${neighborhood ? `Bairro ${neighborhood}, ` : ''}${city}. Para visitar o imóvel, solicite o agendamento.`}
           </span>
         </div>
-        <div style={{ fontSize: '0.72rem', color: '#9CA3AF' }}>
-          {activeBaseMap === 'satellite' ? 'Visão Aérea / Satélite' : 'Mapa de Vias'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {isExact && (
+            <NavigationActionButtons latitude={latitude} longitude={longitude} size="sm" />
+          )}
+          <div style={{ fontSize: '0.72rem', color: '#9CA3AF' }}>
+            {activeBaseMap === 'satellite' ? 'Visão Aérea / Satélite' : 'Mapa de Vias'}
+          </div>
         </div>
       </div>
     </div>

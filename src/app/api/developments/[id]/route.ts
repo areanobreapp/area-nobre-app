@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { recalculateMatchesForDevelopment } from '@/lib/matching';
+import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
+import { assertUserAcceptedTerms } from '@/lib/legal/service';
 
 export async function GET(
   req: NextRequest,
@@ -11,6 +13,11 @@ export async function GET(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;
@@ -133,21 +140,26 @@ export async function PUT(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
-    const existing = await prisma.development.findFirst({
-      where: {
-        id,
-        ...(user.role === 'ADMIN' ? {} : {
-          OR: [{ userId: user.id }, { responsibleBrokerId: user.id }],
-        }),
-      },
+    const existing = await prisma.development.findUnique({
+      where: { id },
       include: { images: true, typologies: true },
     });
 
     if (!existing) {
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
+    }
+
+    const isOwner = existing.userId === user.id || existing.responsibleBrokerId === user.id;
+    if (user.role !== 'ADMIN' && !isOwner) {
+      return NextResponse.json({ error: 'Você não tem permissão para editar este empreendimento.' }, { status: 403 });
     }
 
     const {
@@ -193,43 +205,133 @@ export async function PUT(
       });
     }
 
-    // Atualiza tipologias se fornecidas
+    // Valida e prepara tipologias com integridade relacional estrita (preserva IDs, links públicos e matches)
+    const validatedTypologiesToProcess: { id?: string; data: any; isExisting: boolean }[] = [];
     if (typologies && Array.isArray(typologies)) {
+      for (let i = 0; i < typologies.length; i++) {
+        const t = typologies[i];
+        const tipLabel = t.name?.trim() ? `Tipologia "${t.name.trim()}": ` : `Tipologia #${i + 1}: `;
+
+        const vSuites = validateNonNegativeInt(t.suites, 'Suítes', { defaultValue: 0 });
+        if (vSuites.error) return NextResponse.json({ error: `${tipLabel}${vSuites.error}` }, { status: 400 });
+
+        const vOtherBedrooms = validateNonNegativeInt(t.otherBedrooms, 'Demais quartos');
+        if (vOtherBedrooms.error) return NextResponse.json({ error: `${tipLabel}${vOtherBedrooms.error}` }, { status: 400 });
+
+        const vBedrooms = validateNonNegativeInt(t.bedrooms, 'Total de quartos');
+        if (vBedrooms.error) return NextResponse.json({ error: `${tipLabel}${vBedrooms.error}` }, { status: 400 });
+
+        const vSocialBathrooms = validateNonNegativeInt(t.socialBathrooms, 'Banheiros sociais');
+        if (vSocialBathrooms.error) return NextResponse.json({ error: `${tipLabel}${vSocialBathrooms.error}` }, { status: 400 });
+
+        const vLavabos = validateNonNegativeInt(t.lavabos, 'Lavabos');
+        if (vLavabos.error) return NextResponse.json({ error: `${tipLabel}${vLavabos.error}` }, { status: 400 });
+
+        const vBathrooms = validateNonNegativeInt(t.bathrooms, 'Total de banheiros');
+        if (vBathrooms.error) return NextResponse.json({ error: `${tipLabel}${vBathrooms.error}` }, { status: 400 });
+
+        const vCovered = validateNonNegativeInt(t.coveredParkingSpaces, 'Vagas cobertas');
+        if (vCovered.error) return NextResponse.json({ error: `${tipLabel}${vCovered.error}` }, { status: 400 });
+
+        const vUncovered = validateNonNegativeInt(t.uncoveredParkingSpaces, 'Vagas descobertas');
+        if (vUncovered.error) return NextResponse.json({ error: `${tipLabel}${vUncovered.error}` }, { status: 400 });
+
+        const vParkingSpaces = validateNonNegativeInt(t.parkingSpaces, 'Total de vagas');
+        if (vParkingSpaces.error) return NextResponse.json({ error: `${tipLabel}${vParkingSpaces.error}` }, { status: 400 });
+
+        const vPrice = validateNonNegativeFloat(t.price, 'Valor', { isCurrencyString: true, defaultValue: 0 });
+        if (vPrice.error) return NextResponse.json({ error: `${tipLabel}${vPrice.error}` }, { status: 400 });
+
+        const vPrivateArea = validateNonNegativeFloat(t.privateArea, 'Área privativa');
+        if (vPrivateArea.error) return NextResponse.json({ error: `${tipLabel}${vPrivateArea.error}` }, { status: 400 });
+
+        const vBuiltArea = validateNonNegativeFloat(t.builtArea, 'Área construída');
+        if (vBuiltArea.error) return NextResponse.json({ error: `${tipLabel}${vBuiltArea.error}` }, { status: 400 });
+
+        const vTotalArea = validateNonNegativeFloat(t.totalArea, 'Área total');
+        if (vTotalArea.error) return NextResponse.json({ error: `${tipLabel}${vTotalArea.error}` }, { status: 400 });
+
+        const suites = vSuites.value ?? 0;
+        const otherBedrooms = vOtherBedrooms.value;
+        const bedrooms = otherBedrooms !== null
+          ? suites + otherBedrooms
+          : (vBedrooms.value !== null ? vBedrooms.value : suites);
+
+        const socialBathrooms = vSocialBathrooms.value;
+        const lavabos = vLavabos.value;
+        let bathrooms = vBathrooms.value !== null ? vBathrooms.value : suites;
+        if (socialBathrooms !== null || lavabos !== null) {
+          bathrooms = suites + (socialBathrooms ?? 0) + (lavabos ?? 0);
+        }
+
+        const coveredParkingSpaces = vCovered.value;
+        const uncoveredParkingSpaces = vUncovered.value;
+        let parkingSpaces = vParkingSpaces.value !== null ? vParkingSpaces.value : 0;
+        if (coveredParkingSpaces !== null || uncoveredParkingSpaces !== null) {
+          parkingSpaces = (coveredParkingSpaces ?? 0) + (uncoveredParkingSpaces ?? 0);
+        }
+
+        const typologyData = {
+          name: t.name?.trim() || 'Tipologia',
+          propertyType: t.propertyType || 'Apartamento',
+          price: vPrice.value ?? 0,
+          privateArea: vPrivateArea.value,
+          builtArea: vBuiltArea.value,
+          totalArea: vTotalArea.value,
+          bedrooms,
+          suites,
+          otherBedrooms,
+          bathrooms,
+          socialBathrooms,
+          lavabos,
+          parkingSpaces,
+          coveredParkingSpaces,
+          uncoveredParkingSpaces,
+          status: t.status || 'Disponível',
+          notes: t.notes?.trim() || null,
+          acceptsExchange: t.acceptsExchange !== undefined ? Boolean(t.acceptsExchange) : null,
+          exchangeNotes: t.exchangeNotes?.trim() || null,
+          hasBarbecue: t.hasBarbecue !== undefined ? Boolean(t.hasBarbecue) : null,
+          hasElevator: t.hasElevator !== undefined ? Boolean(t.hasElevator) : null,
+          isPenthouse: t.isPenthouse !== undefined ? Boolean(t.isPenthouse) : null,
+        };
+
+        const isExistingTypology = Boolean(t.id && existing.typologies.some((et: any) => et.id === t.id));
+        validatedTypologiesToProcess.push({
+          id: t.id,
+          data: typologyData,
+          isExisting: isExistingTypology,
+        });
+      }
+
+      const incomingIds = typologies
+        .map((t: any) => t.id)
+        .filter((tid: any) => typeof tid === 'string' && tid.trim() !== '') as string[];
+
+      // 1. Remove apenas tipologias que foram retiradas do empreendimento
       await prisma.typology.deleteMany({
-        where: { developmentId: id },
+        where: {
+          developmentId: id,
+          id: { notIn: incomingIds },
+        },
       });
 
-      await prisma.typology.createMany({
-        data: typologies.map((t: any) => {
-          const suites = t.suites !== undefined ? parseInt(String(t.suites), 10) || 0 : 0;
-          const otherBedrooms = t.otherBedrooms !== undefined && t.otherBedrooms !== null ? parseInt(String(t.otherBedrooms), 10) : null;
-          const otherBathrooms = t.otherBathrooms !== undefined && t.otherBathrooms !== null ? parseInt(String(t.otherBathrooms), 10) : null;
-          const bedrooms = otherBedrooms !== null ? suites + otherBedrooms : (t.bedrooms !== undefined ? parseInt(String(t.bedrooms), 10) || 0 : suites);
-          const bathrooms = otherBathrooms !== null ? suites + otherBathrooms : (t.bathrooms !== undefined ? parseInt(String(t.bathrooms), 10) || 0 : suites);
-
-          return {
-            developmentId: id,
-            name: t.name?.trim() || 'Tipologia',
-            propertyType: t.propertyType || 'Apartamento',
-            price: typeof t.price === 'string' ? parseFloat(t.price.replace(/\D/g, '')) || 0 : Number(t.price) || 0,
-            privateArea: t.privateArea ? parseFloat(String(t.privateArea)) : null,
-            totalArea: t.totalArea ? parseFloat(String(t.totalArea)) : null,
-            bedrooms,
-            suites,
-            otherBedrooms,
-            bathrooms,
-            otherBathrooms,
-            parkingSpaces: t.parkingSpaces !== undefined ? parseInt(String(t.parkingSpaces), 10) || 0 : 0,
-            status: t.status || 'Disponível',
-            notes: t.notes?.trim() || null,
-            acceptsExchange: t.acceptsExchange !== undefined ? Boolean(t.acceptsExchange) : null,
-            exchangeNotes: t.exchangeNotes?.trim() || null,
-            hasBarbecue: t.hasBarbecue !== undefined ? Boolean(t.hasBarbecue) : null,
-            hasElevator: t.hasElevator !== undefined ? Boolean(t.hasElevator) : null,
-            isPenthouse: t.isPenthouse !== undefined ? Boolean(t.isPenthouse) : null,
-          };
-        }),
-      });
+      // 2. Atualiza existentes ou insere novas preservando campos e integridade
+      for (const item of validatedTypologiesToProcess) {
+        if (item.isExisting && item.id) {
+          await prisma.typology.update({
+            where: { id: item.id },
+            data: item.data,
+          });
+        } else {
+          await prisma.typology.create({
+            data: {
+              ...item.data,
+              developmentId: id,
+            },
+          });
+        }
+      }
     }
 
     const updated = await prisma.development.update({
@@ -288,6 +390,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
+    }
+
     const { id } = await params;
     const body = await req.json();
 
@@ -326,6 +433,11 @@ export async function DELETE(
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    const termsCheck = await assertUserAcceptedTerms(user);
+    if (!termsCheck.allowed) {
+      return termsCheck.errorResponse!;
     }
 
     const { id } = await params;

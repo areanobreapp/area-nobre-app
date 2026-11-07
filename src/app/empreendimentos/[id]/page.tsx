@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
+import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 
 export default function EmpreendimentoDetalhesPage({
   params,
@@ -489,38 +490,55 @@ export default function EmpreendimentoDetalhesPage({
                   </div>
                 </div>
 
-                {/* Grid de Características */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    fontSize: '0.82rem',
-                    color: 'var(--text-secondary)',
-                    padding: '8px 0',
-                    borderTop: '1px solid var(--border-subtle)',
-                    borderBottom: '1px solid var(--border-subtle)',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Bed size={14} /> {t.bedrooms} qtos
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Bed size={14} color="var(--color-primary)" /> {t.suites} suíte(s)
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Bath size={14} /> {t.bathrooms} banh
-                  </span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Car size={14} /> {t.parkingSpaces} vg
-                  </span>
-                  {t.privateArea && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                      <Maximize2 size={14} /> {t.privateArea} m²
-                    </span>
-                  )}
-                </div>
+                {/* Características Padronizadas da Tipologia */}
+                <PropertyCompactFeatures property={t} />
+
+                {/* Detalhes de Classificação da Planta (quando discriminados) */}
+                {(() => {
+                  const details: string[] = [];
+                  if (t.otherBedrooms !== null && t.otherBedrooms !== undefined) {
+                    details.push(`${t.suites || 0} suíte(s) + ${t.otherBedrooms} dorm. sem suíte`);
+                  }
+                  if (t.socialBathrooms !== null || t.lavabos !== null) {
+                    const bathParts: string[] = [];
+                    if (t.socialBathrooms) bathParts.push(`${t.socialBathrooms} social(is)`);
+                    if (t.lavabos) bathParts.push(`${t.lavabos} lavabo(s)`);
+                    if (bathParts.length > 0) details.push(`Banheiros: ${bathParts.join(', ')}`);
+                  }
+                  if (t.coveredParkingSpaces !== null || t.uncoveredParkingSpaces !== null) {
+                    const parkParts: string[] = [];
+                    if (t.coveredParkingSpaces) parkParts.push(`${t.coveredParkingSpaces} coberta(s)`);
+                    if (t.uncoveredParkingSpaces) parkParts.push(`${t.uncoveredParkingSpaces} descoberta(s)`);
+                    if (parkParts.length > 0) details.push(`Vagas: ${parkParts.join(', ')}`);
+                  }
+                  if (t.hasBarbecue) details.push('Churrasqueira');
+                  if (t.isPenthouse) details.push('Cobertura');
+
+                  if (details.length === 0) return null;
+
+                  return (
+                    <div
+                      style={{
+                        fontSize: '0.76rem',
+                        color: 'var(--text-secondary)',
+                        backgroundColor: '#FFFFFF',
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-subtle)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                      }}
+                    >
+                      {details.map((d, dIdx) => (
+                        <div key={dIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>•</span>
+                          <span>{d}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* Observações da Tipologia */}
                 {t.notes && (

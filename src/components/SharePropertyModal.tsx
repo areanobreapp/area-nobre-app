@@ -15,7 +15,8 @@ import {
   Globe,
   Lock,
   Sparkles,
-  Edit3,
+  RotateCcw,
+  UserCheck,
 } from 'lucide-react';
 import { getShareWithClientWhatsAppUrl } from '@/lib/public-sharing';
 import PublicPresentationView from './PublicPresentationView';
@@ -49,7 +50,9 @@ export default function SharePropertyModal({
 }: SharePropertyModalProps) {
   const router = useRouter();
 
+  const [isOwner, setIsOwner] = useState<boolean>(true);
   const [isPublic, setIsPublic] = useState(initialIsPublic);
+  const [isActiveShare, setIsActiveShare] = useState<boolean>(false);
   const [publicId, setPublicId] = useState<string | null>(initialPublicId);
   const [publicUrl, setPublicUrl] = useState<string>('');
   const [precision, setPrecision] = useState<'HIDDEN' | 'APPROXIMATE' | 'EXACT'>(initialPrecision);
@@ -58,6 +61,7 @@ export default function SharePropertyModal({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [canReactivate, setCanReactivate] = useState(false);
 
   const endpoint =
     offerType === 'TYPOLOGY'
@@ -73,13 +77,27 @@ export default function SharePropertyModal({
       try {
         setLoading(true);
         setError(null);
+        setCanReactivate(false);
+
         const res = await fetch(endpoint);
-        if (!res.ok) throw new Error('Não foi possível carregar status de compartilhamento.');
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data.error || 'Não foi possível carregar status de compartilhamento.');
+        }
+
         if (isMounted) {
-          setIsPublic(data.isPublic || false);
+          const ownerFlag = data.isOwner ?? true;
+          setIsOwner(ownerFlag);
+          setIsPublic(Boolean(data.isPublic));
+
+          // Para o proprietário, a atividade é isPublic; para o parceiro, é data.isActive
+          const activeFlag = ownerFlag ? Boolean(data.isPublic) : Boolean(data.isActive);
+          setIsActiveShare(activeFlag);
+
           setPublicId(data.publicId || null);
-          setPublicUrl(data.publicUrl || (data.publicId ? `${window.location.origin}/p/imovel/${data.publicId}` : ''));
+          const resolvedUrl = data.publicUrl || (data.publicId ? `${window.location.origin}/p/imovel/${data.publicId}` : '');
+          setPublicUrl(resolvedUrl);
           setPrecision(data.publicLocationPrecision || 'APPROXIMATE');
           if (data.publicDTO) setPublicDTO(data.publicDTO);
         }
@@ -98,25 +116,48 @@ export default function SharePropertyModal({
 
   if (!isOpen) return null;
 
-  async function handlePublish() {
+  async function handlePublish(forceReactivate = false) {
     setLoading(true);
     setError(null);
     try {
+      const payload: any = isOwner
+        ? { action: 'publish', precision }
+        : forceReactivate || canReactivate
+        ? { action: 'reactivate' }
+        : { action: 'publish' };
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'publish', precision }),
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao publicar link.');
 
-      setIsPublic(true);
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 409) {
+        // Link individual existia e estava revogado; exige confirmação explícita
+        setCanReactivate(true);
+        setError('Este link individual foi desativado anteriormente. Confirme a reativação abaixo para voltar a compartilhar.');
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao processar compartilhamento.');
+      }
+
+      setIsOwner(data.isOwner ?? isOwner);
+      setIsPublic(Boolean(data.isPublic));
+      setIsActiveShare(Boolean(data.isActive ?? true));
       setPublicId(data.publicId);
       const fullUrl = data.publicUrl || `${window.location.origin}/p/imovel/${data.publicId}`;
       setPublicUrl(fullUrl);
       setPrecision(data.publicLocationPrecision || 'APPROXIMATE');
       if (data.publicDTO) setPublicDTO(data.publicDTO);
-      if (onStatusChanged) onStatusChanged(true, data.publicId);
+      setCanReactivate(false);
+
+      if (onStatusChanged) {
+        onStatusChanged(Boolean(data.isPublic), data.publicId);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -125,11 +166,11 @@ export default function SharePropertyModal({
   }
 
   async function handleRevoke() {
-    if (
-      !confirm(
-        'Deseja realmente desativar o link público deste anúncio? O endereço anterior deixará de exibir as informações do imóvel.'
-      )
-    ) {
+    const confirmMessage = isOwner
+      ? 'Deseja realmente desativar o link público deste anúncio? O endereço deixará de exibir as informações do imóvel.'
+      : 'Deseja realmente desativar seu link individual de compartilhamento? Clientes que acessarem seu link verão a tela de indisponibilidade.';
+
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -141,10 +182,18 @@ export default function SharePropertyModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'revoke' }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao desativar link.');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao desativar link.');
+      }
 
-      setIsPublic(false);
+      if (isOwner) {
+        setIsPublic(false);
+        setIsActiveShare(false);
+      } else {
+        setIsActiveShare(false);
+      }
+
       if (data.publicDTO) setPublicDTO(data.publicDTO);
       if (onStatusChanged) onStatusChanged(false, publicId);
     } catch (err: any) {
@@ -155,8 +204,9 @@ export default function SharePropertyModal({
   }
 
   async function handlePrecisionChange(newPrecision: 'HIDDEN' | 'APPROXIMATE' | 'EXACT') {
+    if (!isOwner) return; // Somente o proprietário altera precisão
+
     setPrecision(newPrecision);
-    // Atualiza localmente o DTO para refletir instantaneamente na prévia
     if (publicDTO) {
       setPublicDTO((prev: any) => ({
         ...prev,
@@ -189,8 +239,15 @@ export default function SharePropertyModal({
   const clientFirstName = (clientName || 'Cliente').trim().split(' ')[0];
 
   const clientShareUrl =
-    isPublic && publicUrl && clientPhone
+    isActiveShare && publicUrl && clientPhone
       ? getShareWithClientWhatsAppUrl(clientPhone, clientName, publicUrl)
+      : null;
+
+  const generalWhatsAppUrl =
+    isActiveShare && publicUrl
+      ? `https://api.whatsapp.com/send?text=${encodeURIComponent(
+          `Olá! Separei este imóvel para você:\n${publicUrl}`
+        )}`
       : null;
 
   return (
@@ -245,21 +302,23 @@ export default function SharePropertyModal({
                     width: '32px',
                     height: '32px',
                     borderRadius: '8px',
-                    backgroundColor: '#ECFDF5',
-                    color: '#059669',
+                    backgroundColor: isOwner ? '#ECFDF5' : '#EFF6FF',
+                    color: isOwner ? '#059669' : '#2563EB',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Share2 size={18} />
+                  {isOwner ? <Share2 size={18} /> : <UserCheck size={18} />}
                 </div>
                 <h2 style={{ fontSize: '1.18rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
-                  Apresentação Digital do Imóvel
+                  {isOwner ? 'Apresentação Digital do Imóvel' : 'Meu Link de Apresentação'}
                 </h2>
               </div>
               <p style={{ margin: '4px 0 0 40px', fontSize: '0.84rem', color: 'var(--text-muted)' }}>
-                {offerTitle}
+                {isOwner
+                  ? offerTitle
+                  : 'Compartilhe este imóvel da rede com sua própria identidade profissional'}
               </p>
             </div>
             <button
@@ -283,25 +342,51 @@ export default function SharePropertyModal({
             <div
               style={{
                 padding: '10px 14px',
-                backgroundColor: '#FEE2E2',
-                border: '1px solid #FCA5A5',
+                backgroundColor: canReactivate ? '#FEF3C7' : '#FEE2E2',
+                border: `1px solid ${canReactivate ? '#FCD34D' : '#FCA5A5'}`,
                 borderRadius: 'var(--radius-sm)',
-                color: '#991B1B',
+                color: canReactivate ? '#92400E' : '#991B1B',
                 fontSize: '0.84rem',
                 marginBottom: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
               }}
             >
-              {error}
+              <div>{error}</div>
+              {canReactivate && !isOwner && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => handlePublish(true)}
+                    disabled={loading}
+                    className="btn-primary"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '0.8rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      backgroundColor: '#D97706',
+                    }}
+                  >
+                    <RotateCcw size={14} />
+                    <span>Confirmar Reativação do Link</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Estado de Publicação (Privado vs Público) */}
+          {/* ========================================================================= */}
+          {/* BLOCO 1: Status de Compartilhamento (Proprietário vs Parceiro)            */}
+          {/* ========================================================================= */}
           <div
             style={{
               padding: '14px 16px',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: isPublic ? '#F0FDF4' : '#F8FAFC',
-              border: `1px solid ${isPublic ? '#BBF7D0' : '#E2E8F0'}`,
+              backgroundColor: isActiveShare ? '#F0FDF4' : '#F8FAFC',
+              border: `1px solid ${isActiveShare ? '#BBF7D0' : '#E2E8F0'}`,
               marginBottom: '20px',
               display: 'flex',
               alignItems: 'center',
@@ -311,15 +396,21 @@ export default function SharePropertyModal({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {isPublic ? (
+              {isActiveShare ? (
                 <Globe size={22} color="#059669" />
               ) : (
                 <Lock size={22} color="#64748B" />
               )}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <strong style={{ fontSize: '0.94rem', color: isPublic ? '#065F46' : '#334155' }}>
-                    {isPublic ? 'Link de Apresentação Ativo' : 'Imóvel Privado'}
+                  <strong style={{ fontSize: '0.94rem', color: isActiveShare ? '#065F46' : '#334155' }}>
+                    {isOwner
+                      ? isPublic
+                        ? 'Link de Apresentação Ativo'
+                        : 'Imóvel Privado'
+                      : isActiveShare
+                      ? 'Seu Link Individual Está Ativo'
+                      : 'Link Individual Desativado'}
                   </strong>
                   <span
                     style={{
@@ -327,26 +418,36 @@ export default function SharePropertyModal({
                       fontWeight: 700,
                       padding: '2px 8px',
                       borderRadius: '4px',
-                      backgroundColor: isPublic ? '#DCFCE7' : '#E2E8F0',
-                      color: isPublic ? '#166534' : '#475569',
+                      backgroundColor: isActiveShare ? '#DCFCE7' : '#E2E8F0',
+                      color: isActiveShare ? '#166534' : '#475569',
                     }}
                   >
-                    {isPublic ? 'PÚBLICO' : 'INTERNO'}
+                    {isOwner
+                      ? isPublic
+                        ? 'PÚBLICO'
+                        : 'INTERNO'
+                      : isActiveShare
+                      ? 'LINK ATIVO'
+                      : 'INATIVO'}
                   </span>
                 </div>
-                <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: isPublic ? '#047857' : '#64748B' }}>
-                  {isPublic
-                    ? 'Qualquer cliente com este link pode visualizar a apresentação profissional.'
-                    : 'Este imóvel não está acessível publicamente.'}
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: isActiveShare ? '#047857' : '#64748B' }}>
+                  {isOwner
+                    ? isPublic
+                      ? 'Qualquer cliente com este link pode visualizar a apresentação profissional.'
+                      : 'Este imóvel não está acessível publicamente.'
+                    : isActiveShare
+                    ? 'Clientes que acessarem seu link verão seu nome, sua marca e seu WhatsApp.'
+                    : 'Gere seu link individual para apresentar este imóvel da rede com sua identidade.'}
                 </p>
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {!isPublic ? (
+              {!isActiveShare ? (
                 <button
                   type="button"
-                  onClick={handlePublish}
+                  onClick={() => handlePublish(false)}
                   disabled={loading}
                   className="btn-primary"
                   style={{
@@ -359,7 +460,13 @@ export default function SharePropertyModal({
                   }}
                 >
                   <Sparkles size={15} />
-                  <span>{loading ? 'Criando...' : 'Criar Link Público'}</span>
+                  <span>
+                    {loading
+                      ? 'Processando...'
+                      : isOwner
+                      ? 'Criar Link Público'
+                      : 'Gerar Meu Link'}
+                  </span>
                 </button>
               ) : (
                 <button
@@ -377,128 +484,166 @@ export default function SharePropertyModal({
                     fontWeight: 600,
                     flexShrink: 0,
                   }}
-                  title="Desativa a visualização pública deste endereço"
+                  title={
+                    isOwner
+                      ? 'Desativa a visualização pública deste endereço'
+                      : 'Desativa seu link individual de apresentação'
+                  }
                 >
-                  Desativar Link
+                  {isOwner ? 'Desativar Link' : 'Desativar Meu Link'}
                 </button>
               )}
             </div>
           </div>
 
-          {/* Configuração de Privacidade da Localização (Oculta, Aproximada, Completa) */}
-          <div style={{ marginBottom: '20px' }}>
-            <label
+          {/* ========================================================================= */}
+          {/* BLOCO 2: Configuração de Localização (EXCLUSIVO PARA O PROPRIETÁRIO)      */}
+          {/* ========================================================================= */}
+          {isOwner ? (
+            <div style={{ marginBottom: '20px' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.84rem',
+                  fontWeight: 700,
+                  color: 'var(--text-main)',
+                  marginBottom: '8px',
+                }}
+              >
+                Exibição da Localização na Apresentação:
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => handlePrecisionChange('HIDDEN')}
+                  style={{
+                    padding: '10px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1.5px solid ${precision === 'HIDDEN' ? '#059669' : 'var(--border-color)'}`,
+                    backgroundColor: precision === 'HIDDEN' ? '#ECFDF5' : '#FFFFFF',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <EyeOff
+                    size={16}
+                    color={precision === 'HIDDEN' ? '#059669' : 'var(--text-muted)'}
+                    style={{ margin: '0 auto 4px auto' }}
+                  />
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: precision === 'HIDDEN' ? '#065F46' : 'var(--text-main)',
+                    }}
+                  >
+                    Oculta
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Apenas cidade, sem mapa
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePrecisionChange('APPROXIMATE')}
+                  style={{
+                    padding: '10px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1.5px solid ${precision === 'APPROXIMATE' ? '#059669' : 'var(--border-color)'}`,
+                    backgroundColor: precision === 'APPROXIMATE' ? '#ECFDF5' : '#FFFFFF',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Eye
+                    size={16}
+                    color={precision === 'APPROXIMATE' ? '#059669' : 'var(--text-muted)'}
+                    style={{ margin: '0 auto 4px auto' }}
+                  />
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: precision === 'APPROXIMATE' ? '#065F46' : 'var(--text-main)',
+                    }}
+                  >
+                    Aproximada
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Bairro + mapa territorial
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePrecisionChange('EXACT')}
+                  style={{
+                    padding: '10px 8px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: `1.5px solid ${precision === 'EXACT' ? '#059669' : 'var(--border-color)'}`,
+                    backgroundColor: precision === 'EXACT' ? '#ECFDF5' : '#FFFFFF',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <ShieldAlert
+                    size={16}
+                    color={precision === 'EXACT' ? '#059669' : 'var(--text-muted)'}
+                    style={{ margin: '0 auto 4px auto' }}
+                  />
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      color: precision === 'EXACT' ? '#065F46' : 'var(--text-main)',
+                    }}
+                  >
+                    Completa
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Endereço + pin exato
+                  </div>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Aviso informativo discreto para o parceiro */
+            <div
               style={{
-                display: 'block',
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                color: 'var(--text-main)',
-                marginBottom: '8px',
+                marginBottom: '18px',
+                padding: '10px 14px',
+                backgroundColor: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: '0.8rem',
+                color: '#475569',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
               }}
             >
-              Exibição da Localização na Apresentação:
-            </label>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-              <button
-                type="button"
-                onClick={() => handlePrecisionChange('HIDDEN')}
-                style={{
-                  padding: '10px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: `1.5px solid ${precision === 'HIDDEN' ? '#059669' : 'var(--border-color)'}`,
-                  backgroundColor: precision === 'HIDDEN' ? '#ECFDF5' : '#FFFFFF',
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <EyeOff
-                  size={16}
-                  color={precision === 'HIDDEN' ? '#059669' : 'var(--text-muted)'}
-                  style={{ margin: '0 auto 4px auto' }}
-                />
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    color: precision === 'HIDDEN' ? '#065F46' : 'var(--text-main)',
-                  }}
-                >
-                  Oculta
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  Apenas cidade, sem mapa
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handlePrecisionChange('APPROXIMATE')}
-                style={{
-                  padding: '10px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: `1.5px solid ${precision === 'APPROXIMATE' ? '#059669' : 'var(--border-color)'}`,
-                  backgroundColor: precision === 'APPROXIMATE' ? '#ECFDF5' : '#FFFFFF',
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <Eye
-                  size={16}
-                  color={precision === 'APPROXIMATE' ? '#059669' : 'var(--text-muted)'}
-                  style={{ margin: '0 auto 4px auto' }}
-                />
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    color: precision === 'APPROXIMATE' ? '#065F46' : 'var(--text-main)',
-                  }}
-                >
-                  Aproximada
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  Bairro + mapa territorial
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handlePrecisionChange('EXACT')}
-                style={{
-                  padding: '10px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  border: `1.5px solid ${precision === 'EXACT' ? '#059669' : 'var(--border-color)'}`,
-                  backgroundColor: precision === 'EXACT' ? '#ECFDF5' : '#FFFFFF',
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <ShieldAlert
-                  size={16}
-                  color={precision === 'EXACT' ? '#059669' : 'var(--text-muted)'}
-                  style={{ margin: '0 auto 4px auto' }}
-                />
-                <div
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    color: precision === 'EXACT' ? '#065F46' : 'var(--text-main)',
-                  }}
-                >
-                  Completa
-                </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                  Endereço + pin exato
-                </div>
-              </button>
+              <Globe size={16} color="#64748B" />
+              <span>
+                Localização definida pelo responsável original:{' '}
+                <strong>
+                  {precision === 'HIDDEN'
+                    ? 'Oculta'
+                    : precision === 'APPROXIMATE'
+                    ? 'Aproximada (bairro e centroide)'
+                    : 'Completa (endereço exato)'}
+                </strong>
+              </span>
             </div>
-          </div>
+          )}
 
-          {/* Botão de Prévia Fiel (Visível tanto antes quanto depois de publicar) */}
+          {/* ========================================================================= */}
+          {/* BLOCO 3: Botão de Prévia Fiel                                             */}
+          {/* ========================================================================= */}
           <div
             style={{
               padding: '12px 16px',
@@ -514,10 +659,12 @@ export default function SharePropertyModal({
           >
             <div>
               <strong style={{ fontSize: '0.88rem', color: '#1F2937' }}>
-                Prévia da Apresentação
+                {isOwner ? 'Prévia da Apresentação' : 'Prévia com Sua Identidade'}
               </strong>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#6B7280' }}>
-                Confira fotos, mapa, descrição e dados antes de enviar ao cliente.
+                {isOwner
+                  ? 'Confira fotos, mapa, descrição e dados antes de enviar ao cliente.'
+                  : 'Veja exatamente como seu cliente visualizará o imóvel e seus contatos.'}
               </p>
             </div>
 
@@ -540,8 +687,10 @@ export default function SharePropertyModal({
             </button>
           </div>
 
-          {/* Bloco de Compartilhamento (se público) */}
-          {isPublic && (
+          {/* ========================================================================= */}
+          {/* BLOCO 4: Links de Compartilhamento (Ativo)                                */}
+          {/* ========================================================================= */}
+          {isActiveShare && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
               {/* Campo de URL com Copiar e Abrir */}
               <div>
@@ -554,7 +703,9 @@ export default function SharePropertyModal({
                     marginBottom: '6px',
                   }}
                 >
-                  Endereço de Apresentação da Daiane Corrêa Imóveis:
+                  {isOwner
+                    ? 'Link de Apresentação Pública do Imóvel:'
+                    : 'Seu Link Individual de Apresentação:'}
                 </label>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
@@ -603,6 +754,7 @@ export default function SharePropertyModal({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '4px',
+                      textDecoration: 'none',
                     }}
                     title="Abrir página pública em nova aba"
                   >
@@ -612,8 +764,9 @@ export default function SharePropertyModal({
                 </div>
               </div>
 
-              {/* Ação Destacada de Envio ao Cliente via WhatsApp (se houver cliente contextual) */}
-              {clientPhone && (
+              {/* Opções de Envio via WhatsApp */}
+              {clientPhone && clientShareUrl ? (
+                /* Opção contextual com cliente pré-selecionado */
                 <div
                   style={{
                     padding: '14px 16px',
@@ -643,12 +796,12 @@ export default function SharePropertyModal({
                       {clientName || 'Cliente'} — {clientPhone}
                     </div>
                     <div style={{ fontSize: '0.78rem', color: '#047857', marginTop: '2px' }}>
-                      Mensagem pré-formatada pronta para envio no WhatsApp.
+                      Mensagem pré-formatada pronta para envio direto.
                     </div>
                   </div>
 
                   <a
-                    href={clientShareUrl || '#'}
+                    href={clientShareUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
@@ -669,7 +822,53 @@ export default function SharePropertyModal({
                     <span>Enviar para {clientFirstName}</span>
                   </a>
                 </div>
-              )}
+              ) : generalWhatsAppUrl ? (
+                /* Opção direta de compartilhamento no WhatsApp sem exigir cliente selecionado */
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: '0.88rem', color: '#065F46' }}>
+                      Enviar pelo WhatsApp
+                    </strong>
+                    <p style={{ margin: '2px 0 0 0', fontSize: '0.78rem', color: '#047857' }}>
+                      Abre o WhatsApp com mensagem e link formatados para escolher a conversa.
+                    </p>
+                  </div>
+
+                  <a
+                    href={generalWhatsAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: '9px 16px',
+                      fontSize: '0.84rem',
+                      backgroundColor: '#25D366',
+                      color: 'white',
+                      borderRadius: 'var(--radius-sm)',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 6px rgba(37, 211, 102, 0.25)',
+                    }}
+                  >
+                    <MessageCircle size={16} />
+                    <span>Compartilhar no WhatsApp</span>
+                  </a>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -687,7 +886,7 @@ export default function SharePropertyModal({
             }}
           >
             <span>
-              🛡️ Matrícula, notas internas e delimitações privadas <strong>nunca</strong> são expostas.
+              🛡️ Matrícula, notas internas e dados privados <strong>nunca</strong> são expostos.
             </span>
             <button
               type="button"
@@ -720,13 +919,17 @@ export default function SharePropertyModal({
             publicUrl={publicUrl || `${typeof window !== 'undefined' ? window.location.origin : ''}/p/imovel/${publicId || 'previa'}`}
             isPreview={true}
             onClosePreview={() => setPreviewOpen(false)}
-            onEditProperty={() => {
-              if (offerType === 'PROPERTY') {
-                router.push(`/imoveis/${offerId}/editar`);
-              } else {
-                router.push(`/empreendimentos`);
-              }
-            }}
+            onEditProperty={
+              isOwner
+                ? () => {
+                    if (offerType === 'PROPERTY') {
+                      router.push(`/imoveis/${offerId}/editar`);
+                    } else {
+                      router.push(`/empreendimentos`);
+                    }
+                  }
+                : undefined
+            }
           />
         </div>
       )}

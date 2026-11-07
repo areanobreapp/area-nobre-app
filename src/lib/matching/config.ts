@@ -60,6 +60,32 @@ export const MATCH_CONFIG = {
     PARKING_DEFICIT_1_POINTS: 3,
   },
 
+  // Pesos Adaptativos dos Critérios Padronizados (Fase 1 / Bloco 2 — Etapa 5B.2)
+  STANDARD_FIELDS: {
+    // Grupo Dormitórios (Teto máximo 20 pontos)
+    BEDROOMS_GROUP_TOTAL: 20,
+    BEDROOMS_TRIO: { TOTAL: 8, SUITES: 8, OTHER: 4 },
+    BEDROOMS_TOTAL_OTHER: { TOTAL: 12, OTHER: 8 },
+    BEDROOMS_SUITES_OTHER: { SUITES: 12, OTHER: 8 },
+    BEDROOMS_ONLY_OTHER: 20,
+
+    // Banheiros Sociais (Adaptativo por demanda - até 4 pontos)
+    SOCIAL_BATHROOMS_WEIGHT: 4,
+
+    // Grupo Vagas (Teto máximo 10 pontos)
+    PARKING_GROUP_TOTAL: 10,
+    PARKING_TOTAL_AND_COVERED: { TOTAL: 6, COVERED: 4 },
+    PARKING_TOTAL_AND_UNCOVERED: { TOTAL: 6, UNCOVERED: 4 },
+    PARKING_TRIO: { TOTAL: 4, COVERED: 3, UNCOVERED: 3 },
+    PARKING_COVERED_AND_UNCOVERED: { COVERED: 5, UNCOVERED: 5 },
+    PARKING_ONLY_SUBTYPE: 10,
+
+    // Grupo Áreas (Teto máximo 10 pontos)
+    AREA_GROUP_TOTAL: 10,
+    AREA_PRIVATE_AND_BUILT: { PRIVATE: 6, BUILT: 4 },
+    AREA_ONLY_BUILT: 10,
+  },
+
   // Localização
   LOCATION: {
     // Bairro bate exatamente com os desejados (ou cliente não filtrou bairro)
