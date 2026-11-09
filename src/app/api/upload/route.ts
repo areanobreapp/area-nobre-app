@@ -61,6 +61,15 @@ export async function POST(req: NextRequest) {
     const failedFiles: { name: string; error: string }[] = [];
 
     for (const file of files) {
+      if (/\.(heic|heif)$/i.test(file.name) || file.type.includes('heic') || file.type.includes('heif')) {
+        const heicMsg = `O arquivo "${file.name}" está no formato HEIC (iPhone). Por favor, converta para JPG ou PNG antes do envio.`;
+        failedFiles.push({ name: file.name, error: heicMsg });
+        if (files.length === 1) {
+          return NextResponse.json({ error: heicMsg }, { status: 400 });
+        }
+        continue;
+      }
+
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
 

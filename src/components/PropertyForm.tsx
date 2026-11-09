@@ -27,6 +27,8 @@ import {
   GripVertical,
   ChevronLeft,
   ChevronRight,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
@@ -275,32 +277,54 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [boundaryArea, setBoundaryArea] = useState<number | null>(initialData?.boundaryArea || null);
   const [showBoundaryModal, setShowBoundaryModal] = useState<boolean>(false);
 
-  // Fotos
-  const [images, setImages] = useState<string[]>(
-    initialData?.images?.map((img: any) => img.url) || []
-  );
+  // Fotos: Modelo estruturado com estado por foto (H.11.5)
+  interface PropertyPhotoItem {
+    id: string;
+    previewUrl: string;
+    remoteUrl?: string;
+    status: 'uploading' | 'success' | 'error';
+    errorMessage?: string;
+    file?: File;
+  }
+
+  const [photos, setPhotos] = useState<PropertyPhotoItem[]>(() => {
+    return (initialData?.images || []).map((img: any, idx: number) => {
+      const url = typeof img === 'string' ? img : img.url;
+      return {
+        id: `existing-${idx}-${url}`,
+        previewUrl: url,
+        remoteUrl: url,
+        status: 'success' as const,
+      };
+    });
+  });
+
+  const [photoErrorBanner, setPhotoErrorBanner] = useState<string | null>(null);
 
   // Estados para reordenação manual de fotos (Desktop Drag & Drop + Mobile Touch)
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  function moveImage(fromIndex: number, toIndex: number) {
+  function movePhoto(fromIndex: number, toIndex: number) {
     if (
       fromIndex < 0 ||
-      fromIndex >= images.length ||
+      fromIndex >= photos.length ||
       toIndex < 0 ||
-      toIndex >= images.length ||
+      toIndex >= photos.length ||
       fromIndex === toIndex
     ) {
       return;
     }
-    setImages((prev) => {
+    setPhotos((prev) => {
       const updated = [...prev];
       const [moved] = updated.splice(fromIndex, 1);
       updated.splice(toIndex, 0, moved);
       return updated;
     });
   }
+
+  // Compatibilidade com código legado que referencia moveImage
+  const moveImage = movePhoto;
 
   // Formatação de Moeda
   function formatCurrency(val: string) {
@@ -315,9 +339,13 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     setPrice(raw);
   }
 
-  // Otimização de imagem antes de envio para manter o payload sob o limite de 4.5MB da Vercel
-  async function ensureSafePayloadSize(file: File): Promise<Blob | File> {
-    if (file.size <= 3.8 * 1024 * 1024) {
+  // Otimização e compressão client-side de fotografias (H.11.5)
+  // Redimensiona imagens grandes para manter o payload sob o limite da Vercel (< 1.5MB) com alta qualidade
+  async function compressImageClientSide(file: File): Promise<Blob | File> {
+    if (file.size <= 450 * 1024) {
+      return file;
+    }
+    if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
       return file;
     }
 
@@ -328,7 +356,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
         img.onload = () => {
           URL.revokeObjectURL(objectUrl);
-          const maxDim = 2048;
+          const maxDim = 1600; // 1600px garante máxima nitidez e tamanho < 900KB
           let { width, height } = img;
 
           if (width > maxDim || height > maxDim) {
@@ -353,13 +381,15 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           canvas.toBlob(
             (blob) => {
               if (blob && blob.size < file.size) {
-                resolve(blob);
+                const safeName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+                const compressedFile = new File([blob], safeName, { type: 'image/jpeg' });
+                resolve(compressedFile);
               } else {
                 resolve(file);
               }
             },
             'image/jpeg',
-            0.85
+            0.82
           );
         };
 
@@ -375,105 +405,144 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     }
   }
 
-  // Upload Múltiplo de Imagens Seguro (compatível com limites Vercel e feedback contínuo)
-  async function uploadFiles(filesToUpload: File[]) {
-    if (!filesToUpload || filesToUpload.length === 0) return;
+  // Envio individual de fotografia com atualização de status pontual (H.11.5)
+  async function uploadSinglePhotoItem(photoId: string, file: File) {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === photoId ? { ...p, status: 'uploading' as const, errorMessage: undefined } : p))
+    );
 
-    setUploading(true);
-    setError(null);
+    try {
+      const processedFile = await compressImageClientSide(file);
+      const formData = new FormData();
+      formData.append('entityType', 'property');
+      if (initialData?.id) {
+        formData.append('entityId', initialData.id);
+      }
+      formData.append('files', processedFile, file.name);
 
-    const maxSizeBytes = 10 * 1024 * 1024; // 10 MB
-    const validFiles: File[] = [];
-    const clientErrors: string[] = [];
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-    for (const file of filesToUpload) {
-      if (file.size > maxSizeBytes) {
-        clientErrors.push(`"${file.name}" excede o tamanho máximo de 10MB.`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao processar upload no servidor.');
+      }
+
+      const uploadedUrl = data.urls?.[0];
+      if (!uploadedUrl) {
+        throw new Error('Servidor não retornou a URL da imagem.');
+      }
+
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: 'success' as const, remoteUrl: uploadedUrl, errorMessage: undefined }
+            : p
+        )
+      );
+    } catch (err: any) {
+      console.warn(`[Upload Error] Foto ${file.name}:`, err);
+      const errorMsg = err.message || 'Erro ao carregar fotografia.';
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? { ...p, status: 'error' as const, errorMessage: errorMsg }
+            : p
+        )
+      );
+      setPhotoErrorBanner(`Falha ao enviar "${file.name}": ${errorMsg}`);
+    }
+  }
+
+  async function retryPhotoUpload(photoId: string) {
+    const item = photos.find((p) => p.id === photoId);
+    if (!item || !item.file) return;
+    setPhotoErrorBanner(null);
+    await uploadSinglePhotoItem(photoId, item.file);
+  }
+
+  function removePhoto(photoId: string) {
+    setPhotos((prev) => {
+      const item = prev.find((p) => p.id === photoId);
+      if (item && item.previewUrl && item.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+      const updated = prev.filter((p) => p.id !== photoId);
+      if (!updated.some((p) => p.status === 'error')) {
+        setPhotoErrorBanner(null);
+      }
+      return updated;
+    });
+  }
+
+  async function processFiles(filesArray: File[]) {
+    if (!filesArray || filesArray.length === 0) return;
+
+    const maxSizeBytes = 12 * 1024 * 1024; // 12 MB limite de arquivo bruto
+    const localErrors: string[] = [];
+    const validItems: { item: PropertyPhotoItem; file: File }[] = [];
+
+    for (const file of filesArray) {
+      if (/\.(heic|heif)$/i.test(file.name) || file.type.includes('heic') || file.type.includes('heif')) {
+        localErrors.push(`"${file.name}": Formato HEIC (iPhone) não suportado diretamente. Exporte em JPG ou tire fotos como "Mais Compatível" nas opções da câmera.`);
         continue;
       }
+
+      if (file.size > maxSizeBytes) {
+        localErrors.push(`"${file.name}" excede o tamanho máximo permitido de 12MB.`);
+        continue;
+      }
+
       const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name);
       if (!isImage) {
-        clientErrors.push(`"${file.name}" não é um formato suportado (aceitos: JPG, PNG, WEBP).`);
+        localErrors.push(`"${file.name}" não é um formato de imagem suportado (aceitos: JPG, PNG, WEBP).`);
         continue;
       }
-      validFiles.push(file);
+
+      const localId = `photo-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const previewUrl = URL.createObjectURL(file);
+
+      const newItem: PropertyPhotoItem = {
+        id: localId,
+        previewUrl,
+        status: 'uploading',
+        file,
+      };
+
+      validItems.push({ item: newItem, file });
     }
 
-    if (validFiles.length === 0) {
-      setUploading(false);
-      setUploadProgress(null);
-      if (clientErrors.length > 0) {
-        setError(clientErrors.join(' | '));
-      }
-      return;
+    if (localErrors.length > 0) {
+      setPhotoErrorBanner(localErrors.join(' | '));
+    } else {
+      setPhotoErrorBanner(null);
     }
 
-    const errors: string[] = [...clientErrors];
+    if (validItems.length === 0) return;
 
-    for (let i = 0; i < validFiles.length; i++) {
-      const file = validFiles[i];
-      setUploadProgress(
-        validFiles.length > 1
-          ? `Enviando fotos (${i + 1} de ${validFiles.length})...`
-          : 'Enviando foto...'
-      );
+    // Adiciona imediatamente à grade visual para pré-visualização instantânea
+    setPhotos((prev) => [...prev, ...validItems.map((v) => v.item)]);
 
-      try {
-        const fileToUpload = await ensureSafePayloadSize(file);
-
-        const formData = new FormData();
-        formData.append('entityType', 'property');
-        if (initialData?.id) {
-          formData.append('entityId', initialData.id);
-        }
-        formData.append('files', fileToUpload, file.name);
-
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || `Falha ao enviar ${file.name}`);
-        }
-
-        if (data.urls && data.urls.length > 0) {
-          // Incorpora cada imagem recebida sem substituir as anteriores
-          setImages((prev) => [...prev, ...data.urls]);
-        }
-
-        if (data.failed && data.failed.length > 0) {
-          data.failed.forEach((f: any) => {
-            errors.push(`"${f.name}": ${f.error}`);
-          });
-        }
-      } catch (err: any) {
-        errors.push(`"${file.name}": ${err.message || 'Erro ao carregar imagem'}`);
-      }
-    }
-
-    setUploading(false);
-    setUploadProgress(null);
-
-    if (errors.length > 0) {
-      setError(errors.join(' | '));
+    // Dispara uploads individuais
+    for (const { item, file } of validItems) {
+      await uploadSinglePhotoItem(item.id, file);
     }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const rawFiles = e.target.files;
     if (!rawFiles || rawFiles.length === 0) return;
-
     const filesArray = Array.from(rawFiles);
-    // Limpa imediatamente o valor do input para permitir novas seleções seguidas no celular/desktop
     e.target.value = '';
-
-    await uploadFiles(filesArray);
+    await processFiles(filesArray);
   }
 
+  // Compatibilidade com handlers legados
   function handleRemoveImage(indexToRemove: number) {
-    setImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+    const item = photos[indexToRemove];
+    if (item) removePhoto(item.id);
   }
 
   // Consulta CEP rápida via GeoBase (com fallback)
@@ -518,8 +587,19 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   async function handleSubmit(saveStatus: string) {
     setError(null);
 
-    if (uploading) {
-      setError('Aguarde a conclusão do envio das fotos antes de salvar o imóvel.');
+    const isAnyPhotoUploading = photos.some((p) => p.status === 'uploading');
+    if (isAnyPhotoUploading) {
+      setError('Aguarde a conclusão do envio de todas as fotografias antes de salvar o imóvel.');
+      const photoSection = document.getElementById('section-fotos');
+      if (photoSection) photoSection.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+
+    const hasFailedPhotos = photos.some((p) => p.status === 'error');
+    if (hasFailedPhotos) {
+      setError('Existem fotografias com erro no envio. Remova-as ou clique em "Tentar" antes de salvar o imóvel.');
+      const photoSection = document.getElementById('section-fotos');
+      if (photoSection) photoSection.scrollIntoView({ behavior: 'smooth' });
       return;
     }
 
@@ -645,7 +725,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       inAllotment,
       streetPaving: streetPaving || null,
       commercialType: commercialType || null,
-      images,
+      images: photos.filter((p) => p.status === 'success' && p.remoteUrl).map((p) => p.remoteUrl!),
       hasOwnerAuthorization,
     };
 
@@ -2409,19 +2489,56 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
         )}
       </div>
 
-      {/* BLOCO 4: Fotos do Imóvel */}
-      <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+      {/* BLOCO 4: Fotos do Imóvel (H.11.5) */}
+      <div id="section-fotos" className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <ImageIcon size={20} color="var(--color-primary)" />
             <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Fotos do Imóvel</h2>
+            {photos.length > 0 && (
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                ({photos.filter((p) => p.status === 'success').length} salva{photos.filter((p) => p.status === 'success').length !== 1 ? 's' : ''}
+                {photos.some((p) => p.status === 'uploading') ? ', enviando...' : ''}
+                {photos.some((p) => p.status === 'error') ? ', com erro' : ''})
+              </span>
+            )}
           </div>
-          {images.length > 1 && (
+          {photos.length > 1 && (
             <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
               Arraste ou use as setas para reordenar
             </span>
           )}
         </div>
+
+        {/* Banner de Erros no Bloco de Fotos (Visível imediatamente no seletor) */}
+        {photoErrorBanner && (
+          <div
+            style={{
+              padding: '12px 14px',
+              backgroundColor: '#FEF2F2',
+              border: '1px solid #F87171',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px',
+              color: '#991B1B',
+              fontSize: '0.86rem',
+            }}
+          >
+            <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ flex: 1, wordBreak: 'break-word' }}>
+              <strong>Atenção no envio das fotos:</strong> {photoErrorBanner}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhotoErrorBanner(null)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991B1B', padding: '0 4px' }}
+              title="Fechar alerta"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         <div>
           <label
@@ -2433,10 +2550,9 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
             onDrop={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              if (uploading) return;
               const dtFiles = e.dataTransfer?.files;
               if (dtFiles && dtFiles.length > 0) {
-                uploadFiles(Array.from(dtFiles));
+                processFiles(Array.from(dtFiles));
               }
             }}
             style={{
@@ -2448,16 +2564,18 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
               border: '2px dashed var(--border-light)',
               borderRadius: 'var(--radius-md)',
               backgroundColor: 'var(--bg-subtle)',
-              cursor: uploading ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
               transition: 'border-color var(--transition-fast)',
             }}
           >
             <Upload size={28} color="var(--color-primary)" style={{ marginBottom: '8px' }} />
             <span style={{ fontSize: '0.94rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {uploading ? uploadProgress || 'Enviando fotos...' : 'Clique para adicionar fotos ou arraste aqui'}
+              {photos.some((p) => p.status === 'uploading')
+                ? 'Processando e enviando fotos...'
+                : 'Clique para adicionar fotos ou arraste aqui'}
             </span>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Selecione uma ou mais fotos da galeria (a primeira será a capa)
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'center' }}>
+              Selecione uma ou mais fotos (JPG, PNG ou WEBP). A primeira será a capa do anúncio.
             </span>
           </label>
           <input
@@ -2465,25 +2583,26 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
             type="file"
             multiple
             accept="image/jpeg,image/png,image/webp,image/*"
-            disabled={uploading}
             onChange={handleFileUpload}
             style={{ display: 'none' }}
           />
         </div>
 
-        {/* Pré-visualização de Imagens */}
-        {images.length > 0 && (
+        {/* Pré-visualização de Imagens com Status Individual */}
+        {photos.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            {images.map((url, idx) => {
+            {photos.map((photo, idx) => {
               const isCover = idx === 0;
               const isBeingDragged = draggedIdx === idx;
               const isDragOver = dragOverIdx === idx;
+              const isUploading = photo.status === 'uploading';
+              const isError = photo.status === 'error';
 
               return (
                 <div
-                  key={`${url}-${idx}`}
+                  key={photo.id}
                   data-image-index={idx}
-                  draggable={!uploading}
+                  draggable={!isUploading}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', String(idx));
                     setDraggedIdx(idx);
@@ -2500,7 +2619,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                     e.preventDefault();
                     e.stopPropagation();
                     if (draggedIdx !== null && draggedIdx !== idx) {
-                      moveImage(draggedIdx, idx);
+                      movePhoto(draggedIdx, idx);
                     }
                     setDraggedIdx(null);
                     setDragOverIdx(null);
@@ -2521,6 +2640,8 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                     justifyContent: 'center',
                     border: isDragOver
                       ? '2px dashed var(--color-primary)'
+                      : isError
+                      ? '2px solid #DC2626'
                       : isCover
                       ? '2px solid var(--color-primary)'
                       : '1px solid var(--border-light)',
@@ -2531,63 +2652,143 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                   }}
                 >
                   <img
-                    src={url}
+                    src={photo.previewUrl}
                     alt={`Foto ${idx + 1}`}
-                    style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                  {/* Handle de Arraste (Desktop + Mobile Touch) */}
-                  <div
-                    title="Segure e arraste para reordenar"
                     style={{
-                      position: 'absolute',
-                      top: 6,
-                      left: 6,
-                      width: 26,
-                      height: 26,
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'grab',
-                      touchAction: 'none',
-                      zIndex: 2,
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      filter: isUploading ? 'brightness(0.6)' : isError ? 'grayscale(0.6) brightness(0.7)' : 'none',
                     }}
-                    onTouchStart={(e) => {
-                      e.stopPropagation();
-                      setDraggedIdx(idx);
-                    }}
-                    onTouchMove={(e) => {
-                      e.stopPropagation();
-                      const touch = e.touches[0];
-                      const element = document.elementFromPoint(touch.clientX, touch.clientY);
-                      const card = element?.closest('[data-image-index]');
-                      if (card) {
-                        const targetIdx = Number(card.getAttribute('data-image-index'));
-                        if (!isNaN(targetIdx) && targetIdx !== dragOverIdx) {
-                          setDragOverIdx(targetIdx);
+                  />
+
+                  {/* Estado de UPLOAD EM ANDAMENTO */}
+                  {isUploading && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                        color: 'white',
+                        gap: '6px',
+                        zIndex: 3,
+                      }}
+                    >
+                      <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.3px' }}>Enviando...</span>
+                    </div>
+                  )}
+
+                  {/* Estado de ERRO COM BOTÃO DE REPETIR */}
+                  {isError && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(220, 38, 38, 0.8)',
+                        color: 'white',
+                        padding: '6px',
+                        textAlign: 'center',
+                        gap: '6px',
+                        zIndex: 3,
+                      }}
+                    >
+                      <AlertCircle size={20} color="#FEE2E2" />
+                      <span style={{ fontSize: '0.7rem', fontWeight: 600, lineHeight: 1.1 }}>Falha no envio</span>
+                      {photo.file && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            retryPhotoUpload(photo.id);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            backgroundColor: 'white',
+                            color: '#DC2626',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '3px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                          }}
+                        >
+                          <RotateCcw size={11} />
+                          Tentar
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Handle de Arraste (Desktop + Mobile Touch) */}
+                  {!isUploading && !isError && (
+                    <div
+                      title="Segure e arraste para reordenar"
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        width: 26,
+                        height: 26,
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'grab',
+                        touchAction: 'none',
+                        zIndex: 2,
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        setDraggedIdx(idx);
+                      }}
+                      onTouchMove={(e) => {
+                        e.stopPropagation();
+                        const touch = e.touches[0];
+                        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+                        const card = element?.closest('[data-image-index]');
+                        if (card) {
+                          const targetIdx = Number(card.getAttribute('data-image-index'));
+                          if (!isNaN(targetIdx) && targetIdx !== dragOverIdx) {
+                            setDragOverIdx(targetIdx);
+                          }
                         }
-                      }
-                    }}
-                    onTouchEnd={(e) => {
-                      e.stopPropagation();
-                      if (draggedIdx !== null && dragOverIdx !== null && draggedIdx !== dragOverIdx) {
-                        moveImage(draggedIdx, dragOverIdx);
-                      }
-                      setDraggedIdx(null);
-                      setDragOverIdx(null);
-                    }}
-                  >
-                    <GripVertical size={14} />
-                  </div>
+                      }}
+                      onTouchEnd={(e) => {
+                        e.stopPropagation();
+                        if (draggedIdx !== null && dragOverIdx !== null && draggedIdx !== dragOverIdx) {
+                          movePhoto(draggedIdx, dragOverIdx);
+                        }
+                        setDraggedIdx(null);
+                        setDragOverIdx(null);
+                      }}
+                    >
+                      <GripVertical size={14} />
+                    </div>
+                  )}
 
                   {/* Botão de Remover Foto */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemoveImage(idx);
+                      removePhoto(photo.id);
                     }}
                     style={{
                       position: 'absolute',
@@ -2603,7 +2804,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                       justifyContent: 'center',
                       border: 'none',
                       cursor: 'pointer',
-                      zIndex: 2,
+                      zIndex: 4,
                     }}
                     title="Remover foto"
                   >
@@ -2611,46 +2812,48 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                   </button>
 
                   {/* Badge de Capa ou Contador de Posição */}
-                  {isCover ? (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        bottom: 6,
-                        left: 6,
-                        backgroundColor: 'var(--color-primary)',
-                        color: 'white',
-                        fontSize: '0.66rem',
-                        fontWeight: 700,
-                        padding: '3px 8px',
-                        borderRadius: 'var(--radius-full)',
-                        letterSpacing: '0.5px',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                        zIndex: 2,
-                      }}
-                    >
-                      CAPA
-                    </span>
-                  ) : (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        bottom: 6,
-                        left: 6,
-                        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-                        color: 'white',
-                        fontSize: '0.66rem',
-                        fontWeight: 600,
-                        padding: '2px 7px',
-                        borderRadius: 'var(--radius-full)',
-                        zIndex: 2,
-                      }}
-                    >
-                      {idx + 1}
-                    </span>
+                  {!isError && (
+                    isCover ? (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: 6,
+                          left: 6,
+                          backgroundColor: 'var(--color-primary)',
+                          color: 'white',
+                          fontSize: '0.66rem',
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: 'var(--radius-full)',
+                          letterSpacing: '0.5px',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                          zIndex: 2,
+                        }}
+                      >
+                        CAPA
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: 6,
+                          left: 6,
+                          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+                          color: 'white',
+                          fontSize: '0.66rem',
+                          fontWeight: 600,
+                          padding: '2px 7px',
+                          borderRadius: 'var(--radius-full)',
+                          zIndex: 2,
+                        }}
+                      >
+                        {idx + 1}
+                      </span>
+                    )
                   )}
 
                   {/* Controles de Reordenação por Toque/Clique (Setas Esquerda e Direita) */}
-                  {images.length > 1 && (
+                  {photos.length > 1 && !isUploading && (
                     <div
                       style={{
                         position: 'absolute',
@@ -2667,7 +2870,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            moveImage(idx, idx - 1);
+                            movePhoto(idx, idx - 1);
                           }}
                           style={{
                             width: 26,
@@ -2686,12 +2889,12 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                           <ChevronLeft size={15} />
                         </button>
                       )}
-                      {idx < images.length - 1 && (
+                      {idx < photos.length - 1 && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            moveImage(idx, idx + 1);
+                            movePhoto(idx, idx + 1);
                           }}
                           style={{
                             width: 26,
@@ -3237,7 +3440,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       >
         <button
           type="button"
-          disabled={loading || uploading}
+          disabled={loading || uploading || photos.some((p) => p.status === 'uploading')}
           onClick={() => handleSubmit('Inativo')}
           className="btn-secondary"
           style={{ padding: '12px 20px' }}
@@ -3247,13 +3450,13 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
         <button
           type="button"
-          disabled={loading || uploading}
+          disabled={loading || uploading || photos.some((p) => p.status === 'uploading')}
           onClick={() => handleSubmit('Disponível')}
           className="btn-primary"
           style={{ padding: '12px 24px' }}
         >
           <Check size={18} />
-          <span>{loading ? 'Salvando...' : uploading ? 'Enviando fotos...' : isEditing ? 'Salvar Alterações' : 'Publicar Imóvel'}</span>
+          <span>{loading ? 'Salvando...' : (uploading || photos.some((p) => p.status === 'uploading')) ? 'Enviando fotos...' : isEditing ? 'Salvar Alterações' : 'Publicar Imóvel'}</span>
         </button>
       </div>
     </div>

@@ -166,6 +166,10 @@ export async function uploadFileBuffer(
   }
 
   // 5. Fallback local para desenvolvimento sem Supabase Storage
+  if (process.env.VERCEL === '1' || (process.env.NODE_ENV === 'production' && !supabase)) {
+    throw new Error('Supabase Storage não está configurado no servidor (verifique as variáveis SUPABASE_SECRET_KEY e SUPABASE_URL).');
+  }
+
   const localUploadDir = path.join(process.cwd(), 'public', 'uploads');
   await fs.mkdir(localUploadDir, { recursive: true });
 

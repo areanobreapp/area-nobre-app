@@ -12,6 +12,17 @@ export default function MobileNav() {
   const { defaultUrl: supportUrl } = useSupportContact();
   const [modalOpen, setModalOpen] = useState(false);
 
+  // Trava de rolagem e prevenção de interações de fundo (H.11.3)
+  React.useEffect(() => {
+    if (modalOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [modalOpen]);
+
   if (pathname === '/login' || pathname.startsWith('/p/')) return null;
 
   return (
@@ -82,17 +93,18 @@ export default function MobileNav() {
         </Link>
       </nav>
 
-      {/* Sheet de Ação Rápida no Mobile */}
+      {/* Sheet de Ação Rápida no Mobile (H.11.3: zIndex 1100 sobrepõe controles do mapa) */}
       {modalOpen && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.5)',
-            zIndex: 100,
+            zIndex: 1100,
             display: 'flex',
             alignItems: 'flex-end',
             animation: 'fadeInSlide 0.2s ease',
+            touchAction: 'none',
           }}
           onClick={() => setModalOpen(false)}
         >

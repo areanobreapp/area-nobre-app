@@ -752,50 +752,50 @@ export default function HomeMap({
     layer.clearLayers();
 
     if (routeOrigin) {
+      // H.11.6: Marcador em formato needle pin (alfinete com ponta afilada exata e cabeça circular)
       const iconA = L.divIcon({
         className: 'route-marker-a',
         html: `
-          <div style="position: relative; width: 36px; height: 44px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
-            <div style="position: absolute; bottom: 46px; background: #166534; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+          <div style="position: relative; width: 26px; height: 46px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.45));">
+            <div style="position: absolute; bottom: 48px; background: #166534; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.25);">
               A • Origem
             </div>
-            <svg width="36" height="44" viewBox="0 0 36 44" fill="none">
-              <path d="M18,44 C16.5,41 2,27 2,18 A16,16 0 1,1 34,18 C34,27 19.5,41 18,44 Z" fill="#16A34A" stroke="#FFFFFF" stroke-width="2.5"/>
+            <svg width="26" height="46" viewBox="0 0 26 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13 46 L9.5 24 C3.5 22 1 17.5 1 12.5 C1 5.87 6.37 0.5 13 0.5 C19.63 0.5 25 5.87 25 12.5 C25 17.5 22.5 22 16.5 24 L13 46 Z" fill="#16A34A" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+              <circle cx="13" cy="12.5" r="9" fill="#15803D"/>
+              <text x="13" y="16.5" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFFFF" text-anchor="middle">A</text>
             </svg>
-            <div style="position: absolute; top: 0; left: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px;">
-              A
-            </div>
           </div>
         `,
-        iconSize: [36, 44],
-        iconAnchor: [18, 44],
+        iconSize: [26, 46],
+        iconAnchor: [13, 46],
       });
       const markerA = L.marker([routeOrigin.lat, routeOrigin.lng], { icon: iconA, zIndexOffset: 2000 });
-      markerA.bindTooltip('Ponto A (Origem)', { direction: 'top', offset: [0, -44] });
+      markerA.bindTooltip('Ponto A (Origem)', { direction: 'top', offset: [0, -46] });
       layer.addLayer(markerA);
     }
 
     if (routeDestination) {
+      // H.11.6: Marcador em formato needle pin (alfinete com ponta afilada exata e cabeça circular)
       const iconB = L.divIcon({
         className: 'route-marker-b',
         html: `
-          <div style="position: relative; width: 36px; height: 44px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));">
-            <div style="position: absolute; bottom: 46px; background: #991B1B; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+          <div style="position: relative; width: 26px; height: 46px; display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 3px 6px rgba(0,0,0,0.45));">
+            <div style="position: absolute; bottom: 48px; background: #991B1B; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 800; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.25);">
               B • Destino
             </div>
-            <svg width="36" height="44" viewBox="0 0 36 44" fill="none">
-              <path d="M18,44 C16.5,41 2,27 2,18 A16,16 0 1,1 34,18 C34,27 19.5,41 18,44 Z" fill="#DC2626" stroke="#FFFFFF" stroke-width="2.5"/>
+            <svg width="26" height="46" viewBox="0 0 26 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13 46 L9.5 24 C3.5 22 1 17.5 1 12.5 C1 5.87 6.37 0.5 13 0.5 C19.63 0.5 25 5.87 25 12.5 C25 17.5 22.5 22 16.5 24 L13 46 Z" fill="#DC2626" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/>
+              <circle cx="13" cy="12.5" r="9" fill="#B91C1C"/>
+              <text x="13" y="16.5" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="900" fill="#FFFFFF" text-anchor="middle">B</text>
             </svg>
-            <div style="position: absolute; top: 0; left: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 16px;">
-              B
-            </div>
           </div>
         `,
-        iconSize: [36, 44],
-        iconAnchor: [18, 44],
+        iconSize: [26, 46],
+        iconAnchor: [13, 46],
       });
       const markerB = L.marker([routeDestination.lat, routeDestination.lng], { icon: iconB, zIndexOffset: 2000 });
-      markerB.bindTooltip('Ponto B (Destino)', { direction: 'top', offset: [0, -44] });
+      markerB.bindTooltip('Ponto B (Destino)', { direction: 'top', offset: [0, -46] });
       layer.addLayer(markerB);
     }
   }, [routeOrigin, routeDestination]);
@@ -1944,35 +1944,35 @@ export default function HomeMap({
             </div>
           )}
 
-          {/* 4.0.B. PAINEL DO MODO TRAÇAR ROTA (Etapa 3D.2 / Ponto 27) */}
+          {/* 4.0.B. PAINEL DO MODO TRAÇAR ROTA (H.11.2: Compacto, responsivo, sem ocupar área excessiva) */}
           {isRouteMode && (
             <div
               style={{
                 position: 'absolute',
-                top: '16px',
+                top: '12px',
                 left: '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 660,
-                width: 'calc(100% - 32px)',
-                maxWidth: '460px',
+                width: 'calc(100% - 24px)',
+                maxWidth: '380px',
                 backgroundColor: 'rgba(255, 255, 255, 0.98)',
                 backdropFilter: 'blur(8px)',
-                borderRadius: 'var(--radius-lg, 12px)',
+                borderRadius: '10px',
                 border: '1.5px solid #1E4620',
                 boxShadow: 'var(--shadow-floating, 0 10px 25px -5px rgba(0,0,0,0.2))',
-                padding: '14px 16px',
+                padding: '8px 12px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '10px',
+                gap: '6px',
               }}
             >
               {/* Cabeçalho do Painel */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <div
                     style={{
-                      width: '26px',
-                      height: '26px',
+                      width: '22px',
+                      height: '22px',
                       borderRadius: '50%',
                       backgroundColor: '#F0FDF4',
                       display: 'flex',
@@ -1981,9 +1981,9 @@ export default function HomeMap({
                       color: '#166534',
                     }}
                   >
-                    <Navigation size={15} />
+                    <Navigation size={13} />
                   </div>
-                  <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#111827' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#111827' }}>
                     Traçar Rota no Mapa
                   </span>
                 </div>
@@ -1995,14 +1995,14 @@ export default function HomeMap({
                     border: 'none',
                     cursor: 'pointer',
                     color: '#6B7280',
-                    padding: '4px',
+                    padding: '2px',
                     display: 'flex',
                     alignItems: 'center',
                     borderRadius: '4px',
                   }}
                   title="Cancelar modo de rota"
                 >
-                  <X size={16} />
+                  <X size={15} />
                 </button>
               </div>
 
@@ -2011,71 +2011,60 @@ export default function HomeMap({
                 style={{
                   backgroundColor: !routeOrigin ? '#F0FDF4' : !routeDestination ? '#FEF2F2' : '#F9FAFB',
                   border: `1px solid ${!routeOrigin ? '#BBF7D0' : !routeDestination ? '#FECACA' : '#E5E7EB'}`,
-                  borderRadius: '8px',
-                  padding: '10px 12px',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}>
                   <span
                     style={{
-                      fontSize: '0.72rem',
+                      fontSize: '0.68rem',
                       fontWeight: 800,
                       textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
+                      padding: '2px 5px',
+                      borderRadius: '4px',
+                      backgroundColor: !routeOrigin ? '#DCFCE7' : !routeDestination ? '#FEE2E2' : '#E5E7EB',
                       color: !routeOrigin ? '#166534' : !routeDestination ? '#991B1B' : '#374151',
+                      flexShrink: 0,
                     }}
                   >
-                    {!routeOrigin ? 'Passo 1 de 2 • Origem' : !routeDestination ? 'Passo 2 de 2 • Destino' : 'Pontos Definidos'}
+                    {!routeOrigin ? 'Passo 1/2' : !routeDestination ? 'Passo 2/2' : 'Pronto'}
                   </span>
-                  {routeOrigin && (
-                    <span style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 700 }}>
-                      Origem A ✓
-                    </span>
-                  )}
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {!routeOrigin ? 'Toque no mapa para Origem (A)' : !routeDestination ? 'Toque no mapa para Destino (B)' : 'Origem e destino definidos'}
+                  </span>
                 </div>
-
-                <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1F2937' }}>
-                  {!routeOrigin ? (
-                    'Toque no mapa para escolher a origem (Ponto A).'
-                  ) : !routeDestination ? (
-                    'Agora toque no mapa para escolher o destino (Ponto B).'
-                  ) : (
-                    'Origem e destino definidos. Pronto para abrir rota!'
-                  )}
-                </div>
-
-                <div style={{ fontSize: '0.74rem', color: '#6B7280' }}>
-                  {!routeOrigin || !routeDestination
-                    ? 'Dica: você também pode tocar diretamente no pin de um imóvel cadastrado.'
-                    : 'A rota será calculada pelo Google Maps em uma nova aba com o trajeto em tempo real.'}
-                </div>
+                {routeOrigin && !routeDestination && (
+                  <span style={{ fontSize: '0.70rem', color: '#166534', fontWeight: 700, flexShrink: 0 }}>
+                    A ✓
+                  </span>
+                )}
               </div>
 
-              {/* Resumo dos pontos selecionados se houver ao menos 1 */}
+              {/* Resumo compacto dos pontos se selecionados */}
               {(routeOrigin || routeDestination) && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.76rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.72rem', flexWrap: 'wrap' }}>
                   {routeOrigin && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#166534' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#166534' }}>
                       <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#16A34A', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>A</span>
-                      <span style={{ fontWeight: 700 }}>Origem:</span>
-                      <span>{routeOrigin.lat.toFixed(5)}, {routeOrigin.lng.toFixed(5)}</span>
+                      <span>{routeOrigin.lat.toFixed(4)}, {routeOrigin.lng.toFixed(4)}</span>
                     </div>
                   )}
                   {routeDestination && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#991B1B' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#991B1B' }}>
                       <span style={{ width: 14, height: 14, borderRadius: '50%', background: '#DC2626', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>B</span>
-                      <span style={{ fontWeight: 700 }}>Destino:</span>
-                      <span>{routeDestination.lat.toFixed(5)}, {routeDestination.lng.toFixed(5)}</span>
+                      <span>{routeDestination.lat.toFixed(4)}, {routeDestination.lng.toFixed(4)}</span>
                     </div>
                   )}
                 </div>
               )}
 
               {/* Ações: Abrir no Google Maps se ambos estiverem preenchidos, Limpar e Cancelar */}
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
                 {routeOrigin && routeDestination && (
                   <a
                     href={getTwoPointsGoogleMapsUrl(routeOrigin.lat, routeOrigin.lng, routeDestination.lat, routeDestination.lng) || '#'}
@@ -2084,10 +2073,10 @@ export default function HomeMap({
                     className="btn-primary"
                     style={{
                       flex: 1,
-                      minWidth: '180px',
+                      minWidth: '150px',
                       justifyContent: 'center',
-                      padding: '8px 14px',
-                      fontSize: '0.84rem',
+                      padding: '6px 10px',
+                      fontSize: '0.78rem',
                       fontWeight: 800,
                       backgroundColor: '#1E4620',
                       color: 'white',
@@ -2095,13 +2084,13 @@ export default function HomeMap({
                       textDecoration: 'none',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '6px',
+                      gap: '5px',
                       boxShadow: '0 2px 4px rgba(30,70,32,0.25)',
                     }}
                   >
-                    <Navigation size={14} />
-                    <span>Abrir rota no Google Maps</span>
-                    <ExternalLink size={12} />
+                    <Navigation size={13} />
+                    <span>Abrir Google Maps</span>
+                    <ExternalLink size={11} />
                   </a>
                 )}
 
@@ -2111,16 +2100,16 @@ export default function HomeMap({
                     onClick={handleClearRoutePoints}
                     className="btn-secondary"
                     style={{
-                      padding: '7px 11px',
-                      fontSize: '0.78rem',
+                      padding: '5px 8px',
+                      fontSize: '0.74rem',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '5px',
+                      gap: '4px',
                     }}
                     title="Limpar pontos A e B para selecionar novamente"
                   >
-                    <RotateCcw size={12} />
-                    <span>Limpar pontos</span>
+                    <RotateCcw size={11} />
+                    <span>Limpar</span>
                   </button>
                 )}
 
@@ -2131,8 +2120,8 @@ export default function HomeMap({
                     background: 'none',
                     border: '1px solid #D1D5DB',
                     borderRadius: 'var(--radius-sm, 6px)',
-                    padding: '7px 11px',
-                    fontSize: '0.78rem',
+                    padding: '5px 8px',
+                    fontSize: '0.74rem',
                     color: '#4B5563',
                     cursor: 'pointer',
                     fontWeight: 600,
@@ -2150,7 +2139,7 @@ export default function HomeMap({
             position: 'absolute',
             bottom: '20px',
             right: '20px',
-            zIndex: 500,
+            zIndex: 510,
             display: 'flex',
             flexDirection: 'column',
             gap: '8px',
@@ -2262,26 +2251,31 @@ export default function HomeMap({
           </button>
         </div>
 
-        {/* 4.1.1. ETIQUETA DISCRETA DE FONTE TERRITORIAL (Requisito 5) */}
+        {/* 4.1.1. ETIQUETA DISCRETA DE FONTE TERRITORIAL (H.11.1: Sem sobrepor controles no mobile) */}
         {showTerritory && (
           <div
             style={{
               position: 'absolute',
-              bottom: '14px',
-              left: '14px',
-              zIndex: 500,
+              bottom: '12px',
+              left: '12px',
+              zIndex: 400,
+              maxWidth: 'calc(100% - 190px)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
               backgroundColor: 'rgba(255, 255, 255, 0.92)',
               backdropFilter: 'blur(4px)',
-              padding: '4px 10px',
+              padding: '3px 8px',
               borderRadius: '6px',
-              fontSize: '0.70rem',
+              fontSize: '0.68rem',
               color: '#475569',
               border: '1px solid rgba(226, 232, 240, 0.9)',
               pointerEvents: 'none',
               boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
             }}
+            title="Referência territorial: IBGE Censo 2022 (Malha municipal e bairros de Criciúma)"
           >
-            Referência territorial: IBGE Censo 2022 (Malha municipal e bairros de Criciúma)
+            Território: IBGE 2022 (Criciúma)
           </div>
         )}
 

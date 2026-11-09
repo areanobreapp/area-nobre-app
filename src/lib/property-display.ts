@@ -442,9 +442,8 @@ export function resolveSecondaryAreas(p: PropertyFeaturesInput, mainArea: AreaDi
     result.push({ value: totalArea, formatted: `${formatAreaNumber(totalArea)} m²`, label: 'Área Total' });
   }
 
-  if (boundaryArea && boundaryArea > 0) {
-    result.push({ value: boundaryArea, formatted: `${formatAreaNumber(boundaryArea)} m²`, label: 'Área no Mapa (aprox.)' });
-  }
+  // H.11.4: boundaryArea (área estimada do polígono) não é exibida nos detalhes do imóvel salvo
+  // para evitar divergência com a área cadastral informada pelo corretor. A geometria permanece salva.
 
   return result;
 }

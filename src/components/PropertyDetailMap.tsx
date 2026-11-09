@@ -127,14 +127,11 @@ export default function PropertyDetailMap({
           }
         );
 
-        const areaFormatted = boundaryArea
-          ? `${Math.round(boundaryArea).toLocaleString('pt-BR')} m²`
-          : `${parsedBoundary.length} vértices`;
-
+        // H.11.4: Apresenta o terreno demarcado sem contrapor área calculada estimada à área cadastral
         polygon.bindPopup(`
           <div style="font-family: inherit; font-size: 13px; line-height: 1.4; padding: 2px;">
             <strong style="color: #1E4620;">Terreno demarcado</strong><br/>
-            <span>Área calculada: <strong>${areaFormatted}</strong></span>
+            <span style="color: #4B5563;">Geometria do lote delimitada no mapa</span>
           </div>
         `);
 
@@ -398,10 +395,7 @@ export default function PropertyDetailMap({
               {hasBoundary ? (
                 <>
                   <Pentagon size={13} color="#86EFAC" />
-                  <span>
-                    Terreno demarcado{' '}
-                    {boundaryArea ? `(${Math.round(boundaryArea).toLocaleString('pt-BR')} m²)` : ''}
-                  </span>
+                  <span>Terreno demarcado</span>
                 </>
               ) : (
                 <>
