@@ -30,6 +30,9 @@ model User {
   propertyShares          PropertyShare[]
   legalAcceptances        LegalAcceptance[]
   propertyAuthorizations  PropertyAuthorization[]
+  createdBuildings        Building[]              @relation("CreatedBuildings")
+  waitlists               PropertyWaitlist[]      @relation("BrokerWaitlists")
+  disputes                PropertyDispute[]       @relation("BrokerDisputes")
 }
 
 model BrokerProfile {
@@ -157,6 +160,16 @@ model Property {
   // Identifica imóveis existentes antes da ativação da regra de autorização
   legacyExemptFromAuthorization Boolean @default(false)
 
+  // Vínculos da Fase 2 (Bloco 05)
+  physicalPropertyId String?
+  physicalProperty   PhysicalProperty? @relation("PhysicalPropertyListings", fields: [physicalPropertyId], references: [id], onDelete: SetNull)
+  
+  buildingId         String?
+  building           Building?         @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  
+  isPrimaryListing   Boolean           @default(false)
+  listingSlot        Int?              // 1, 2 ou 3
+
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
@@ -164,6 +177,10 @@ model Property {
   matches       Match[]
   shares        PropertyShare[]
   authorizations PropertyAuthorization[]
+
+  @@index([physicalPropertyId, status])
+  @@index([physicalPropertyId, userId, status])
+  @@index([buildingId, status])
 }
 
 model PropertyImage {
@@ -468,4 +485,206 @@ model PropertyAuthorization {
   @@index([brokerId])
   @@index([documentId])
   @@index([propertyId, brokerId, status])
+}
+
+
+// ==============================================================================
+// Edifícios Residenciais Existentes (Fase 2 / Ponto 25)
+// Cadastro compartilhado e colaborativo dos edifícios construídos na cidade
+// ==============================================================================
+model Building {
+  id                  String             @id @default(cuid())
+  name                String
+  normalizedName      String             // Normalizado para buscas rápidas (ex: "solar das acacias")
+  
+  // Localização Predial Compartilhada
+  address             String             // Logradouro (ex: "Rua Coronel Pedro Benedet")
+  number              String?            // Número predial (ex: "350")
+  neighborhood        String             // Bairro
+  city                String             @default("Criciúma")
+  state               String             @default("SC")
+  zipcode             String?
+  latitude            Float
+  longitude           Float
+  
+  // Estrutura do Edifício
+  totalFloors         Int?               // Quantidade de pavimentos
+  unitsPerFloor       Int?               // Unidades por andar
+  towers              String?            // JSON: ["Torre A", "Torre B"] ou null
+  
+  // Registro / Matrícula-mãe do terreno do edifício (se informada)
+  landRegistryNumber  String?
+  landRegistryOffice  String?            // Comarca / Cartório de Registro
+  
+  // Comodidades Compartilhadas do Edifício
+  hasPool             Boolean?
+  hasGym              Boolean?
+  hasPartyHall        Boolean?
+  hasElevator         Boolean?
+  hasPetSpace         Boolean?
+  hasBarbecue         Boolean?
+  coverImageUrl       String?
+  
+  // Governança Colaborativa
+  status              String             @default("ACTIVE") // ACTIVE | PENDING_REVIEW | MERGED | INACTIVE
+  verifiedByAdmin     Boolean            @default(false)
+  createdById         String
+  createdBy           User               @relation("CreatedBuildings", fields: [createdById], references: [id])
+  
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  units               BuildingUnit[]
+  physicalProperties  PhysicalProperty[]
+  properties          Property[]
+
+  @@index([city, neighborhood])
+  @@index([latitude, longitude])
+  @@index([normalizedName])
+}
+
+// ==============================================================================
+// Unidades de Apartamentos em Edifícios (Fase 2 / Ponto 25)
+// Identificação individual das unidades/apartamentos dentro de cada edifício
+// ==============================================================================
+model BuildingUnit {
+  id                 String            @id @default(cuid())
+  buildingId         String
+  building           Building          @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  
+  unitNumber         String            // Ex: "101", "302B", "Cobertura 01"
+  normalizedUnit     String            // Para unicidade (ex: "101", "302b")
+  tower              String?           // Ex: "Torre A" ou null
+  floor              Int?              // Andar
+  
+  // Matrícula individualizada da unidade autônoma (se houver)
+  unitRegistryNumber String?
+  
+  // Características Estruturais de Referência da Unidade
+  bedrooms           Int?
+  suites             Int?
+  bathrooms          Int?
+  parkingSpaces      Int?
+  privateArea        Float?
+  totalArea          Float?
+  
+  // Vínculo 1:1 com a identidade física
+  physicalPropertyId String?           @unique
+  physicalProperty   PhysicalProperty? @relation(fields: [physicalPropertyId], references: [id], onDelete: SetNull)
+  
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([buildingId, tower, normalizedUnit], name: "building_tower_unit_unique")
+  @@index([buildingId, floor])
+}
+
+// ==============================================================================
+// Identidade Física Compartilhada do Imóvel (Fase 2 / Pontos 2 e 25)
+// Ponto de convergência para qualquer imóvel real (casa, terreno ou apto)
+// ==============================================================================
+model PhysicalProperty {
+  id                  String              @id @default(cuid())
+  propertyType        String              // "Apartamento", "Casa", "Terreno", "Comercial", etc.
+  
+  // Vínculo com Edifício e Unidade (se for apartamento de condomínio)
+  buildingId          String?
+  building            Building?           @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  unit                BuildingUnit?
+  
+  // Localização Física do Imóvel
+  address             String?
+  number              String?
+  complement          String?
+  neighborhood        String?
+  city                String              @default("Criciúma")
+  state               String              @default("SC")
+  zipcode             String?
+  latitude            Float?
+  longitude           Float?
+  
+  // Dados Documentais do Registro de Imóveis (Sensíveis)
+  registryNumber      String?             // Número da matrícula no Cartório de RI
+  registryOffice      String?             // Cartório de RI / Comarca
+  registryType        String?             // "INDIVIDUAL" | "GLEBA_MAE" | "EM_APROVACAO" | "OUTRO"
+  
+  // Geometria (Casas e Terrenos)
+  boundary            String?             // GeoJSON
+  boundaryArea        Float?              // Área calculada auxiliar (não comercial)
+  
+  // Metragens Físicas de Referência
+  landArea            Float?
+  builtArea           Float?
+  privateArea         Float?
+  totalArea           Float?
+  
+  // Gestão de Capacidade (Ponto 2: máx 3 anúncios ativos)
+  activeListingsCount Int                 @default(0)
+  primaryListingId    String?             // ID do anúncio Property atualmente principal
+  
+  status              String              @default("ACTIVE") // ACTIVE | ARCHIVED | DISPUTED
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  listings            Property[]          @relation("PhysicalPropertyListings")
+  waitlist            PropertyWaitlist[]
+  disputes            PropertyDispute[]
+
+  @@index([city, neighborhood])
+  @@index([latitude, longitude])
+  @@index([registryNumber])
+  @@index([status, activeListingsCount])
+}
+
+// ==============================================================================
+// Lista de Espera de Corretores (Fase 2 / Ponto 2)
+// Gerencia a fila cronológica de corretores interessados a partir da 4ª vaga
+// ==============================================================================
+model PropertyWaitlist {
+  id                 String           @id @default(cuid())
+  physicalPropertyId String
+  physicalProperty   PhysicalProperty @relation(fields: [physicalPropertyId], references: [id], onDelete: Cascade)
+  brokerId           String
+  broker             User             @relation("BrokerWaitlists", fields: [brokerId], references: [id], onDelete: Cascade)
+  
+  position           Int              // Ordem cronológica na fila (1, 2, 3...)
+  status             String           @default("WAITING") // WAITING | NOTIFIED | CLAIMED | EXPIRED | CANCELLED
+  
+  draftPropertyId    String?          // ID do Property salvo em rascunho/inativo
+  
+  notifiedAt         DateTime?        // Momento em que a vaga foi liberada
+  expiresAt          DateTime?        // Prazo limite para confirmação (48 horas úteis)
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([physicalPropertyId, brokerId])
+  @@index([physicalPropertyId, status, position])
+}
+
+// ==============================================================================
+// Contestações Administrativas e Exclusividade (Fase 2 / Ponto 2)
+// Canal seguro para resolução de divergências e alegações de exclusividade
+// ==============================================================================
+model PropertyDispute {
+  id                 String           @id @default(cuid())
+  physicalPropertyId String
+  physicalProperty   PhysicalProperty @relation(fields: [physicalPropertyId], references: [id], onDelete: Cascade)
+  claimantBrokerId   String
+  claimantBroker     User             @relation("BrokerDisputes", fields: [claimantBrokerId], references: [id], onDelete: Cascade)
+  
+  type               String           // "EXCLUSIVITY_CLAIM" | "IDENTITY_MISMATCH" | "FRAUDULENT_LISTING" | "UNAUTHORIZED_LISTING" | "OTHER"
+  description        String           @db.Text
+  documentProofUrl   String?          // Comprovante / contrato anexado
+  
+  status             String           @default("PENDING") // PENDING | UNDER_REVIEW | APPROVED | REJECTED
+  adminNotes         String?          @db.Text
+  resolvedById       String?          // ID do ADMIN que julgou
+  resolvedAt         DateTime?
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([physicalPropertyId, status])
+  @@index([claimantBrokerId, status])
 }
