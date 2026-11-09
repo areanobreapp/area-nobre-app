@@ -13,18 +13,42 @@ export const DEFAULT_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'area-nobre
 let supabaseClientInstance: SupabaseClient | null = null;
 
 export function getSupabaseStorageClient(): SupabaseClient | null {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  // Credencial moderna exclusivamente server-side (Secret Key)
-  const supabaseKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/^["']|["']$/g, '');
+  // Credencial server-side: aceita tanto a moderna Secret Key (sb_secret_...) quanto a service_role clássica (JWT)
+  const rawKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseKey = rawKey?.trim().replace(/^["']|["']$/g, '');
 
   if (!supabaseUrl || !supabaseKey) {
     return null;
   }
 
   if (!supabaseClientInstance) {
+    // Transporte HTTP personalizado exclusivamente para esta instância do Storage Client (H.13.2)
+    // Sanitiza cabeçalhos sem afetar o runtime global ou outros serviços
+    const storageFetch: typeof fetch = (input, init) => {
+      if (init?.headers) {
+        const headers = new Headers(init.headers);
+        const auth = headers.get('authorization');
+        if (auth) {
+          const cleanedAuth = auth
+            .replace(/^Bearer\s+Bearer\s+/i, 'Bearer ')
+            .replace(/^Bearer\s+["']([^"']+)["']/i, 'Bearer $1')
+            .trim();
+          if (cleanedAuth !== auth) {
+            headers.set('authorization', cleanedAuth);
+          }
+        }
+        return fetch(input, { ...init, headers });
+      }
+      return fetch(input, init);
+    };
+
     supabaseClientInstance = createClient(supabaseUrl, supabaseKey, {
       auth: {
         persistSession: false,
+      },
+      global: {
+        fetch: storageFetch,
       },
     });
   }
