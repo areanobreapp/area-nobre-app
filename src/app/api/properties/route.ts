@@ -5,6 +5,7 @@ import { recalculateMatchesForProperty } from '@/lib/matching';
 import { getGeoProvider } from '@/lib/geo';
 import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
 import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
+import { isLand } from '@/lib/property-display';
 
 export async function GET(req: NextRequest) {
   try {
@@ -309,6 +310,8 @@ export async function POST(req: NextRequest) {
     // Se NÃO confirmou, salva o imóvel obrigatoriamente como 'Inativo' e sem apresentação pública.
     const finalStatus = isAuthorized ? (status || 'Disponível') : 'Inativo';
 
+    const isLandPlot = isLand(propertyType);
+
     const property = await prisma.property.create({
       data: {
         userId: user.id,
@@ -321,20 +324,20 @@ export async function POST(req: NextRequest) {
         isPublic: false,
         legacyExemptFromAuthorization: false, // Novos imóveis nunca recebem isenção de legado
         price: numericPrice || 0,
-        builtArea: parsedBuiltArea,
-        privateArea: parsedPrivateArea,
+        builtArea: isLandPlot ? null : parsedBuiltArea,
+        privateArea: isLandPlot ? null : parsedPrivateArea,
         totalArea: parsedTotalArea,
         landArea: parsedLandArea,
-        bedrooms: computedBedrooms,
-        suites: parsedSuites,
-        otherBedrooms: parsedOtherBedrooms,
-        bathrooms: computedBathrooms,
-        otherBathrooms: parsedOtherBathrooms,
-        socialBathrooms: parsedSocialBathrooms,
-        lavabos: parsedLavabos,
-        parkingSpaces: computedParkingSpaces,
-        coveredParkingSpaces: parsedCovered,
-        uncoveredParkingSpaces: parsedUncovered,
+        bedrooms: isLandPlot ? 0 : computedBedrooms,
+        suites: isLandPlot ? 0 : parsedSuites,
+        otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
+        bathrooms: isLandPlot ? 0 : computedBathrooms,
+        otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
+        socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
+        lavabos: isLandPlot ? null : parsedLavabos,
+        parkingSpaces: isLandPlot ? 0 : computedParkingSpaces,
+        coveredParkingSpaces: isLandPlot ? null : parsedCovered,
+        uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
         description: description?.trim() || null,
         internalNotes: internalNotes?.trim() || null,
         address: address?.trim() || null,

@@ -34,6 +34,7 @@ import {
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 const ParcelBoundaryModal = dynamic(() => import('./ParcelBoundaryModal'), { ssr: false });
 import PropertyAuthorizationModal from './PropertyAuthorizationModal';
+import { isLand } from '@/lib/property-display';
 
 interface PropertyFormProps {
   initialData?: any;
@@ -113,12 +114,13 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [price, setPrice] = useState(initialData?.price ? String(initialData.price) : '');
 
   // Suítes e Quartos (Pontos 14, 17 e 28 / Fase 1 Bloco 2)
-  const initialSuites = initialData?.suites !== undefined ? String(initialData.suites) : (isEditing ? '0' : '1');
-  const initialOtherBedrooms = initialData?.otherBedrooms !== undefined && initialData?.otherBedrooms !== null
+  const isInitialLand = isLand(initialData?.propertyType);
+  const initialSuites = isInitialLand ? '0' : (initialData?.suites !== undefined ? String(initialData.suites) : (isEditing ? '0' : '1'));
+  const initialOtherBedrooms = isInitialLand ? '0' : (initialData?.otherBedrooms !== undefined && initialData?.otherBedrooms !== null
     ? String(initialData.otherBedrooms)
     : (isEditing && initialData?.bedrooms !== undefined
         ? String(Math.max(0, (initialData.bedrooms || 0) - (initialData.suites || 0)))
-        : (isEditing ? '0' : '1'));
+        : (isEditing ? '0' : '1')));
 
   const [suites, setSuites] = useState(initialSuites);
   const [otherBedrooms, setOtherBedrooms] = useState(initialOtherBedrooms);
@@ -673,6 +675,9 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       return isNaN(num) || num < 0 ? null : num;
     };
 
+    const isLandPlot = isLand(propertyType);
+    const isCommercialPlot = propertyType === 'Comercial';
+
     const payload = {
       title,
       internalCode,
@@ -680,20 +685,20 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       purpose,
       status: saveStatus,
       price: Number(price),
-      builtArea: parsePositiveFloat(builtArea),
-      privateArea: parsePositiveFloat(privateArea),
+      builtArea: isLandPlot ? null : parsePositiveFloat(builtArea),
+      privateArea: isLandPlot ? null : parsePositiveFloat(privateArea),
       totalArea: parsePositiveFloat(totalArea),
       landArea: parsePositiveFloat(landArea),
-      suites: parsedSuitesCount,
-      otherBedrooms: parsedOtherBedCount,
-      bedrooms: totalBedroomsCalculated,
-      socialBathrooms: isClassifyingBaths ? parsedSocialCount : null,
-      lavabos: isClassifyingBaths ? parsedLavabosCount : null,
-      bathrooms: totalBathroomsCalculated,
+      suites: isLandPlot || isCommercialPlot ? 0 : parsedSuitesCount,
+      otherBedrooms: isLandPlot || isCommercialPlot ? null : parsedOtherBedCount,
+      bedrooms: isLandPlot || isCommercialPlot ? 0 : totalBedroomsCalculated,
+      socialBathrooms: isLandPlot ? null : (isClassifyingBaths ? parsedSocialCount : null),
+      lavabos: isLandPlot ? null : (isClassifyingBaths ? parsedLavabosCount : null),
+      bathrooms: isLandPlot ? 0 : totalBathroomsCalculated,
       otherBathrooms: null,
-      coveredParkingSpaces: isClassifyingParking ? parsedCoveredCount : null,
-      uncoveredParkingSpaces: isClassifyingParking ? parsedUncoveredCount : null,
-      parkingSpaces: totalParkingCalculated,
+      coveredParkingSpaces: isLandPlot ? null : (isClassifyingParking ? parsedCoveredCount : null),
+      uncoveredParkingSpaces: isLandPlot ? null : (isClassifyingParking ? parsedUncoveredCount : null),
+      parkingSpaces: isLandPlot ? 0 : totalParkingCalculated,
       description,
       internalNotes,
       zipcode,
@@ -861,7 +866,36 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
             </label>
             <select
               value={propertyType}
-              onChange={(e) => setPropertyType(e.target.value)}
+              onChange={(e) => {
+                const newType = e.target.value;
+                const prevType = propertyType;
+                setPropertyType(newType);
+
+                if (isLand(newType)) {
+                  // Ao selecionar Terreno sem construção, neutraliza dormitórios, banheiros e áreas construídas
+                  setSuites('0');
+                  setOtherBedrooms('0');
+                  setSocialBathrooms('');
+                  setLavabos('');
+                  setCoveredParkingSpaces('');
+                  setUncoveredParkingSpaces('');
+                  setBuiltArea('');
+                  setPrivateArea('');
+                } else if (newType === 'Comercial') {
+                  setSuites('0');
+                  setOtherBedrooms('0');
+                } else if (
+                  !isEditing &&
+                  (isLand(prevType) || prevType === 'Comercial') &&
+                  (newType === 'Apartamento' || newType === 'Casa') &&
+                  (suites === '0' || !suites) &&
+                  (otherBedrooms === '0' || !otherBedrooms)
+                ) {
+                  // Restabelece valores padrão caso o usuário retorne de Terreno para Apartamento ou Casa
+                  setSuites('1');
+                  setOtherBedrooms('1');
+                }
+              }}
               style={{
                 width: '100%',
                 padding: '10px 14px',

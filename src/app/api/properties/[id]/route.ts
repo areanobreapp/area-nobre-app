@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { recalculateMatchesForProperty } from '@/lib/matching';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
 import { canPropertyBePubliclyExposed, recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
+import { isLand } from '@/lib/property-display';
 
 export async function GET(
   req: NextRequest,
@@ -190,6 +191,7 @@ export async function PUT(
       status,
       price,
       privateArea,
+      builtArea,
       totalArea,
       landArea,
       bedrooms,
@@ -197,7 +199,11 @@ export async function PUT(
       otherBedrooms,
       bathrooms,
       otherBathrooms,
+      socialBathrooms,
+      lavabos,
       parkingSpaces,
+      coveredParkingSpaces,
+      uncoveredParkingSpaces,
       description,
       internalNotes,
       address,
@@ -232,6 +238,9 @@ export async function PUT(
       images, // array de URLs atualizado
     } = body;
 
+    const effectiveType = propertyType || existing.propertyType;
+    const isLandPlot = isLand(effectiveType);
+
     const numericPrice = typeof price === 'string' ? parseFloat(price.replace(/\D/g, '')) / 100 || parseFloat(price) : Number(price);
 
     const parsedSuites = suites !== undefined ? parseInt(String(suites), 10) : existing.suites;
@@ -245,6 +254,12 @@ export async function PUT(
     const computedBathrooms = parsedOtherBathrooms !== null
       ? parsedSuites + parsedOtherBathrooms
       : (bathrooms !== undefined ? parseInt(String(bathrooms), 10) : existing.bathrooms);
+
+    const parsedBuiltArea = builtArea !== undefined ? (builtArea ? parseFloat(String(builtArea)) : null) : existing.builtArea;
+    const parsedSocialBathrooms = socialBathrooms !== undefined ? (socialBathrooms !== null && socialBathrooms !== '' ? parseInt(String(socialBathrooms), 10) : null) : existing.socialBathrooms;
+    const parsedLavabos = lavabos !== undefined ? (lavabos !== null && lavabos !== '' ? parseInt(String(lavabos), 10) : null) : existing.lavabos;
+    const parsedCovered = coveredParkingSpaces !== undefined ? (coveredParkingSpaces !== null && coveredParkingSpaces !== '' ? parseInt(String(coveredParkingSpaces), 10) : null) : existing.coveredParkingSpaces;
+    const parsedUncovered = uncoveredParkingSpaces !== undefined ? (uncoveredParkingSpaces !== null && uncoveredParkingSpaces !== '' ? parseInt(String(uncoveredParkingSpaces), 10) : null) : existing.uncoveredParkingSpaces;
 
     // Atualiza imagens se fornecidas
     if (images && Array.isArray(images)) {
@@ -271,15 +286,20 @@ export async function PUT(
         purpose: purpose || existing.purpose,
         status: status || existing.status,
         price: numericPrice !== undefined && !isNaN(numericPrice) ? numericPrice : existing.price,
-        privateArea: privateArea !== undefined ? (privateArea ? parseFloat(String(privateArea)) : null) : existing.privateArea,
+        privateArea: isLandPlot ? null : (privateArea !== undefined ? (privateArea ? parseFloat(String(privateArea)) : null) : existing.privateArea),
+        builtArea: isLandPlot ? null : parsedBuiltArea,
         totalArea: totalArea !== undefined ? (totalArea ? parseFloat(String(totalArea)) : null) : existing.totalArea,
         landArea: landArea !== undefined ? (landArea ? parseFloat(String(landArea)) : null) : existing.landArea,
-        bedrooms: computedBedrooms,
-        suites: parsedSuites,
-        otherBedrooms: parsedOtherBedrooms,
-        bathrooms: computedBathrooms,
-        otherBathrooms: parsedOtherBathrooms,
-        parkingSpaces: parkingSpaces !== undefined ? parseInt(String(parkingSpaces), 10) : existing.parkingSpaces,
+        bedrooms: isLandPlot ? 0 : computedBedrooms,
+        suites: isLandPlot ? 0 : parsedSuites,
+        otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
+        bathrooms: isLandPlot ? 0 : computedBathrooms,
+        otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
+        socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
+        lavabos: isLandPlot ? null : parsedLavabos,
+        parkingSpaces: isLandPlot ? 0 : (parkingSpaces !== undefined ? parseInt(String(parkingSpaces), 10) : existing.parkingSpaces),
+        coveredParkingSpaces: isLandPlot ? null : parsedCovered,
+        uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
         description: description !== undefined ? description?.trim() || null : existing.description,
         internalNotes: internalNotes !== undefined ? internalNotes?.trim() || null : existing.internalNotes,
         address: address !== undefined ? address?.trim() || null : existing.address,

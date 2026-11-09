@@ -59,6 +59,13 @@ import {
   getTwoPointsGoogleMapsUrl,
 } from '@/lib/geo/navigation-links';
 import NavigationActionButtons from './NavigationActionButtons';
+import {
+  isLand,
+  resolveMainArea,
+  resolveBedrooms,
+  resolveBathrooms,
+  resolveParking,
+} from '@/lib/property-display';
 
 export interface BrokerIdentityInfo {
   id: string;
@@ -88,11 +95,19 @@ export interface PropertyItem {
   status: string;
   price: number;
   privateArea?: number | null;
+  builtArea?: number | null;
   totalArea?: number | null;
+  landArea?: number | null;
   bedrooms: number;
   suites: number;
+  otherBedrooms?: number | null;
   bathrooms: number;
+  socialBathrooms?: number | null;
+  lavabos?: number | null;
+  otherBathrooms?: number | null;
   parkingSpaces: number;
+  coveredParkingSpaces?: number | null;
+  uncoveredParkingSpaces?: number | null;
   address?: string | null;
   neighborhood?: string | null;
   city?: string | null;
@@ -588,19 +603,26 @@ export default function HomeMap({
         if (filters.maxPrice && item.price > Number(filters.maxPrice)) {
           return false;
         }
-        if (filters.minBedrooms > 0 && item.bedrooms < filters.minBedrooms) {
+        if (filters.minBedrooms > 0) {
+          if (isLand(item.propertyType) || item.bedrooms < filters.minBedrooms) {
+            return false;
+          }
+        }
+        if (filters.minSuites > 0) {
+          if (isLand(item.propertyType) || item.suites < filters.minSuites) {
+            return false;
+          }
+        }
+        if (filters.minParking > 0) {
+          if (isLand(item.propertyType) || item.parkingSpaces < filters.minParking) {
+            return false;
+          }
+        }
+        const effectiveArea = resolveMainArea(item)?.value ?? item.privateArea ?? 0;
+        if (filters.minArea && effectiveArea < Number(filters.minArea)) {
           return false;
         }
-        if (filters.minSuites > 0 && item.suites < filters.minSuites) {
-          return false;
-        }
-        if (filters.minParking > 0 && item.parkingSpaces < filters.minParking) {
-          return false;
-        }
-        if (filters.minArea && (item.privateArea || 0) < Number(filters.minArea)) {
-          return false;
-        }
-        if (filters.maxArea && (item.privateArea || 0) > Number(filters.maxArea)) {
+        if (filters.maxArea && effectiveArea > Number(filters.maxArea)) {
           return false;
         }
       }
@@ -1130,7 +1152,7 @@ export default function HomeMap({
       polygon.bindTooltip(
         `<div style="font-family: inherit; font-size: 12px; font-weight: 700; color: #1E4620;">
            ${item.title}<br/>
-           <span style="font-weight: 500; color: #4B5563;">Delimitação do Terreno: ${item.boundaryArea ? `${item.boundaryArea.toLocaleString('pt-BR')} m² (aprox.)` : 'desenhado no mapa'}</span>
+           <span style="font-weight: 500; color: #4B5563;">Delimitação do Terreno • Geometria no mapa</span>
          </div>`,
         { sticky: true }
       );
@@ -2819,14 +2841,53 @@ export default function HomeMap({
                   color: 'var(--text-secondary)',
                   borderTop: '1px solid var(--border-subtle)',
                   paddingTop: '6px',
+                  flexWrap: 'wrap',
                 }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}><Bed size={13} /> {selectedItem.bedrooms} qtos</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}><Bath size={13} /> {selectedItem.bathrooms} banh</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}><Car size={13} /> {selectedItem.parkingSpaces} vg</span>
-                {selectedItem.privateArea && (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}><Maximize2 size={13} /> {selectedItem.privateArea} m²</span>
-                )}
+                {(() => {
+                  const isLandPlot = isLand(selectedItem.propertyType);
+                  const mainArea = resolveMainArea(selectedItem);
+                  if (isLandPlot) {
+                    return (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, color: 'var(--color-primary)' }}>
+                        <Maximize2 size={13} color="var(--color-primary)" />
+                        <span>{mainArea ? `${mainArea.formatted} (${mainArea.label})` : 'Metragem a consultar'}</span>
+                      </span>
+                    );
+                  }
+                  const bedInfo = resolveBedrooms(selectedItem);
+                  const bathInfo = resolveBathrooms(selectedItem);
+                  const parkInfo = resolveParking(selectedItem);
+                  return (
+                    <>
+                      {bedInfo && bedInfo.total > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Bed size={13} color="var(--color-primary)" />
+                          <span>{bedInfo.total} {bedInfo.total === 1 ? 'qto' : 'qtos'}</span>
+                          {bedInfo.suites > 0 && <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', fontWeight: 600 }}>({bedInfo.suites} st)</span>}
+                        </span>
+                      )}
+                      {bathInfo && bathInfo.total > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Bath size={13} color="var(--color-primary)" />
+                          <span>{bathInfo.total} banh</span>
+                        </span>
+                      )}
+                      {parkInfo && parkInfo.total > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <Car size={13} color="var(--color-primary)" />
+                          <span>{parkInfo.total} vg</span>
+                        </span>
+                      )}
+                      {mainArea && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}>
+                          <Maximize2 size={13} color="var(--color-primary)" />
+                          <span>{mainArea.formatted}</span>
+                        </span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -3348,17 +3409,27 @@ export default function HomeMap({
                           <span>{item.typologies?.length || 0} tipologias</span>
                         </>
                       ) : (
-                        <>
-                          {item.bedrooms > 0 && <span>{item.bedrooms} dorm</span>}
-                          {item.suites > 0 && <span>• {item.suites} suíte</span>}
-                          {item.parkingSpaces > 0 && <span>• {item.parkingSpaces} vg</span>}
-                          {item.privateArea ? <span>• {item.privateArea}m²</span> : null}
-                          {item.boundaryArea ? (
-                            <span style={{ color: '#15803D', fontWeight: 700 }} title="Área delimitada no mapa">
-                              • ⬟ {item.boundaryArea.toLocaleString('pt-BR')}m² (mapa)
-                            </span>
-                          ) : null}
-                        </>
+                        (() => {
+                          const isLandPlot = isLand(item.propertyType);
+                          const mainArea = resolveMainArea(item);
+                          if (isLandPlot) {
+                            return (
+                              <span style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                                {mainArea ? `${mainArea.formatted} (${mainArea.label})` : 'Metragem a consultar'}
+                              </span>
+                            );
+                          }
+                          const bedInfo = resolveBedrooms(item);
+                          const parkInfo = resolveParking(item);
+                          return (
+                            <>
+                              {bedInfo && bedInfo.total > 0 && <span>{bedInfo.total} dorm</span>}
+                              {bedInfo && bedInfo.suites > 0 && <span>• {bedInfo.suites} suíte</span>}
+                              {parkInfo && parkInfo.total > 0 && <span>• {parkInfo.total} vg</span>}
+                              {mainArea && <span>• {mainArea.formatted}</span>}
+                            </>
+                          );
+                        })()
                       )}
                     </div>
 

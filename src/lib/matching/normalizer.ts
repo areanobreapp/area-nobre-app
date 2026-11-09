@@ -1,26 +1,33 @@
 import { NormalizedOffer, SearchCriteria } from './types';
+import { isLand } from '../property-display';
 
 export function normalizeProperty(property: any): NormalizedOffer {
   const coverImage = property.images?.find((img: any) => img.isCover) || property.images?.[0];
 
-  const suites = Number(property.suites) || 0;
-  const otherBedrooms =
-    property.otherBedrooms != null
-      ? Number(property.otherBedrooms)
-      : (property.bedrooms != null ? Math.max(0, Number(property.bedrooms) - suites) : 0);
-  const bedrooms =
-    property.bedrooms != null
-      ? Number(property.bedrooms)
-      : suites + otherBedrooms;
+  const isLandPlot = isLand(property.propertyType);
 
-  const otherBathrooms =
-    property.otherBathrooms != null
-      ? Number(property.otherBathrooms)
-      : (property.bathrooms != null ? Math.max(0, Number(property.bathrooms) - suites) : 0);
-  const bathrooms =
-    property.bathrooms != null
-      ? Number(property.bathrooms)
-      : suites + otherBathrooms;
+  const suites = isLandPlot ? 0 : (Number(property.suites) || 0);
+  const otherBedrooms = isLandPlot
+    ? 0
+    : (property.otherBedrooms != null
+        ? Number(property.otherBedrooms)
+        : (property.bedrooms != null ? Math.max(0, Number(property.bedrooms) - suites) : 0));
+  const bedrooms = isLandPlot
+    ? 0
+    : (property.bedrooms != null
+        ? Number(property.bedrooms)
+        : suites + otherBedrooms);
+
+  const otherBathrooms = isLandPlot
+    ? 0
+    : (property.otherBathrooms != null
+        ? Number(property.otherBathrooms)
+        : (property.bathrooms != null ? Math.max(0, Number(property.bathrooms) - suites) : 0));
+  const bathrooms = isLandPlot
+    ? 0
+    : (property.bathrooms != null
+        ? Number(property.bathrooms)
+        : suites + otherBathrooms);
 
   return {
     id: property.id,
@@ -36,13 +43,13 @@ export function normalizeProperty(property: any): NormalizedOffer {
     otherBedrooms,
     bathrooms,
     otherBathrooms,
-    socialBathrooms: property.socialBathrooms != null ? Number(property.socialBathrooms) : null,
-    lavabos: property.lavabos != null ? Number(property.lavabos) : null,
-    parkingSpaces: Number(property.parkingSpaces) || 0,
-    coveredParkingSpaces: property.coveredParkingSpaces != null ? Number(property.coveredParkingSpaces) : null,
-    uncoveredParkingSpaces: property.uncoveredParkingSpaces != null ? Number(property.uncoveredParkingSpaces) : null,
-    privateArea: property.privateArea ? Number(property.privateArea) : null,
-    builtArea: property.builtArea != null ? Number(property.builtArea) : null,
+    socialBathrooms: isLandPlot ? null : (property.socialBathrooms != null ? Number(property.socialBathrooms) : null),
+    lavabos: isLandPlot ? null : (property.lavabos != null ? Number(property.lavabos) : null),
+    parkingSpaces: isLandPlot ? 0 : (Number(property.parkingSpaces) || 0),
+    coveredParkingSpaces: isLandPlot ? null : (property.coveredParkingSpaces != null ? Number(property.coveredParkingSpaces) : null),
+    uncoveredParkingSpaces: isLandPlot ? null : (property.uncoveredParkingSpaces != null ? Number(property.uncoveredParkingSpaces) : null),
+    privateArea: isLandPlot ? null : (property.privateArea ? Number(property.privateArea) : null),
+    builtArea: isLandPlot ? null : (property.builtArea != null ? Number(property.builtArea) : null),
     totalArea: property.totalArea ? Number(property.totalArea) : null,
     landArea: property.landArea ? Number(property.landArea) : null,
     city: property.city?.trim() || null,

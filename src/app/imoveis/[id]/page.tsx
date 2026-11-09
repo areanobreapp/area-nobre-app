@@ -505,7 +505,6 @@ export default function ImovelDetalhesPage({
           if (property.furniture) amenities.push({ label: 'Mobília', value: property.furniture, present: true });
           if (property.commercialType) amenities.push({ label: 'Tipo Comercial', value: property.commercialType, present: true });
           if (property.streetPaving) amenities.push({ label: 'Pavimentação', value: property.streetPaving, present: true });
-          if (property.landArea) amenities.push({ label: 'Área do Terreno', value: `${property.landArea} m²`, present: true });
 
           if (amenities.length === 0 && !property.exchangeNotes && !property.registryNumber) return null;
 
