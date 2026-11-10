@@ -33,6 +33,10 @@ model User {
   createdBuildings        Building[]              @relation("CreatedBuildings")
   waitlists               PropertyWaitlist[]      @relation("BrokerWaitlists")
   disputes                PropertyDispute[]       @relation("BrokerDisputes")
+  priceHistories          PhysicalPropertyPriceHistory[] @relation("PriceHistoryAuthor")
+  priceRevisionsRequested PriceRevisionRequest[]         @relation("PriceRevisionsRequested")
+  priceRevisionsDecided   PriceRevisionRequest[]         @relation("PriceRevisionsDecided")
+  updatedPhysicalPrices   PhysicalProperty[]             @relation("PhysicalPropertyPriceUpdater")
 }
 
 model BrokerProfile {
@@ -177,6 +181,7 @@ model Property {
   matches       Match[]
   shares        PropertyShare[]
   authorizations PropertyAuthorization[]
+  priceRevisions PriceRevisionRequest[]  @relation("PropertyPriceRevisions")
 
   @@index([physicalPropertyId, status])
   @@index([physicalPropertyId, userId, status])
@@ -622,6 +627,12 @@ model PhysicalProperty {
   activeListingsCount Int                 @default(0)
   primaryListingId    String?             // ID do anúncio Property atualmente principal
   
+  // Preço Único Compartilhado (Fase 2 / Ponto 2 / F2.B05.3B)
+  sharedPrice         Decimal?            @db.Decimal(15, 2)
+  priceUpdatedAt      DateTime?
+  priceUpdatedById    String?
+  priceUpdatedBy      User?               @relation("PhysicalPropertyPriceUpdater", fields: [priceUpdatedById], references: [id], onDelete: SetNull)
+  
   status              String              @default("ACTIVE") // ACTIVE | ARCHIVED | DISPUTED
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -629,11 +640,14 @@ model PhysicalProperty {
   listings            Property[]          @relation("PhysicalPropertyListings")
   waitlist            PropertyWaitlist[]
   disputes            PropertyDispute[]
+  priceHistory        PhysicalPropertyPriceHistory[]
+  priceRevisionRequests PriceRevisionRequest[]
 
   @@index([city, neighborhood])
   @@index([latitude, longitude])
   @@index([registryNumber])
   @@index([status, activeListingsCount])
+  @@index([sharedPrice])
 }
 
 // ==============================================================================
@@ -685,6 +699,72 @@ model PropertyDispute {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
+  priceRevisions     PriceRevisionRequest[]
+
   @@index([physicalPropertyId, status])
   @@index([claimantBrokerId, status])
+}
+
+// ==============================================================================
+// Histórico de Preço do Imóvel Físico (Fase 2 / Ponto 2 / F2.B05.3B)
+// Registra todas as alterações de preço compartilhado para auditoria
+// ==============================================================================
+model PhysicalPropertyPriceHistory {
+  id                 String           @id @default(cuid())
+  physicalPropertyId String
+  physicalProperty   PhysicalProperty @relation(fields: [physicalPropertyId], references: [id], onDelete: Cascade)
+  
+  oldPrice           Decimal?         @db.Decimal(15, 2)
+  newPrice           Decimal          @db.Decimal(15, 2)
+  changedById        String
+  changedBy          User             @relation("PriceHistoryAuthor", fields: [changedById], references: [id], onDelete: Restrict)
+  
+  reason             String?          @db.Text
+  source             String           @default("PRIMARY_BROKER") // "PRIMARY_BROKER" | "REVISION_ACCEPTED" | "ADMIN_ADJUDICATION" | "INITIAL_LISTING"
+  revisionRequestId  String?          // ID da solicitação de revisão que originou a alteração, quando aplicável
+  
+  createdAt          DateTime         @default(now())
+
+  @@index([physicalPropertyId, createdAt])
+  @@index([changedById])
+}
+
+// ==============================================================================
+// Solicitações de Revisão de Preço (Fase 2 / Ponto 2 / F2.B05.3B)
+// Canal para corretores secundários proporem alterações de preço ao corretor principal
+// ==============================================================================
+model PriceRevisionRequest {
+  id                 String           @id @default(cuid())
+  physicalPropertyId String
+  physicalProperty   PhysicalProperty @relation(fields: [physicalPropertyId], references: [id], onDelete: Cascade)
+  
+  requestingBrokerId String
+  requestingBroker   User             @relation("PriceRevisionsRequested", fields: [requestingBrokerId], references: [id], onDelete: Cascade)
+  
+  propertyId         String?          // Anúncio associado do corretor solicitante, quando aplicável
+  property           Property?        @relation("PropertyPriceRevisions", fields: [propertyId], references: [id], onDelete: SetNull)
+  
+  currentPrice       Decimal          @db.Decimal(15, 2)
+  suggestedPrice     Decimal          @db.Decimal(15, 2)
+  justification      String           @db.Text
+  documentProofUrl   String?          // Comprovante / autorização atualizada anexada
+  
+  status             String           @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED | ESCALATED
+  
+  decidedById        String?          // Corretor principal ou administrador que decidiu
+  decidedBy          User?            @relation("PriceRevisionsDecided", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt          DateTime?
+  decisionReason     String?          @db.Text
+  
+  disputeId          String?          // Vínculo com PropertyDispute caso seja escalado para a administração
+  dispute            PropertyDispute? @relation(fields: [disputeId], references: [id], onDelete: SetNull)
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([physicalPropertyId, status])
+  @@index([requestingBrokerId, status])
+  @@index([decidedById, status])
+  @@index([propertyId])
+  @@index([disputeId])
 }

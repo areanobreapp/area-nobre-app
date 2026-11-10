@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from './db';
+import type { NextRequest } from 'next/server';
 
 
 export const COOKIE_NAME = 'areanobre_session';
@@ -83,7 +84,39 @@ export async function ensureDemoUser() {
   return demoUser;
 }
 
-export async function getSession(): Promise<SessionPayload | null> {
+export async function getSession(req?: Request | NextRequest): Promise<SessionPayload | null> {
+  // 1. Extração direta da requisição (quando fornecida explicitamente em API routes ou testes)
+  if (req) {
+    let token: string | undefined;
+
+    // Tenta obter via interface de cookies do NextRequest
+    if ('cookies' in req && typeof (req as any).cookies?.get === 'function') {
+      token = (req as any).cookies.get(COOKIE_NAME)?.value;
+    }
+
+    // Tenta obter do header Cookie padrão
+    if (!token) {
+      const cookieHeader = req.headers.get('cookie');
+      if (cookieHeader) {
+        const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE_NAME}=([^;]+)`));
+        if (match) token = match[1];
+      }
+    }
+
+    // Suporte seguro a Bearer token via Authorization header
+    if (!token) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader?.startsWith('Bearer ')) {
+        token = authHeader.substring(7).trim();
+      }
+    }
+
+    if (token) {
+      return verifyToken(token);
+    }
+  }
+
+  // 2. Extração via next/headers (Server Components, Server Actions e chamadas sem req explícito)
   try {
     const { cookies } = await import('next/headers');
     const cookieStore = await cookies();
@@ -95,8 +128,8 @@ export async function getSession(): Promise<SessionPayload | null> {
   }
 }
 
-export async function getCurrentUser() {
-  const session = await getSession();
+export async function getCurrentUser(req?: Request | NextRequest) {
+  const session = await getSession(req);
   if (!session) return null;
 
   const user = await prisma.user.findUnique({
@@ -132,8 +165,8 @@ export async function getCurrentUser() {
   return user;
 }
 
-export async function requireAdmin() {
-  const user = await getCurrentUser();
+export async function requireAdmin(req?: Request | NextRequest) {
+  const user = await getCurrentUser(req);
   if (!user || user.role !== 'ADMIN' || user.status !== 'ACTIVE') {
     return null;
   }
