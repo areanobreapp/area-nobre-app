@@ -52,7 +52,64 @@ export async function GET(
                         commercialName: true,
                         phone: true,
                         creci: true,
+                        avatarUrl: true,
+                        logoUrl: true,
                       },
+                    },
+                  },
+                },
+                physicalProperty: {
+                  select: {
+                    id: true,
+                    sharedPrice: true,
+                    activeListingsCount: true,
+                    primaryListingId: true,
+                    listings: {
+                      where: {
+                        status: 'Disponível',
+                        OR: [
+                          { responsibleBroker: { status: 'ACTIVE' } },
+                          { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
+                        ],
+                      },
+                      select: {
+                        id: true,
+                        title: true,
+                        price: true,
+                        isPrimaryListing: true,
+                        createdAt: true,
+                        responsibleBroker: {
+                          select: {
+                            id: true,
+                            name: true,
+                            profile: {
+                              select: {
+                                commercialName: true,
+                                phone: true,
+                                creci: true,
+                                avatarUrl: true,
+                                logoUrl: true,
+                              },
+                            },
+                          },
+                        },
+                        user: {
+                          select: {
+                            id: true,
+                            name: true,
+                            profile: {
+                              select: {
+                                commercialName: true,
+                                phone: true,
+                                creci: true,
+                                avatarUrl: true,
+                                logoUrl: true,
+                              },
+                            },
+                          },
+                        },
+                      },
+                      orderBy: [{ isPrimaryListing: 'desc' }, { createdAt: 'asc' }],
                     },
                   },
                 },

@@ -6,13 +6,23 @@ import { MATCH_THRESHOLD } from '@/lib/matching/config';
 import { canPropertyBePubliclyExposed, recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 import { isLand } from '@/lib/property-display';
 import { linkPropertyToBuildingAndUnit } from '@/lib/building-service';
+import { ListingSlotService, SlotClaimResult } from '@/lib/listing-slot-service';
+
+class ListingSlotError extends Error {
+  claimResult: SlotClaimResult;
+  constructor(claimResult: SlotClaimResult) {
+    super(claimResult.message || 'Falha ao alocar vaga para anúncio.');
+    this.name = 'ListingSlotError';
+    this.claimResult = claimResult;
+  }
+}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -58,6 +68,11 @@ export async function GET(
           select: {
             id: true,
             complement: true,
+            activeListingsCount: true,
+            sharedPrice: true,
+            priceUpdatedAt: true,
+            primaryListingId: true,
+            status: true,
             unit: {
               select: {
                 id: true,
@@ -65,6 +80,47 @@ export async function GET(
                 tower: true,
                 floor: true,
               },
+            },
+            listings: {
+              where: { status: 'Disponível' },
+              select: {
+                id: true,
+                userId: true,
+                responsibleBrokerId: true,
+                isPrimaryListing: true,
+                listingSlot: true,
+                price: true,
+                createdAt: true,
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        creci: true,
+                      },
+                    },
+                  },
+                },
+                responsibleBroker: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        creci: true,
+                      },
+                    },
+                  },
+                },
+              },
+              orderBy: [
+                { isPrimaryListing: 'desc' },
+                { listingSlot: 'asc' },
+                { createdAt: 'asc' },
+              ],
             },
           },
         },
@@ -168,7 +224,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -345,85 +401,213 @@ export async function PUT(
       }
     }
 
-    const updated = await prisma.property.update({
-      where: { id },
-      data: {
-        buildingId: resolvedBuildingId,
-        physicalPropertyId: resolvedPhysicalPropertyId,
-        title: title !== undefined ? title.trim() : existing.title,
-        internalCode: internalCode !== undefined ? internalCode?.trim() || null : existing.internalCode,
-        propertyType: propertyType || existing.propertyType,
-        purpose: purpose || existing.purpose,
-        status: status || existing.status,
-        price: numericPrice !== undefined && !isNaN(numericPrice) ? numericPrice : existing.price,
-        privateArea: isLandPlot ? null : (privateArea !== undefined ? (privateArea ? parseFloat(String(privateArea)) : null) : existing.privateArea),
-        builtArea: isLandPlot ? null : parsedBuiltArea,
-        totalArea: totalArea !== undefined ? (totalArea ? parseFloat(String(totalArea)) : null) : existing.totalArea,
-        landArea: landArea !== undefined ? (landArea ? parseFloat(String(landArea)) : null) : existing.landArea,
-        bedrooms: isLandPlot ? 0 : computedBedrooms,
-        suites: isLandPlot ? 0 : parsedSuites,
-        otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
-        bathrooms: isLandPlot ? 0 : computedBathrooms,
-        otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
-        socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
-        lavabos: isLandPlot ? null : parsedLavabos,
-        parkingSpaces: isLandPlot ? 0 : (parkingSpaces !== undefined ? parseInt(String(parkingSpaces), 10) : existing.parkingSpaces),
-        coveredParkingSpaces: isLandPlot ? null : parsedCovered,
-        uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
-        description: description !== undefined ? description?.trim() || null : existing.description,
-        internalNotes: internalNotes !== undefined ? internalNotes?.trim() || null : existing.internalNotes,
-        address: address !== undefined ? address?.trim() || null : existing.address,
-        number: number !== undefined ? number?.trim() || null : existing.number,
-        complement: complement !== undefined ? complement?.trim() || null : existing.complement,
-        neighborhood: neighborhood !== undefined ? neighborhood?.trim() || null : existing.neighborhood,
-        city: city !== undefined ? city?.trim() || null : existing.city,
-        state: state !== undefined ? state?.trim() || null : existing.state,
-        zipcode: zipcode !== undefined ? zipcode?.trim() || null : existing.zipcode,
-        latitude: latitude !== undefined ? (latitude !== null && latitude !== '' && !isNaN(Number(latitude)) ? Number(latitude) : null) : existing.latitude,
-        longitude: longitude !== undefined ? (longitude !== null && longitude !== '' && !isNaN(Number(longitude)) ? Number(longitude) : null) : existing.longitude,
-        boundary: boundary !== undefined ? (boundary ? String(boundary) : null) : existing.boundary,
-        boundaryArea: boundaryArea !== undefined ? (boundaryArea !== null && boundaryArea !== '' && !isNaN(Number(boundaryArea)) ? Number(boundaryArea) : null) : existing.boundaryArea,
+    const oldPhysicalPropertyId = existing.physicalPropertyId;
+    const newPhysicalPropertyId = resolvedPhysicalPropertyId;
+    const isOldActive = existing.status === 'Disponível';
+    const isNewActive = targetStatus === 'Disponível';
 
-        // Novos campos Fase 5.0.1
-        acceptsExchange: acceptsExchange !== undefined ? (acceptsExchange === true || acceptsExchange === 'true' || acceptsExchange === 'Sim') : existing.acceptsExchange,
-        exchangeNotes: exchangeNotes !== undefined ? exchangeNotes?.trim() || null : existing.exchangeNotes,
-        registryNumber: registryNumber !== undefined ? registryNumber?.trim() || null : existing.registryNumber,
-        isRegistered: isRegistered !== undefined ? (isRegistered === true || isRegistered === 'true' || isRegistered === 'Sim') : existing.isRegistered,
-        hasPool: hasPool !== undefined ? (hasPool === true || hasPool === 'true' || hasPool === 'Sim') : existing.hasPool,
-        hasGym: hasGym !== undefined ? (hasGym === true || hasGym === 'true' || hasGym === 'Sim') : existing.hasGym,
-        furniture: furniture !== undefined ? furniture?.trim() || null : existing.furniture,
-        hasBarbecue: hasBarbecue !== undefined ? (hasBarbecue === true || hasBarbecue === 'true' || hasBarbecue === 'Sim') : existing.hasBarbecue,
-        hasPartyHall: hasPartyHall !== undefined ? (hasPartyHall === true || hasPartyHall === 'true' || hasPartyHall === 'Sim') : existing.hasPartyHall,
-        hasElevator: hasElevator !== undefined ? (hasElevator === true || hasElevator === 'true' || hasElevator === 'Sim') : existing.hasElevator,
-        isPenthouse: isPenthouse !== undefined ? (isPenthouse === true || isPenthouse === 'true' || isPenthouse === 'Sim') : existing.isPenthouse,
-        hasPetSpace: hasPetSpace !== undefined ? (hasPetSpace === true || hasPetSpace === 'true' || hasPetSpace === 'Sim') : existing.hasPetSpace,
-        floor: floor !== undefined ? (floor !== null && floor !== '' ? parseInt(String(floor), 10) : null) : existing.floor,
-        isCorner: isCorner !== undefined ? (isCorner === true || isCorner === 'true' || isCorner === 'Sim') : existing.isCorner,
-        inGatedCommunity: inGatedCommunity !== undefined ? (inGatedCommunity === true || inGatedCommunity === 'true' || inGatedCommunity === 'Sim') : existing.inGatedCommunity,
-        inAllotment: inAllotment !== undefined ? (inAllotment === true || inAllotment === 'true' || inAllotment === 'Sim') : existing.inAllotment,
-        streetPaving: streetPaving !== undefined ? streetPaving?.trim() || null : existing.streetPaving,
-        commercialType: commercialType !== undefined ? commercialType?.trim() || null : existing.commercialType,
-      },
-      include: {
-        images: true,
-        building: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            neighborhood: true,
+    // Determina o preço final
+    let finalPrice = existing.price;
+    if (newPhysicalPropertyId) {
+      if (oldPhysicalPropertyId === newPhysicalPropertyId && !existing.isPrimaryListing && user.role !== 'ADMIN') {
+        // Corretor secundário não pode alterar o preço compartilhado; mantém o preço compartilhado existente
+        finalPrice = existing.price;
+      } else if (oldPhysicalPropertyId === newPhysicalPropertyId && (existing.isPrimaryListing || user.role === 'ADMIN')) {
+        // Corretor principal ou admin pode alterar o preço
+        if (numericPrice !== undefined && !isNaN(numericPrice) && numericPrice > 0) {
+          finalPrice = numericPrice;
+        } else {
+          finalPrice = existing.price;
+        }
+      } else {
+        finalPrice = numericPrice !== undefined && !isNaN(numericPrice) && numericPrice > 0 ? numericPrice : existing.price;
+      }
+    } else {
+      finalPrice = numericPrice !== undefined && !isNaN(numericPrice) ? numericPrice : existing.price;
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // 1. Mudança de imóvel físico (oldPhysicalPropertyId !== newPhysicalPropertyId)
+      if (oldPhysicalPropertyId !== newPhysicalPropertyId) {
+        // Deadlock prevention: lock pessimista determinístico ordenado por ID
+        const affectedIds = [oldPhysicalPropertyId, newPhysicalPropertyId].filter(Boolean) as string[];
+        affectedIds.sort();
+        for (const pId of affectedIds) {
+          await tx.$queryRaw`SELECT id FROM "PhysicalProperty" WHERE id = ${pId} FOR UPDATE;`;
+        }
+
+        // Se era ativo no antigo, libera vaga
+        if (isOldActive && oldPhysicalPropertyId) {
+          await ListingSlotService.releaseListingSlot({
+            physicalPropertyId: oldPhysicalPropertyId,
+            propertyId: id,
+            prismaClient: tx,
+          });
+        }
+
+        // Se será ativo no novo, aloca vaga
+        if (isNewActive && newPhysicalPropertyId) {
+          const claimRes = await ListingSlotService.claimListingSlot({
+            physicalPropertyId: newPhysicalPropertyId,
+            propertyId: id,
+            brokerId: user.id,
+            requestedPrice: finalPrice,
+            prismaClient: tx,
+          });
+          if (!claimRes.success) {
+            throw new ListingSlotError(claimRes);
+          }
+          if (claimRes.sharedPrice !== undefined) {
+            finalPrice = claimRes.sharedPrice;
+          }
+        }
+      } else if (newPhysicalPropertyId) {
+        // 2. Mesmo imóvel físico
+        if (isOldActive && !isNewActive) {
+          // Inativação/venda do anúncio
+          await ListingSlotService.releaseListingSlot({
+            physicalPropertyId: newPhysicalPropertyId,
+            propertyId: id,
+            newStatus: targetStatus,
+            prismaClient: tx,
+          });
+        } else if (!isOldActive && isNewActive) {
+          // Reativação do anúncio
+          const claimRes = await ListingSlotService.claimListingSlot({
+            physicalPropertyId: newPhysicalPropertyId,
+            propertyId: id,
+            brokerId: user.id,
+            requestedPrice: finalPrice,
+            prismaClient: tx,
+          });
+          if (!claimRes.success) {
+            throw new ListingSlotError(claimRes);
+          }
+          if (claimRes.sharedPrice !== undefined) {
+            finalPrice = claimRes.sharedPrice;
+          }
+        } else if (isNewActive && (existing.isPrimaryListing || user.role === 'ADMIN')) {
+          // Continua ativo e o corretor principal ou admin atualizou o preço
+          if (numericPrice !== undefined && !isNaN(numericPrice) && numericPrice !== existing.price && numericPrice > 0) {
+            const updatePriceRes = await ListingSlotService.updateSharedPrice({
+              physicalPropertyId: newPhysicalPropertyId,
+              userId: user.id,
+              userRole: user.role,
+              newPrice: numericPrice,
+              reason: 'Atualização via edição de anúncio.',
+              prismaClient: tx,
+            });
+            if (!updatePriceRes.success) {
+              throw new Error(updatePriceRes.message || 'Falha ao atualizar preço compartilhado.');
+            }
+            finalPrice = numericPrice;
+          }
+        }
+      }
+
+      const up = await tx.property.update({
+        where: { id },
+        data: {
+          buildingId: resolvedBuildingId,
+          physicalPropertyId: resolvedPhysicalPropertyId,
+          title: title !== undefined ? title.trim() : existing.title,
+          internalCode: internalCode !== undefined ? internalCode?.trim() || null : existing.internalCode,
+          propertyType: propertyType || existing.propertyType,
+          purpose: purpose || existing.purpose,
+          status: targetStatus,
+          price: finalPrice,
+          privateArea: isLandPlot ? null : (privateArea !== undefined ? (privateArea ? parseFloat(String(privateArea)) : null) : existing.privateArea),
+          builtArea: isLandPlot ? null : parsedBuiltArea,
+          totalArea: totalArea !== undefined ? (totalArea ? parseFloat(String(totalArea)) : null) : existing.totalArea,
+          landArea: landArea !== undefined ? (landArea ? parseFloat(String(landArea)) : null) : existing.landArea,
+          bedrooms: isLandPlot ? 0 : computedBedrooms,
+          suites: isLandPlot ? 0 : parsedSuites,
+          otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
+          bathrooms: isLandPlot ? 0 : computedBathrooms,
+          otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
+          socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
+          lavabos: isLandPlot ? null : parsedLavabos,
+          parkingSpaces: isLandPlot ? 0 : (parkingSpaces !== undefined ? parseInt(String(parkingSpaces), 10) : existing.parkingSpaces),
+          coveredParkingSpaces: isLandPlot ? null : parsedCovered,
+          uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
+          description: description !== undefined ? description?.trim() || null : existing.description,
+          internalNotes: internalNotes !== undefined ? internalNotes?.trim() || null : existing.internalNotes,
+          address: address !== undefined ? address?.trim() || null : existing.address,
+          number: number !== undefined ? number?.trim() || null : existing.number,
+          complement: complement !== undefined ? complement?.trim() || null : existing.complement,
+          neighborhood: neighborhood !== undefined ? neighborhood?.trim() || null : existing.neighborhood,
+          city: city !== undefined ? city?.trim() || null : existing.city,
+          state: state !== undefined ? state?.trim() || null : existing.state,
+          zipcode: zipcode !== undefined ? zipcode?.trim() || null : existing.zipcode,
+          latitude: latitude !== undefined ? (latitude !== null && latitude !== '' && !isNaN(Number(latitude)) ? Number(latitude) : null) : existing.latitude,
+          longitude: longitude !== undefined ? (longitude !== null && longitude !== '' && !isNaN(Number(longitude)) ? Number(longitude) : null) : existing.longitude,
+          boundary: boundary !== undefined ? (boundary ? String(boundary) : null) : existing.boundary,
+          boundaryArea: boundaryArea !== undefined ? (boundaryArea !== null && boundaryArea !== '' && !isNaN(Number(boundaryArea)) ? Number(boundaryArea) : null) : existing.boundaryArea,
+
+          // Novos campos Fase 5.0.1
+          acceptsExchange: acceptsExchange !== undefined ? (acceptsExchange === true || acceptsExchange === 'true' || acceptsExchange === 'Sim') : existing.acceptsExchange,
+          exchangeNotes: exchangeNotes !== undefined ? exchangeNotes?.trim() || null : existing.exchangeNotes,
+          registryNumber: registryNumber !== undefined ? registryNumber?.trim() || null : existing.registryNumber,
+          isRegistered: isRegistered !== undefined ? (isRegistered === true || isRegistered === 'true' || isRegistered === 'Sim') : existing.isRegistered,
+          hasPool: hasPool !== undefined ? (hasPool === true || hasPool === 'true' || hasPool === 'Sim') : existing.hasPool,
+          hasGym: hasGym !== undefined ? (hasGym === true || hasGym === 'true' || hasGym === 'Sim') : existing.hasGym,
+          furniture: furniture !== undefined ? furniture?.trim() || null : existing.furniture,
+          hasBarbecue: hasBarbecue !== undefined ? (hasBarbecue === true || hasBarbecue === 'true' || hasBarbecue === 'Sim') : existing.hasBarbecue,
+          hasPartyHall: hasPartyHall !== undefined ? (hasPartyHall === true || hasPartyHall === 'true' || hasPartyHall === 'Sim') : existing.hasPartyHall,
+          hasElevator: hasElevator !== undefined ? (hasElevator === true || hasElevator === 'true' || hasElevator === 'Sim') : existing.hasElevator,
+          isPenthouse: isPenthouse !== undefined ? (isPenthouse === true || isPenthouse === 'true' || isPenthouse === 'Sim') : existing.isPenthouse,
+          hasPetSpace: hasPetSpace !== undefined ? (hasPetSpace === true || hasPetSpace === 'true' || hasPetSpace === 'Sim') : existing.hasPetSpace,
+          floor: floor !== undefined ? (floor !== null && floor !== '' ? parseInt(String(floor), 10) : null) : existing.floor,
+          isCorner: isCorner !== undefined ? (isCorner === true || isCorner === 'true' || isCorner === 'Sim') : existing.isCorner,
+          inGatedCommunity: inGatedCommunity !== undefined ? (inGatedCommunity === true || inGatedCommunity === 'true' || inGatedCommunity === 'Sim') : existing.inGatedCommunity,
+          inAllotment: inAllotment !== undefined ? (inAllotment === true || inAllotment === 'true' || inAllotment === 'Sim') : existing.inAllotment,
+          streetPaving: streetPaving !== undefined ? streetPaving?.trim() || null : existing.streetPaving,
+          commercialType: commercialType !== undefined ? commercialType?.trim() || null : existing.commercialType,
+        },
+        include: {
+          images: true,
+          building: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              neighborhood: true,
+            },
           },
         },
-      },
-    });
+      });
+
+      return up;
+    }, { timeout: 15000, maxWait: 5000 });
 
     // Recalcula matches após edição do imóvel
     const matchCount = await recalculateMatchesForProperty(updated.id);
 
     return NextResponse.json({ success: true, property: updated, matchCount });
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof ListingSlotError) {
+      return NextResponse.json(
+        {
+          error: error.claimResult.message,
+          code: error.claimResult.reason,
+          activeCount: error.claimResult.activeCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (error.code === 'P2002') {
+      return NextResponse.json(
+        {
+          error: 'O corretor já possui um anúncio ativo para este imóvel físico.',
+          code: 'DUPLICATE_BROKER',
+        },
+        { status: 409 }
+      );
+    }
+
     console.error('Erro ao atualizar imóvel:', error);
-    return NextResponse.json({ error: 'Falha ao atualizar imóvel.' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Falha ao atualizar imóvel.' }, { status: 500 });
   }
 }
 
@@ -432,7 +616,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -473,23 +657,71 @@ export async function PATCH(
       }
     }
 
-    const updated = await prisma.property.update({
-      where: { id },
-      data: {
-        status: body.status !== undefined ? body.status : existing.status,
-        latitude: body.latitude !== undefined ? (body.latitude !== null && body.latitude !== '' && !isNaN(Number(body.latitude)) ? Number(body.latitude) : null) : existing.latitude,
-        longitude: body.longitude !== undefined ? (body.longitude !== null && body.longitude !== '' && !isNaN(Number(body.longitude)) ? Number(body.longitude) : null) : existing.longitude,
-        boundary: body.boundary !== undefined ? (body.boundary ? String(body.boundary) : null) : existing.boundary,
-        boundaryArea: body.boundaryArea !== undefined ? (body.boundaryArea !== null && body.boundaryArea !== '' && !isNaN(Number(body.boundaryArea)) ? Number(body.boundaryArea) : null) : existing.boundaryArea,
-      },
-    });
+    const isActivating = body.status !== undefined && body.status === 'Disponível' && existing.status !== 'Disponível';
+    const isDeactivating = body.status !== undefined && body.status !== 'Disponível' && existing.status === 'Disponível';
+
+    const updated = await prisma.$transaction(async (tx) => {
+      if (existing.physicalPropertyId) {
+        if (isActivating) {
+          const claimRes = await ListingSlotService.claimListingSlot({
+            physicalPropertyId: existing.physicalPropertyId,
+            propertyId: id,
+            brokerId: user.id,
+            requestedPrice: existing.price,
+            prismaClient: tx,
+          });
+          if (!claimRes.success) {
+            throw new ListingSlotError(claimRes);
+          }
+        } else if (isDeactivating) {
+          await ListingSlotService.releaseListingSlot({
+            physicalPropertyId: existing.physicalPropertyId,
+            propertyId: id,
+            newStatus: body.status,
+            prismaClient: tx,
+          });
+        }
+      }
+
+      return tx.property.update({
+        where: { id },
+        data: {
+          status: body.status !== undefined ? body.status : existing.status,
+          latitude: body.latitude !== undefined ? (body.latitude !== null && body.latitude !== '' && !isNaN(Number(body.latitude)) ? Number(body.latitude) : null) : existing.latitude,
+          longitude: body.longitude !== undefined ? (body.longitude !== null && body.longitude !== '' && !isNaN(Number(body.longitude)) ? Number(body.longitude) : null) : existing.longitude,
+          boundary: body.boundary !== undefined ? (body.boundary ? String(body.boundary) : null) : existing.boundary,
+          boundaryArea: body.boundaryArea !== undefined ? (body.boundaryArea !== null && body.boundaryArea !== '' && !isNaN(Number(body.boundaryArea)) ? Number(body.boundaryArea) : null) : existing.boundaryArea,
+        },
+      });
+    }, { timeout: 15000, maxWait: 5000 });
 
     await recalculateMatchesForProperty(updated.id);
 
     return NextResponse.json({ success: true, property: updated });
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof ListingSlotError) {
+      return NextResponse.json(
+        {
+          error: error.claimResult.message,
+          code: error.claimResult.reason,
+          activeCount: error.claimResult.activeCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (error.code === 'P2002') {
+      return NextResponse.json(
+        {
+          error: 'O corretor já possui um anúncio ativo para este imóvel físico.',
+          code: 'DUPLICATE_BROKER',
+        },
+        { status: 409 }
+      );
+    }
+
     console.error('Erro ao atualizar imóvel parcialmente:', error);
-    return NextResponse.json({ error: 'Falha ao atualizar imóvel.' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Falha ao atualizar imóvel.' }, { status: 500 });
   }
 }
 
@@ -498,7 +730,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -526,14 +758,27 @@ export async function DELETE(
       );
     }
 
-    // Desativação ou exclusão
-    await prisma.property.delete({
-      where: { id },
-    });
+    if (existing.physicalPropertyId && existing.status === 'Disponível') {
+      await prisma.$transaction(async (tx) => {
+        await ListingSlotService.releaseListingSlot({
+          physicalPropertyId: existing.physicalPropertyId!,
+          propertyId: id,
+          isDeleting: true,
+          prismaClient: tx,
+        });
+        await tx.property.delete({
+          where: { id },
+        });
+      }, { timeout: 15000, maxWait: 5000 });
+    } else {
+      await prisma.property.delete({
+        where: { id },
+      });
+    }
 
     return NextResponse.json({ success: true, message: 'Imóvel excluído com sucesso.' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro ao excluir imóvel:', error);
-    return NextResponse.json({ error: 'Falha ao excluir imóvel.' }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Falha ao excluir imóvel.' }, { status: 500 });
   }
 }

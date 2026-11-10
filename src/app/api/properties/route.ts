@@ -7,10 +7,20 @@ import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validati
 import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 import { isLand } from '@/lib/property-display';
 import { linkPropertyToBuildingAndUnit } from '@/lib/building-service';
+import { ListingSlotService, SlotClaimResult } from '@/lib/listing-slot-service';
+
+class ListingSlotError extends Error {
+  claimResult: SlotClaimResult;
+  constructor(claimResult: SlotClaimResult) {
+    super(claimResult.message || 'Falha ao alocar vaga para anúncio.');
+    this.name = 'ListingSlotError';
+    this.claimResult = claimResult;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -118,6 +128,9 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             complement: true,
+            activeListingsCount: true,
+            sharedPrice: true,
+            primaryListingId: true,
             unit: {
               select: {
                 id: true,
@@ -125,6 +138,53 @@ export async function GET(req: NextRequest) {
                 tower: true,
                 floor: true,
               },
+            },
+            listings: {
+              where: {
+                status: 'Disponível',
+                OR: [
+                  { responsibleBroker: { status: 'ACTIVE' } },
+                  { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
+                ],
+              },
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                isPrimaryListing: true,
+                createdAt: true,
+                responsibleBroker: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        phone: true,
+                        creci: true,
+                        avatarUrl: true,
+                        logoUrl: true,
+                      },
+                    },
+                  },
+                },
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        phone: true,
+                        creci: true,
+                        avatarUrl: true,
+                        logoUrl: true,
+                      },
+                    },
+                  },
+                },
+              },
+              orderBy: [{ isPrimaryListing: 'desc' }, { createdAt: 'asc' }],
             },
           },
         },
@@ -142,7 +202,15 @@ export async function GET(req: NextRequest) {
         registryNumber: null,
         boundary: null,
         boundaryArea: null,
-        physicalProperty: null, // Protege identificação confidencial da unidade
+        physicalProperty: p.physicalProperty
+          ? {
+              id: p.physicalProperty.id,
+              sharedPrice: p.physicalProperty.sharedPrice,
+              activeListingsCount: p.physicalProperty.activeListingsCount,
+              primaryListingId: p.physicalProperty.primaryListingId,
+              listings: p.physicalProperty.listings,
+            }
+          : null,
       };
     });
 
@@ -155,7 +223,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
@@ -391,88 +459,135 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const property = await prisma.property.create({
-      data: {
-        userId: user.id,
-        responsibleBrokerId: user.id,
-        title: title.trim(),
-        internalCode: internalCode?.trim() || null,
-        propertyType,
-        purpose,
-        status: finalStatus,
-        isPublic: false,
-        legacyExemptFromAuthorization: false, // Novos imóveis nunca recebem isenção de legado
-        price: numericPrice || 0,
-        builtArea: isLandPlot ? null : parsedBuiltArea,
-        privateArea: isLandPlot ? null : parsedPrivateArea,
-        totalArea: parsedTotalArea,
-        landArea: parsedLandArea,
-        bedrooms: isLandPlot ? 0 : computedBedrooms,
-        suites: isLandPlot ? 0 : parsedSuites,
-        otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
-        bathrooms: isLandPlot ? 0 : computedBathrooms,
-        otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
-        socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
-        lavabos: isLandPlot ? null : parsedLavabos,
-        parkingSpaces: isLandPlot ? 0 : computedParkingSpaces,
-        coveredParkingSpaces: isLandPlot ? null : parsedCovered,
-        uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
-        description: description?.trim() || null,
-        internalNotes: internalNotes?.trim() || null,
-        address: finalAddress,
-        number: finalNumber,
-        complement: complement?.trim() || null,
-        neighborhood: finalNeighborhood,
-        city: finalCity,
-        state: finalState,
-        zipcode: finalZipcode,
-        latitude: finalLat,
-        longitude: finalLng,
-        buildingId: resolvedBuildingId,
-        physicalPropertyId: resolvedPhysicalPropertyId,
-        boundary: boundary ? String(boundary) : null,
-        boundaryArea: boundaryArea !== null && boundaryArea !== undefined && !isNaN(Number(boundaryArea)) ? Number(boundaryArea) : null,
-        
-        // Novos campos Fase 5.0.1
-        acceptsExchange: acceptsExchange !== undefined ? (acceptsExchange === true || acceptsExchange === 'true' || acceptsExchange === 'Sim') : null,
-        exchangeNotes: exchangeNotes?.trim() || null,
-        registryNumber: registryNumber?.trim() || null,
-        isRegistered: isRegistered !== undefined ? (isRegistered === true || isRegistered === 'true' || isRegistered === 'Sim') : null,
-        hasPool: hasPool !== undefined ? (hasPool === true || hasPool === 'true' || hasPool === 'Sim') : null,
-        hasGym: hasGym !== undefined ? (hasGym === true || hasGym === 'true' || hasGym === 'Sim') : null,
-        furniture: furniture?.trim() || null,
-        hasBarbecue: hasBarbecue !== undefined ? (hasBarbecue === true || hasBarbecue === 'true' || hasBarbecue === 'Sim') : null,
-        hasPartyHall: hasPartyHall !== undefined ? (hasPartyHall === true || hasPartyHall === 'true' || hasPartyHall === 'Sim') : null,
-        hasElevator: hasElevator !== undefined ? (hasElevator === true || hasElevator === 'true' || hasElevator === 'Sim') : null,
-        isPenthouse: isPenthouse !== undefined ? (isPenthouse === true || isPenthouse === 'true' || isPenthouse === 'Sim') : null,
-        hasPetSpace: hasPetSpace !== undefined ? (hasPetSpace === true || hasPetSpace === 'true' || hasPetSpace === 'Sim') : null,
-        floor: floor !== undefined && floor !== null && floor !== '' ? parseInt(String(floor), 10) : null,
-        isCorner: isCorner !== undefined ? (isCorner === true || isCorner === 'true' || isCorner === 'Sim') : null,
-        inGatedCommunity: inGatedCommunity !== undefined ? (inGatedCommunity === true || inGatedCommunity === 'true' || inGatedCommunity === 'Sim') : null,
-        inAllotment: inAllotment !== undefined ? (inAllotment === true || inAllotment === 'true' || inAllotment === 'Sim') : null,
-        streetPaving: streetPaving?.trim() || null,
-        commercialType: commercialType?.trim() || null,
+    const property = await prisma.$transaction(async (tx) => {
+      // Impede duplicidade de anúncio ativo do mesmo corretor no mesmo imóvel físico
+      if (finalStatus === 'Disponível' && resolvedPhysicalPropertyId) {
+        const existingBrokerActive = await tx.property.findFirst({
+          where: {
+            physicalPropertyId: resolvedPhysicalPropertyId,
+            status: 'Disponível',
+            OR: [{ userId: user.id }, { responsibleBrokerId: user.id }],
+          },
+          select: { id: true },
+        });
 
-        images: {
-          create: (images || []).map((url: string, index: number) => ({
-            url,
-            isCover: index === 0,
-            order: index,
-          })),
-        },
-      },
-      include: {
-        images: true,
-        building: {
-          select: {
-            id: true,
-            name: true,
-            address: true,
-            neighborhood: true,
+        if (existingBrokerActive) {
+          throw new ListingSlotError({
+            success: false,
+            reason: 'DUPLICATE_BROKER',
+            message: 'O corretor já possui um anúncio ativo para este imóvel físico.',
+          });
+        }
+      }
+
+      const createdProp = await tx.property.create({
+        data: {
+          userId: user.id,
+          responsibleBrokerId: user.id,
+          title: title.trim(),
+          internalCode: internalCode?.trim() || null,
+          propertyType,
+          purpose,
+          status: finalStatus,
+          isPublic: false,
+          legacyExemptFromAuthorization: false, // Novos imóveis nunca recebem isenção de legado
+          price: numericPrice || 0,
+          builtArea: isLandPlot ? null : parsedBuiltArea,
+          privateArea: isLandPlot ? null : parsedPrivateArea,
+          totalArea: parsedTotalArea,
+          landArea: parsedLandArea,
+          bedrooms: isLandPlot ? 0 : computedBedrooms,
+          suites: isLandPlot ? 0 : parsedSuites,
+          otherBedrooms: isLandPlot ? null : parsedOtherBedrooms,
+          bathrooms: isLandPlot ? 0 : computedBathrooms,
+          otherBathrooms: isLandPlot ? null : parsedOtherBathrooms,
+          socialBathrooms: isLandPlot ? null : parsedSocialBathrooms,
+          lavabos: isLandPlot ? null : parsedLavabos,
+          parkingSpaces: isLandPlot ? 0 : computedParkingSpaces,
+          coveredParkingSpaces: isLandPlot ? null : parsedCovered,
+          uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
+          description: description?.trim() || null,
+          internalNotes: internalNotes?.trim() || null,
+          address: finalAddress,
+          number: finalNumber,
+          complement: complement?.trim() || null,
+          neighborhood: finalNeighborhood,
+          city: finalCity,
+          state: finalState,
+          zipcode: finalZipcode,
+          latitude: finalLat,
+          longitude: finalLng,
+          buildingId: resolvedBuildingId,
+          physicalPropertyId: resolvedPhysicalPropertyId,
+          boundary: boundary ? String(boundary) : null,
+          boundaryArea: boundaryArea !== null && boundaryArea !== undefined && !isNaN(Number(boundaryArea)) ? Number(boundaryArea) : null,
+          
+          // Novos campos Fase 5.0.1
+          acceptsExchange: acceptsExchange !== undefined ? (acceptsExchange === true || acceptsExchange === 'true' || acceptsExchange === 'Sim') : null,
+          exchangeNotes: exchangeNotes?.trim() || null,
+          registryNumber: registryNumber?.trim() || null,
+          isRegistered: isRegistered !== undefined ? (isRegistered === true || isRegistered === 'true' || isRegistered === 'Sim') : null,
+          hasPool: hasPool !== undefined ? (hasPool === true || hasPool === 'true' || hasPool === 'Sim') : null,
+          hasGym: hasGym !== undefined ? (hasGym === true || hasGym === 'true' || hasGym === 'Sim') : null,
+          furniture: furniture?.trim() || null,
+          hasBarbecue: hasBarbecue !== undefined ? (hasBarbecue === true || hasBarbecue === 'true' || hasBarbecue === 'Sim') : null,
+          hasPartyHall: hasPartyHall !== undefined ? (hasPartyHall === true || hasPartyHall === 'true' || hasPartyHall === 'Sim') : null,
+          hasElevator: hasElevator !== undefined ? (hasElevator === true || hasElevator === 'true' || hasElevator === 'Sim') : null,
+          isPenthouse: isPenthouse !== undefined ? (isPenthouse === true || isPenthouse === 'true' || isPenthouse === 'Sim') : null,
+          hasPetSpace: hasPetSpace !== undefined ? (hasPetSpace === true || hasPetSpace === 'true' || hasPetSpace === 'Sim') : null,
+          floor: floor !== undefined && floor !== null && floor !== '' ? parseInt(String(floor), 10) : null,
+          isCorner: isCorner !== undefined ? (isCorner === true || isCorner === 'true' || isCorner === 'Sim') : null,
+          inGatedCommunity: inGatedCommunity !== undefined ? (inGatedCommunity === true || inGatedCommunity === 'true' || inGatedCommunity === 'Sim') : null,
+          inAllotment: inAllotment !== undefined ? (inAllotment === true || inAllotment === 'true' || inAllotment === 'Sim') : null,
+          streetPaving: streetPaving?.trim() || null,
+          commercialType: commercialType?.trim() || null,
+
+          images: {
+            create: (images || []).map((url: string, index: number) => ({
+              url,
+              isCover: index === 0,
+              order: index,
+            })),
           },
         },
-      },
-    });
+        include: {
+          images: true,
+          building: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              neighborhood: true,
+            },
+          },
+        },
+      });
+
+      // Se o imóvel for publicado diretamente como ativo e estiver vinculado a um imóvel físico,
+      // aloca transacionalmente uma das 3 vagas (slots) e adota o preço compartilhado
+      if (finalStatus === 'Disponível' && resolvedPhysicalPropertyId) {
+        const slotResult = await ListingSlotService.claimListingSlot({
+          physicalPropertyId: resolvedPhysicalPropertyId,
+          propertyId: createdProp.id,
+          brokerId: user.id,
+          requestedPrice: numericPrice,
+          prismaClient: tx,
+        });
+
+        if (!slotResult.success) {
+          throw new ListingSlotError(slotResult);
+        }
+
+        // Recarrega valores atualizados do slot e preço para resposta
+        createdProp.listingSlot = slotResult.slot ?? null;
+        createdProp.isPrimaryListing = slotResult.isPrimary ?? false;
+        if (slotResult.sharedPrice !== undefined) {
+          createdProp.price = slotResult.sharedPrice as any;
+        }
+      }
+
+      return createdProp;
+    }, { timeout: 15000, maxWait: 5000 });
 
     // Se o corretor declarou a autorização, registra no histórico legal auditável
     let createdAuth = null;
@@ -498,7 +613,28 @@ export async function POST(req: NextRequest) {
       authorizationPending: !isAuthorized,
       message,
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof ListingSlotError) {
+      return NextResponse.json(
+        {
+          error: error.claimResult.message,
+          code: error.claimResult.reason,
+          activeCount: error.claimResult.activeCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (error.code === 'P2002') {
+      return NextResponse.json(
+        {
+          error: 'O corretor já possui um anúncio ativo para este imóvel físico.',
+          code: 'DUPLICATE_BROKER',
+        },
+        { status: 409 }
+      );
+    }
+
     console.error('Erro ao cadastrar imóvel:', error);
     return NextResponse.json({ error: 'Falha ao salvar imóvel.' }, { status: 500 });
   }

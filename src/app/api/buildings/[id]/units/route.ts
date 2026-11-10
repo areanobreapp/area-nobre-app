@@ -8,14 +8,136 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
     }
 
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const unitNumberParam = searchParams.get('unitNumber');
+    const towerParam = searchParams.get('tower');
+
+    // Se informou unitNumber, faz consulta pontual de vagas e preço compartilhado da unidade
+    if (unitNumberParam) {
+      const normalizedUnit = normalizeUnitNumber(unitNumberParam);
+      const normalizedTower = normalizeTower(towerParam);
+
+      const unit = await prisma.buildingUnit.findFirst({
+        where: {
+          buildingId: id,
+          normalizedUnit,
+          ...(normalizedTower ? { tower: normalizedTower } : {}),
+        },
+        include: {
+          physicalProperty: {
+            include: {
+              listings: {
+                where: { status: 'Disponível' },
+                select: {
+                  id: true,
+                  userId: true,
+                  responsibleBrokerId: true,
+                  isPrimaryListing: true,
+                  listingSlot: true,
+                  price: true,
+                  createdAt: true,
+                  user: {
+                    select: {
+                      id: true,
+                      name: true,
+                      profile: {
+                        select: {
+                          commercialName: true,
+                          creci: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              waitlist: {
+                where: {
+                  status: { in: ['WAITING', 'PENDING_NOTIFICATION', 'OFFERED'] },
+                },
+                select: { id: true, brokerId: true, status: true, position: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (!unit || !unit.physicalProperty) {
+        return NextResponse.json({
+          unitExists: !!unit,
+          unit: unit ? { id: unit.id, unitNumber: unit.unitNumber, tower: unit.tower, floor: unit.floor } : null,
+          hasPhysicalProperty: false,
+          activeListingsCount: 0,
+          availableSlots: 3,
+          isPrimaryEligible: true,
+          sharedPrice: null,
+          isFull: false,
+          userHasActiveListing: false,
+          userHasWaitlist: false,
+          userWaitlistPosition: null,
+          otherBrokers: [],
+          waitlistCount: 0,
+        });
+      }
+
+      const activeListings = unit.physicalProperty.listings || [];
+      const activeCount = unit.physicalProperty.activeListingsCount ?? activeListings.length;
+      const userHasActive = activeListings.some(
+        (l) => l.userId === user.id || l.responsibleBrokerId === user.id
+      );
+      const isFull = activeCount >= 3;
+      const sharedPrice = unit.physicalProperty.sharedPrice
+        ? Number(unit.physicalProperty.sharedPrice)
+        : activeListings[0]?.price ?? null;
+
+      const userWaitlistEntry = unit.physicalProperty.waitlist?.find((w) => w.brokerId === user.id);
+
+      const otherBrokers = activeListings.map((l) => ({
+        listingId: l.id,
+        isPrimary: l.isPrimaryListing,
+        slot: l.listingSlot,
+        brokerId: l.user?.id,
+        brokerName: l.user?.name || 'Corretor Parceiro',
+        commercialName: l.user?.profile?.commercialName || null,
+        creci: l.user?.profile?.creci || null,
+      }));
+
+      return NextResponse.json({
+        unitExists: true,
+        unit: { id: unit.id, unitNumber: unit.unitNumber, tower: unit.tower, floor: unit.floor },
+        hasPhysicalProperty: true,
+        physicalPropertyId: unit.physicalProperty.id,
+        activeListingsCount: activeCount,
+        availableSlots: Math.max(0, 3 - activeCount),
+        isPrimaryEligible: activeCount === 0,
+        sharedPrice,
+        isFull,
+        userHasActiveListing: userHasActive,
+        userHasWaitlist: !!userWaitlistEntry,
+        userWaitlistPosition: userWaitlistEntry?.position ?? null,
+        otherBrokers,
+        waitlistCount: unit.physicalProperty.waitlist?.length || 0,
+      });
+    }
+
+    // Listagem geral de unidades do edifício
     const units = await prisma.buildingUnit.findMany({
       where: { buildingId: id },
+      include: {
+        physicalProperty: {
+          select: {
+            id: true,
+            activeListingsCount: true,
+            sharedPrice: true,
+            primaryListingId: true,
+          },
+        },
+      },
       orderBy: [
         { tower: 'asc' },
         { floor: 'asc' },
