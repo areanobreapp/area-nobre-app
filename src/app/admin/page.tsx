@@ -20,10 +20,13 @@ import {
   MessageCircle,
   FileText,
   Scale,
+  Clock,
 } from 'lucide-react';
 import LegalDocumentsManager from '@/components/admin/LegalDocumentsManager';
 import LegalAuditViewer from '@/components/admin/LegalAuditViewer';
 import BuildingManager from '@/components/admin/BuildingManager';
+import DisputesManager from '@/components/admin/DisputesManager';
+import AdminWaitlistManager from '@/components/admin/AdminWaitlistManager';
 
 interface AdminUser {
   id: string;
@@ -55,7 +58,7 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [adminTab, setAdminTab] = useState<'users' | 'buildings' | 'legal' | 'audit'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'buildings' | 'legal' | 'audit' | 'disputes' | 'waitlist'>('users');
 
   // Configurações da Plataforma (Ponto 13)
   const [supportPhone, setSupportPhone] = useState('5548999273694');
@@ -362,6 +365,52 @@ export default function AdminPage() {
         >
           <Scale size={18} />
           <span>Auditoria Jurídica</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('disputes')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'disputes' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'disputes' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <AlertTriangle size={18} />
+          <span>Contestações de Preço</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('waitlist')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'waitlist' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'waitlist' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Clock size={18} />
+          <span>Filas de Espera</span>
         </button>
       </div>
 
@@ -855,6 +904,12 @@ export default function AdminPage() {
 
       {/* Aba 3: Auditoria Jurídica de Aceites e Autorizações (Ponto 20 / Etapa 1.5) */}
       {adminTab === 'audit' && <LegalAuditViewer />}
+
+      {/* Aba 4: Gestão e Arbitragem de Contestações de Preço (F2.B05.3G.2) */}
+      {adminTab === 'disputes' && <DisputesManager />}
+
+      {/* Aba 5: Gestão e Convocação de Listas de Espera (F2.B05.3G.3) */}
+      {adminTab === 'waitlist' && <AdminWaitlistManager />}
     </div>
   );
 }

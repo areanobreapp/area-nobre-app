@@ -36,10 +36,16 @@ import {
   LocateFixed,
   Loader2,
   Navigation,
+  Users,
 } from 'lucide-react';
 import CircularMatchScore from './CircularMatchScore';
 import MatchExplanationModal from './MatchExplanationModal';
 import { parseGeoJsonToLatLngs, calculatePolygonCentroid } from '@/lib/geo/polygon';
+import {
+  consolidateProperties,
+  consolidateMatches,
+  CoListingSummary,
+} from '@/lib/geo/property-grouping';
 import {
   BaseMapType,
   createBaseMapTileLayer,
@@ -118,6 +124,11 @@ export interface PropertyItem {
   boundaryArea?: number | null;
   images?: { url: string; isCover?: boolean }[];
   isDevelopment?: false;
+  physicalPropertyId?: string | null;
+  physicalProperty?: any;
+  coListings?: CoListingSummary[];
+  brokerCount?: number;
+  canonicalPrice?: number;
 }
 
 export interface DevelopmentItem {
@@ -159,6 +170,9 @@ export type MapItem = (PropertyItem | DevelopmentItem) & {
   matchExplanation?: any[];
   matchedTypologyName?: string;
   matchedTypologyPrice?: number;
+  brokerCount?: number;
+  coListings?: CoListingSummary[];
+  canonicalPrice?: number;
 };
 
 interface HomeMapProps {
@@ -445,12 +459,14 @@ export default function HomeMap({
 
   // Unifica imóveis convencionais e empreendimentos com flag isDevelopment
   // Se estiver em modo de busca, mapeia estritamente os matches calculados deterministicamente
+  // F2.B05.3G.4: Aplica consolidação por identidade física validada (PhysicalProperty)
   const allItems: MapItem[] = useMemo(() => {
     if (activeSearchContext && activeSearchContext.matches) {
+      const consolidatedSearchMatches = consolidateMatches(activeSearchContext.matches);
       const matchedItems: MapItem[] = [];
       const seenOfferIds = new Set<string>();
 
-      activeSearchContext.matches.forEach((m: any) => {
+      consolidatedSearchMatches.forEach((m: any) => {
         if (m.offerType === 'TYPOLOGY' && m.typology) {
           const dev = m.typology.development;
           if (dev) {
@@ -474,8 +490,15 @@ export default function HomeMap({
         } else if (m.offerType === 'PROPERTY' && m.property) {
           if (!seenOfferIds.has(m.property.id)) {
             seenOfferIds.add(m.property.id);
+            const canonicalPrice = m.property.physicalProperty?.sharedPrice != null
+              ? Number(m.property.physicalProperty.sharedPrice)
+              : m.property.price;
             matchedItems.push({
               ...m.property,
+              price: canonicalPrice,
+              canonicalPrice,
+              brokerCount: m.brokerCount || m.property.brokerCount || 1,
+              coListings: m.coListings || m.property.coListings || [],
               isDevelopment: false as const,
               matchScore: m.score,
               matchExplanation: m.parsedExplanation || [],
@@ -489,7 +512,8 @@ export default function HomeMap({
       return matchedItems.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
     }
 
-    const props = initialProperties.map((p) => ({ ...p, isDevelopment: false as const }));
+    const consolidatedProps = consolidateProperties(initialProperties);
+    const props = consolidatedProps.map((p) => ({ ...p, isDevelopment: false as const }));
     const devs = initialDevelopments.map((d) => ({ ...d, isDevelopment: true as const }));
     return [...props, ...devs];
   }, [initialProperties, initialDevelopments, activeSearchContext]);
@@ -915,18 +939,36 @@ export default function HomeMap({
       const brokerAvatar = item.responsibleBroker?.profile?.avatarUrl || item.responsibleBroker?.profile?.logoUrl;
       const brokerInitial = (brokerDisplayName || 'C').charAt(0).toUpperCase();
 
-      const authorBadgeHtml = isMine
-        ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #1E4620; display: flex; align-items: center; gap: 5px;">
-             <span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #1E4620; color: white; font-size: 8px; font-weight: 800;">✓</span>
-             <span>Seu imóvel</span>
+      const isSharedPhysical = Boolean(item.brokerCount && item.brokerCount > 1);
+      const coListingsHtml = (item.coListings && item.coListings.length > 1)
+        ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; flex-direction: column; gap: 4px;">
+             <span style="font-size: 10px; font-weight: 800; color: #3730A3; text-transform: uppercase;">${item.brokerCount} Corretores Anunciantes:</span>
+             ${item.coListings.map((cl) => {
+               const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || cl.user?.profile?.commercialName || cl.user?.name || 'Corretor';
+               return `
+                 <a href="/imoveis/${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 4px; text-decoration: none; color: #1F2937; font-size: 11px;">
+                   <span>${bName} ${cl.isPrimaryListing ? '<strong style=\"color:#059669; font-size:9px;\">(Principal)</strong>' : ''}</span>
+                   <span style="color: #4F46E5; font-weight: 700; font-size: 10px;">Ver anúncio &rarr;</span>
+                 </a>
+               `;
+             }).join('')}
            </div>`
-        : `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #4338CA; display: flex; align-items: center; gap: 5px;">
-             ${brokerAvatar
-               ? `<img src="${brokerAvatar}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />`
-               : `<span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #4F46E5; color: white; font-size: 8px; font-weight: 800;">${brokerInitial}</span>`
-             }
-             <span>Imóvel de ${brokerDisplayName}</span>
-           </div>`;
+        : '';
+
+      const authorBadgeHtml = isSharedPhysical
+        ? coListingsHtml
+        : (isMine
+            ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #1E4620; display: flex; align-items: center; gap: 5px;">
+                 <span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #1E4620; color: white; font-size: 8px; font-weight: 800;">✓</span>
+                 <span>Seu imóvel</span>
+               </div>`
+            : `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #4338CA; display: flex; align-items: center; gap: 5px;">
+                 ${brokerAvatar
+                   ? `<img src="${brokerAvatar}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />`
+                   : `<span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #4F46E5; color: white; font-size: 8px; font-weight: 800;">${brokerInitial}</span>`
+                 }
+                 <span>Imóvel de ${brokerDisplayName}</span>
+               </div>`);
 
       // Links diretos para rotas externas (Google Maps e Waze) - Etapa 3D.2 / Ponto 27
       const navLinks = getNavigationLinks(item.latitude, item.longitude);
@@ -2978,6 +3020,59 @@ export default function HomeMap({
               );
             })()}
 
+            {/* Imóvel Compartilhado: Seletor de Corretores Anunciantes (F2.B05.3G.4) */}
+            {selectedItem.coListings && selectedItem.coListings.length > 1 && (
+              <div
+                style={{
+                  marginTop: '4px',
+                  padding: '8px 10px',
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid #E2E8F0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Users size={12} color="#475569" />
+                    <span>{selectedItem.coListings.length} corretores anunciantes:</span>
+                  </span>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#059669', backgroundColor: '#ECFDF5', padding: '1px 5px', borderRadius: 4 }}>
+                    Preço único
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {selectedItem.coListings.map((co) => {
+                    const coName = co.responsibleBroker?.profile?.commercialName || co.responsibleBroker?.name || co.user?.profile?.commercialName || co.user?.name || 'Corretor';
+                    return (
+                      <Link
+                        key={co.id}
+                        href={`/imoveis/${co.id}`}
+                        className="btn-secondary"
+                        style={{
+                          justifyContent: 'space-between',
+                          padding: '5px 8px',
+                          fontSize: '0.76rem',
+                          borderRadius: 'var(--radius-sm)',
+                          textDecoration: 'none',
+                          backgroundColor: '#FFFFFF',
+                        }}
+                      >
+                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
+                          <strong>{coName}</strong> {co.isPrimaryListing && <span style={{ color: '#059669', fontSize: '0.68rem' }}>(Principal)</span>}
+                        </span>
+                        <span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                          Ver anúncio <ArrowRight size={10} />
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Botões de Ação para Traçar Rota até este imóvel (Etapa 3D.2 / Ponto 27) */}
             {isValidCoordinate(selectedItem.latitude, selectedItem.longitude) && (
               <NavigationActionButtons
@@ -3000,7 +3095,7 @@ export default function HomeMap({
                 borderRadius: 'var(--radius-sm)',
               }}
             >
-              <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : 'Ver imóvel'}</span>
+              <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? 'Abrir anúncio principal' : 'Ver imóvel')}</span>
               <ArrowRight size={14} />
             </Link>
           </div>
@@ -3442,7 +3537,25 @@ export default function HomeMap({
 
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '4px' }}>
-                          {isMine ? (
+                          {item.brokerCount && item.brokerCount > 1 ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                fontSize: '0.70rem',
+                                fontWeight: 700,
+                                color: '#3730A3',
+                                backgroundColor: '#EEF2FF',
+                                border: '1px solid #C7D2FE',
+                                padding: '2px 7px',
+                                borderRadius: 'var(--radius-full)',
+                              }}
+                            >
+                              <Users size={11} />
+                              <span>{item.brokerCount} corretores</span>
+                            </span>
+                          ) : isMine ? (
                             <span
                               style={{
                                 display: 'inline-flex',

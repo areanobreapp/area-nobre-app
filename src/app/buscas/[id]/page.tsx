@@ -29,12 +29,14 @@ import {
   Layers,
   Compass,
   Share2,
+  Users,
 } from 'lucide-react';
 import CircularMatchScore from '@/components/CircularMatchScore';
 import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
 import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 import { getWhatsAppUrl } from '@/lib/whatsapp';
+import { consolidateMatches } from '@/lib/geo/property-grouping';
 
 const SearchMatchesMap = dynamic(() => import('@/components/SearchMatchesMap'), { ssr: false });
 
@@ -63,6 +65,13 @@ export default function BuscaDetalhesPage({
     publicId?: string | null;
     precision?: 'HIDDEN' | 'APPROXIMATE' | 'EXACT';
   } | null>(null);
+
+  // Consolidação por identidade física validada (PhysicalProperty - F2.B05.3G.4):
+  // Cada imóvel físico é apresentado e contado exatamente uma vez.
+  const consolidatedMatches = React.useMemo(() => {
+    if (!search?.matches) return [];
+    return consolidateMatches(search.matches);
+  }, [search?.matches]);
 
   useEffect(() => {
     async function loadSearch() {
@@ -576,7 +585,7 @@ export default function BuscaDetalhesPage({
                   borderRadius: '12px',
                 }}
               >
-                {search.matches?.length || 0} oportunidade(s)
+                {consolidatedMatches.length} oportunidade(s)
               </span>
             </div>
             <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
@@ -585,7 +594,7 @@ export default function BuscaDetalhesPage({
           </div>
 
           {/* Ações: Ver no Mapa / Modo Lista */}
-          {search.matches && search.matches.length > 0 && (
+          {consolidatedMatches.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <Link
                 href={`/?buscaId=${id}`}
@@ -659,7 +668,7 @@ export default function BuscaDetalhesPage({
         )}
       </div>
 
-        {(!search.matches || search.matches.length === 0) ? (
+        {(consolidatedMatches.length === 0) ? (
           <div
             className="card"
             style={{
@@ -698,7 +707,7 @@ export default function BuscaDetalhesPage({
         ) : viewMode === 'mapa' ? (
           <SearchMatchesMap
             search={search}
-            matches={search.matches}
+            matches={consolidatedMatches}
             onExitSearch={() => setViewMode('lista')}
             onOpenExplanation={(m) => {
               const isTypology = m.offerType === 'TYPOLOGY';
@@ -718,7 +727,7 @@ export default function BuscaDetalhesPage({
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {search.matches.map((m: any) => {
+            {consolidatedMatches.map((m: any) => {
               const isTypology = m.offerType === 'TYPOLOGY';
               const offerTitle = isTypology
                 ? `${m.typology?.development?.name} — ${m.typology?.name}`
@@ -826,6 +835,13 @@ export default function BuscaDetalhesPage({
                         })()}
                       </div>
 
+                      {m.brokerCount && m.brokerCount > 1 && (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#EEF2FF', border: '1px solid #C7D2FE', color: '#3730A3', fontSize: '0.72rem', fontWeight: 700, marginBottom: 4 }}>
+                          <Users size={11} />
+                          <span>Imóvel compartilhado • {m.brokerCount} corretores</span>
+                        </div>
+                      )}
+
                       <h3
                         style={{
                           fontSize: '1rem',
@@ -873,6 +889,32 @@ export default function BuscaDetalhesPage({
                           );
                         })}
                       </div>
+
+                      {/* Anúncios dos corretores vinculados a este imóvel compartilhado (F2.B05.3G.4) */}
+                      {m.coListings && m.coListings.length > 1 && (
+                        <div style={{ marginTop: '10px', padding: '8px 10px', backgroundColor: '#F8FAFC', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '0.70rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Users size={11} color="#475569" />
+                            <span>Anúncios disponíveis nesta unidade ({m.coListings.length} corretores):</span>
+                          </span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {m.coListings.map((cl: any) => {
+                              const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || cl.user?.profile?.commercialName || cl.user?.name || 'Corretor';
+                              return (
+                                <Link
+                                  key={cl.id}
+                                  href={`/imoveis/${cl.id}`}
+                                  className="btn-secondary"
+                                  style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none', backgroundColor: '#FFFFFF', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  <span><strong>{bName}</strong> {cl.isPrimaryListing ? <span style={{ color: '#059669', fontSize: '0.66rem' }}>(Principal)</span> : ''}</span>
+                                  <ExternalLink size={10} color="var(--color-primary)" />
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

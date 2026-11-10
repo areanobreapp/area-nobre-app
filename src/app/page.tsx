@@ -51,6 +51,61 @@ export default async function HomePage({
             },
           },
         },
+        physicalProperty: {
+          select: {
+            id: true,
+            sharedPrice: true,
+            activeListingsCount: true,
+            primaryListingId: true,
+            listings: {
+              where: {
+                status: 'Disponível',
+                OR: [
+                  { responsibleBroker: { status: 'ACTIVE' } },
+                  { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
+                ],
+              },
+              select: {
+                id: true,
+                title: true,
+                price: true,
+                isPrimaryListing: true,
+                createdAt: true,
+                responsibleBroker: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        phone: true,
+                        creci: true,
+                        avatarUrl: true,
+                        logoUrl: true,
+                      },
+                    },
+                  },
+                },
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    profile: {
+                      select: {
+                        commercialName: true,
+                        phone: true,
+                        creci: true,
+                        avatarUrl: true,
+                        logoUrl: true,
+                      },
+                    },
+                  },
+                },
+              },
+              orderBy: [{ isPrimaryListing: 'desc' }, { createdAt: 'asc' }],
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     }),
@@ -234,8 +289,21 @@ export default async function HomePage({
     };
   }
 
+  // Contagem consolidada de imóveis físicos (F2.B05.3G.4):
+  // Cada PhysicalProperty conta exatamente 1 vez no resumo. Anúncios legados contam individualmente.
+  const uniquePhysicalIds = new Set<string>();
+  let legacyPropsCount = 0;
+  properties.forEach((p) => {
+    if (p.physicalPropertyId) {
+      uniquePhysicalIds.add(p.physicalPropertyId);
+    } else {
+      legacyPropsCount += 1;
+    }
+  });
+  const consolidatedPropertiesCount = uniquePhysicalIds.size + legacyPropsCount;
+
   const kpis = {
-    propertiesCount: properties.length,
+    propertiesCount: consolidatedPropertiesCount,
     developmentsCount: developments.length,
     activeSearchesCount,
     relevantMatchesCount,

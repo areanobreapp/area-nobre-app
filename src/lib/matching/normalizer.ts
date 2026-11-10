@@ -37,7 +37,9 @@ export function normalizeProperty(property: any): NormalizedOffer {
     propertyType: property.propertyType,
     purpose: property.purpose || 'Venda',
     status: property.status,
-    price: Number(property.price) || 0,
+    price: property.physicalProperty?.sharedPrice != null
+      ? Number(property.physicalProperty.sharedPrice)
+      : (Number(property.price) || 0),
     bedrooms,
     suites,
     otherBedrooms,

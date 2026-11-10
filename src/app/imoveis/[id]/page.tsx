@@ -26,6 +26,12 @@ import {
   CheckCircle2,
   Pentagon,
   MessageCircle,
+  Users,
+  X,
+  Lock,
+  Scale,
+  Clock,
+  ArrowRight,
 } from 'lucide-react';
 import CircularMatchScore from '@/components/CircularMatchScore';
 import { PropertyIndividualFeaturesGrid } from '@/components/PropertyFeaturesDisplay';
@@ -76,6 +82,219 @@ export default function ImovelDetalhesPage({
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [targetShareClient, setTargetShareClient] = useState<{ name: string; phone: string } | null>(null);
 
+  // Modais de Preço Compartilhado e Revisão (F2.B05.3G.1 e F2.B05.3G.2)
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [newSharedPrice, setNewSharedPrice] = useState('');
+  const [priceChangeReason, setPriceChangeReason] = useState('');
+  const [submittingPrice, setSubmittingPrice] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+
+  const [showRevisionModal, setShowRevisionModal] = useState(false);
+  const [proposedPrice, setProposedPrice] = useState('');
+  const [revisionJustification, setRevisionJustification] = useState('');
+  const [submittingRevision, setSubmittingRevision] = useState(false);
+  const [revisionError, setRevisionError] = useState<string | null>(null);
+
+  // Estados de Revisões de Preço e Contestações (F2.B05.3G.2)
+  const [revisions, setRevisions] = useState<any[]>([]);
+  const [loadingRevisions, setLoadingRevisions] = useState(false);
+
+  const [acceptingRevision, setAcceptingRevision] = useState<any | null>(null);
+  const [acceptingSubmitting, setAcceptingSubmitting] = useState(false);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
+
+  const [rejectingRevision, setRejectingRevision] = useState<any | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectingSubmitting, setRejectingSubmitting] = useState(false);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+
+  const [disputingRevision, setDisputingRevision] = useState<any | null>(null);
+  const [disputeJustification, setDisputeJustification] = useState('');
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+  const [disputeError, setDisputeError] = useState<string | null>(null);
+
+  async function loadRevisions() {
+    setLoadingRevisions(true);
+    try {
+      const res = await fetch(`/api/properties/${id}/price-revisions`);
+      if (res.ok) {
+        const data = await res.json();
+        setRevisions(data.requests || []);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar revisões de preço:', err);
+    } finally {
+      setLoadingRevisions(false);
+    }
+  }
+
+  async function handleUpdateSharedPrice() {
+    setPriceError(null);
+    if (!newSharedPrice || Number(newSharedPrice) <= 0) {
+      setPriceError('Informe um valor válido maior que zero.');
+      return;
+    }
+
+    setSubmittingPrice(true);
+    try {
+      const res = await fetch(`/api/properties/${id}/price`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          price: Number(newSharedPrice),
+          reason: priceChangeReason.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao atualizar preço compartilhado.');
+      }
+
+      setShowPriceModal(false);
+      // Recarrega propriedade
+      const updatedRes = await fetch(`/api/properties/${id}`);
+      if (updatedRes.ok) {
+        const updatedData = await updatedRes.json();
+        setProperty(updatedData.property);
+      }
+      alert('Preço compartilhado atualizado com sucesso para todos os anúncios ativos vinculados!');
+    } catch (err: any) {
+      setPriceError(err.message || 'Falha ao atualizar preço compartilhado.');
+    } finally {
+      setSubmittingPrice(false);
+    }
+  }
+
+  async function handleSubmitPriceRevision() {
+    setRevisionError(null);
+    if (!proposedPrice || Number(proposedPrice) <= 0) {
+      setRevisionError('Informe um valor proposto válido maior que zero.');
+      return;
+    }
+    if (!revisionJustification.trim()) {
+      setRevisionError('Informe a justificativa da solicitação.');
+      return;
+    }
+
+    setSubmittingRevision(true);
+    try {
+      const res = await fetch(`/api/properties/${id}/price-revisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suggestedPrice: Number(proposedPrice),
+          proposedPrice: Number(proposedPrice),
+          justification: revisionJustification.trim(),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao enviar solicitação de revisão.');
+      }
+
+      setShowRevisionModal(false);
+      await loadRevisions();
+      alert('Solicitação de revisão de preço enviada com sucesso ao corretor do Anúncio Principal!');
+    } catch (err: any) {
+      setRevisionError(err.message || 'Falha ao enviar solicitação.');
+    } finally {
+      setSubmittingRevision(false);
+    }
+  }
+
+  async function handleAcceptRevision() {
+    if (!acceptingRevision) return;
+    setAcceptingSubmitting(true);
+    setAcceptError(null);
+    try {
+      const res = await fetch(`/api/price-revisions/${acceptingRevision.id}/accept`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.code === 'STALE_PRICE') {
+          throw new Error('O preço compartilhado foi modificado recentemente. Atualize a página antes de confirmar o aceite.');
+        }
+        if (data.code === 'UNAUTHORIZED_NOT_PRIMARY') {
+          throw new Error('Você não detém mais a condição de Anúncio Principal deste imóvel.');
+        }
+        throw new Error(data.error || 'Erro ao aceitar solicitação de revisão.');
+      }
+
+      setAcceptingRevision(null);
+      // Recarrega propriedade e revisões
+      const updatedRes = await fetch(`/api/properties/${id}`);
+      if (updatedRes.ok) {
+        const updatedData = await updatedRes.json();
+        setProperty(updatedData.property);
+      }
+      await loadRevisions();
+      alert(`Preço compartilhado atualizado com sucesso para R$ ${Number(data.updatedPrice || acceptingRevision.suggestedPrice).toLocaleString('pt-BR')} em todos os anúncios vinculados!`);
+    } catch (err: any) {
+      setAcceptError(err.message || 'Falha ao aceitar revisão.');
+    } finally {
+      setAcceptingSubmitting(false);
+    }
+  }
+
+  async function handleRejectRevision() {
+    if (!rejectingRevision) return;
+    if (!rejectReason.trim()) {
+      setRejectError('Informe obrigatoriamente a justificativa para a recusa.');
+      return;
+    }
+
+    setRejectingSubmitting(true);
+    setRejectError(null);
+    try {
+      const res = await fetch(`/api/price-revisions/${rejectingRevision.id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decisionReason: rejectReason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao registrar recusa.');
+      }
+
+      setRejectingRevision(null);
+      await loadRevisions();
+      alert('Solicitação de revisão recusada com sucesso.');
+    } catch (err: any) {
+      setRejectError(err.message || 'Falha ao registrar recusa.');
+    } finally {
+      setRejectingSubmitting(false);
+    }
+  }
+
+  async function handleDisputeRevision() {
+    if (!disputingRevision) return;
+    setDisputeSubmitting(true);
+    setDisputeError(null);
+    try {
+      const res = await fetch(`/api/price-revisions/${disputingRevision.id}/dispute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ justification: disputeJustification.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao encaminhar contestação administrativa.');
+      }
+
+      setDisputingRevision(null);
+      await loadRevisions();
+      alert('Contestação administrativa encaminhada com sucesso à gestão do Área Nobre! Não há suspensão de anúncios.');
+    } catch (err: any) {
+      setDisputeError(err.message || 'Falha ao abrir contestação.');
+    } finally {
+      setDisputeSubmitting(false);
+    }
+  }
+
   useEffect(() => {
     async function loadProperty() {
       try {
@@ -84,6 +303,9 @@ export default function ImovelDetalhesPage({
         if (!res.ok) throw new Error(data.error || 'Erro ao carregar imóvel.');
         setProperty(data.property);
         setIsOwner(data.isOwner ?? true);
+        if (data.property?.physicalPropertyId) {
+          loadRevisions();
+        }
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -443,6 +665,22 @@ export default function ImovelDetalhesPage({
                   Código: {property.internalCode}
                 </span>
               )}
+              {property.physicalPropertyId && (
+                property.isPrimaryListing ? (
+                  <span className="badge" style={{ backgroundColor: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', fontWeight: 700 }} title="Anúncio Principal do imóvel físico">
+                    ⭐ Anúncio Principal
+                  </span>
+                ) : (
+                  <span className="badge" style={{ backgroundColor: '#EEF2FF', color: '#3730A3', border: '1px solid #C7D2FE', fontWeight: 700 }} title="Anúncio Secundário vinculado a imóvel compartilhado">
+                    👥 Anúncio Secundário
+                  </span>
+                )
+              )}
+              {property.physicalProperty?.activeListingsCount !== undefined && (
+                <span className="badge badge-neutral" title="Ocupação das 3 vagas deste imóvel físico">
+                  {property.physicalProperty.activeListingsCount} de 3 vagas
+                </span>
+              )}
             </div>
             <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)' }}>
               {property.title}
@@ -466,13 +704,53 @@ export default function ImovelDetalhesPage({
             </p>
           </div>
 
-          <div>
+          <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-              Valor para {property.purpose}
+              {property.physicalProperty?.sharedPrice ? 'Preço Único Compartilhado' : `Valor para ${property.purpose}`}
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)', letterSpacing: '-0.02em' }}>
               R$ {property.price.toLocaleString('pt-BR')}
             </div>
+            {property.physicalProperty?.priceUpdatedAt && (
+              <div style={{ fontSize: '0.74rem', color: '#6B7280', marginTop: '2px' }}>
+                Atualizado em {new Date(property.physicalProperty.priceUpdatedAt).toLocaleDateString('pt-BR')} às {new Date(property.physicalProperty.priceUpdatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+            {isOwner && property.physicalPropertyId && (
+              <div style={{ marginTop: '8px' }}>
+                {property.isPrimaryListing ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewSharedPrice(String(property.price));
+                      setPriceChangeReason('');
+                      setPriceError(null);
+                      setShowPriceModal(true);
+                    }}
+                    className="btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Edit3 size={13} />
+                    <span>Alterar Preço Compartilhado</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProposedPrice('');
+                      setRevisionJustification('');
+                      setRevisionError(null);
+                      setShowRevisionModal(true);
+                    }}
+                    className="btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <DollarSign size={13} />
+                    <span>Solicitar Revisão de Preço</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -561,6 +839,292 @@ export default function ImovelDetalhesPage({
           );
         })()}
       </div>
+
+      {/* Bloco de Identidade Física e Corretores Vinculados */}
+      {property.physicalPropertyId && (
+        <div
+          className="card"
+          style={{
+            padding: '20px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Users size={18} color="var(--color-primary)" />
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                Identidade Física do Imóvel & Corretores Vinculados
+              </h2>
+            </div>
+            <span style={{ fontSize: '0.76rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#E0F2FE', color: '#0369A1', fontWeight: 700 }}>
+              {property.physicalProperty?.activeListingsCount || 1} de 3 vagas preenchidas
+            </span>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            Este imóvel físico possui capacidade máxima de 3 corretores e preço de venda compartilhado unificado (R$ {property.price.toLocaleString('pt-BR')}).
+          </p>
+
+          {property.physicalProperty?.listings && property.physicalProperty.listings.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border-light)', paddingTop: '12px' }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>
+                Corretores com anúncios ativos nesta unidade:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {property.physicalProperty.listings.map((l: any) => {
+                  const isCurrentListing = l.id === property.id;
+                  const brokerName = l.responsibleBroker?.name || l.user?.name || 'Corretor';
+                  const commercialName = l.responsibleBroker?.profile?.commercialName || l.user?.profile?.commercialName;
+                  const creci = l.responsibleBroker?.profile?.creci || l.user?.profile?.creci;
+
+                  return (
+                    <div
+                      key={l.id}
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: '8px',
+                        backgroundColor: isCurrentListing ? '#F0FDF4' : 'var(--bg-subtle)',
+                        border: isCurrentListing ? '1px solid #BBF7D0' : '1px solid var(--border-light)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: l.isPrimaryListing ? '#DCFCE7' : '#F1F5F9',
+                            color: l.isPrimaryListing ? '#166534' : '#475569',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Vaga {l.listingSlot || (l.isPrimaryListing ? 1 : 2)} {l.isPrimaryListing ? '• Anúncio Principal' : '• Anúncio Secundário'}
+                        </span>
+                        <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {brokerName}
+                          {commercialName && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({commercialName})</span>}
+                        </span>
+                        {creci && (
+                          <span style={{ fontSize: '0.76rem', color: 'var(--text-light)' }}>
+                            CRECI: {creci}
+                          </span>
+                        )}
+                      </div>
+
+                      {isCurrentListing ? (
+                        <span style={{ fontSize: '0.76rem', color: '#15803D', fontWeight: 700 }}>
+                          (Seu anúncio)
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                          Anúncio Ativo
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bloco de Gestão de Revisões de Preço Compartilhado (F2.B05.3G.2) */}
+      {property.physicalPropertyId && isOwner && (
+        <div
+          className="card"
+          style={{
+            padding: '20px 24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <DollarSign size={18} color="var(--color-primary)" />
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                {property.isPrimaryListing
+                  ? 'Solicitações de Revisão de Preço Recebidas'
+                  : 'Minhas Solicitações de Revisão de Preço'}
+              </h2>
+            </div>
+
+            {!property.isPrimaryListing && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProposedPrice('');
+                  setRevisionJustification('');
+                  setRevisionError(null);
+                  setShowRevisionModal(true);
+                }}
+                className="btn-secondary"
+                style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <DollarSign size={13} />
+                <span>Nova Solicitação</span>
+              </button>
+            )}
+          </div>
+
+          <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+            {property.isPrimaryListing
+              ? 'Como corretor do Anúncio Principal, você avalia propostas de alteração de preço enviadas por outros corretores vinculados a este imóvel físico.'
+              : 'Você pode solicitar a alteração do preço compartilhado ao corretor do Anúncio Principal. Em caso de recusa, é possível encaminhar uma contestação administrativa à Área Nobre.'}
+          </p>
+
+          {loadingRevisions ? (
+            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)', padding: '12px 0' }}>
+              Carregando histórico de revisões...
+            </div>
+          ) : revisions.length === 0 ? (
+            <div style={{ padding: '16px', backgroundColor: 'var(--bg-subtle)', borderRadius: '8px', fontSize: '0.84rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+              {property.isPrimaryListing
+                ? 'Nenhuma solicitação de revisão recebida para esta unidade até o momento.'
+                : 'Nenhuma solicitação de revisão enviada por você para esta unidade.'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {revisions.map((rev) => {
+                const isPending = rev.status === 'PENDING';
+                const isAccepted = rev.status === 'APPROVED' || rev.status === 'ACCEPTED';
+                const isRejected = rev.status === 'REJECTED';
+                const isDisputed = rev.status === 'ESCALATED' || rev.status === 'DISPUTED';
+
+                return (
+                  <div
+                    key={rev.id}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '8px',
+                      border: isPending ? '1.5px solid #FCD34D' : '1px solid var(--border-light)',
+                      backgroundColor: isPending ? '#FFFBEB' : 'var(--bg-subtle)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        {isPending && (
+                          <span className="badge" style={{ backgroundColor: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', fontWeight: 800 }}>
+                            ⏳ Aguardando Decisão
+                          </span>
+                        )}
+                        {isAccepted && (
+                          <span className="badge" style={{ backgroundColor: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', fontWeight: 800 }}>
+                            ✓ Preço Homologado
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="badge" style={{ backgroundColor: '#FEF2F2', color: '#991B1B', border: '1px solid #FCA5A5', fontWeight: 800 }}>
+                            ✗ Recusada
+                          </span>
+                        )}
+                        {isDisputed && (
+                          <span className="badge" style={{ backgroundColor: '#F3E8FF', color: '#6B21A8', border: '1px solid #E9D5FF', fontWeight: 800 }}>
+                            ⚖️ Em Arbitragem Administrativa
+                          </span>
+                        )}
+
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Clock size={12} />
+                          {new Date(rev.createdAt).toLocaleDateString('pt-BR')} às {new Date(rev.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      {/* Ações para o Corretor Principal */}
+                      {property.isPrimaryListing && isPending && (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectingRevision(rev);
+                              setRejectReason('');
+                              setRejectError(null);
+                            }}
+                            className="btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.76rem', color: '#991B1B' }}
+                          >
+                            Recusar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAcceptingRevision(rev);
+                              setAcceptError(null);
+                            }}
+                            className="btn-primary"
+                            style={{ padding: '4px 10px', fontSize: '0.76rem' }}
+                          >
+                            Aceitar
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Ação para o Corretor Secundário quando recusada */}
+                      {!property.isPrimaryListing && isRejected && !isDisputed && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDisputingRevision(rev);
+                            setDisputeJustification('');
+                            setDisputeError(null);
+                          }}
+                          className="btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#6B21A8', backgroundColor: '#FAF5FF', borderColor: '#E9D5FF' }}
+                        >
+                          <Scale size={12} />
+                          <span>Contestar Administrativamente</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                        Preço atual: <strong>R$ {rev.currentPrice.toLocaleString('pt-BR')}</strong>
+                      </div>
+                      <ArrowRight size={14} color="var(--text-muted)" />
+                      <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--color-primary)' }}>
+                        Preço proposto: R$ {rev.suggestedPrice.toLocaleString('pt-BR')}
+                      </div>
+                      {property.isPrimaryListing && rev.requestingBroker && (
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
+                          Por: <strong>{rev.requestingBroker.name}</strong>
+                          {rev.requestingBroker.profile?.creci && ` (CRECI ${rev.requestingBroker.profile.creci})`}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', backgroundColor: '#FFFFFF', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <strong>Justificativa:</strong> {rev.justification}
+                    </div>
+
+                    {isRejected && rev.decisionReason && (
+                      <div style={{ fontSize: '0.82rem', color: '#991B1B', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '6px', border: '1px solid #FCA5A5' }}>
+                        <strong>Motivo da Recusa:</strong> {rev.decisionReason}
+                        {rev.decidedAt && (
+                          <span style={{ fontSize: '0.74rem', color: '#6B7280', display: 'block', marginTop: '2px' }}>
+                            Registrado em {new Date(rev.decidedAt).toLocaleDateString('pt-BR')} às {new Date(rev.decidedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Descrição e Detalhes */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -652,175 +1216,133 @@ export default function ImovelDetalhesPage({
                 <div
                   key={m.id}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '16px 18px',
+                    padding: '16px',
                     borderRadius: 'var(--radius-md)',
                     border: '1px solid var(--border-light)',
-                    backgroundColor: 'white',
-                    gap: '16px',
+                    backgroundColor: 'var(--bg-surface)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                     flexWrap: 'wrap',
+                    gap: '14px',
                   }}
                 >
-                  <div style={{ flex: '1 1 300px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 4 }}>
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: '50%',
-                          backgroundColor: 'var(--color-primary-light)',
-                          color: 'var(--color-primary)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {client?.name?.[0]?.toUpperCase() || 'C'}
-                      </div>
-                      <span style={{ fontWeight: 800, fontSize: '0.98rem', color: 'var(--text-main)' }}>
-                        {client?.name || 'Cliente'}
-                      </span>
-                      {client?.phone && (
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          • {client.phone}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <CircularMatchScore score={m.score} size={54} strokeWidth={5} />
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.98rem' }}>
+                          {client?.name || 'Cliente sem nome'}
                         </span>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 6 }}>
-                      Demanda: <strong>{m.search?.name}</strong> • Teto:{' '}
-                      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>
-                        {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(m.search?.maxPrice || 0)}
-                      </span>
-                    </div>
-
-                    {/* Mini tags explicativas */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      {topBadges.map((b: any, bIdx: number) => {
-                        const isWarning = b.status === 'warning';
-                        return (
-                          <span
-                            key={bIdx}
-                            style={{
-                              fontSize: '0.72rem',
-                              fontWeight: 600,
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              backgroundColor: isWarning ? '#fffbeb' : '#f0fdf4',
-                              color: isWarning ? '#92400e' : '#166534',
-                              border: isWarning ? '1px solid #fde68a' : '1px solid #bbf7d0',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 3,
-                            }}
-                          >
-                            {isWarning ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
-                            {b.title}
+                        {client?.phone && (
+                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            • {client.phone}
                           </span>
-                        );
-                      })}
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        Busca: <strong>{m.search?.title || 'Perfil sem título'}</strong>
+                        {m.search?.targetNeighborhoods && ` em ${m.search.targetNeighborhoods}`}
+                      </div>
+
+                      {topBadges.length > 0 && (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                          {topBadges.map((badge: string, bIdx: number) => (
+                            <span
+                              key={bIdx}
+                              style={{
+                                fontSize: '0.74rem',
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--bg-subtle)',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border-light)',
+                              }}
+                            >
+                              {badge}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px', justifyContent: 'flex-end' }}>
-                    <CircularMatchScore score={m.score} size={54} strokeWidth={5} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedMatch({
+                          score: m.score,
+                          clientName: client?.name,
+                          clientPhone: client?.phone,
+                          searchName: m.search?.title,
+                          offerTitle: property.title,
+                          offerType: 'Imóvel',
+                          stage: client?.stage,
+                          price: property.price,
+                          explanation: m.parsedExplanation,
+                        })
+                      }
+                      className="btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      <HelpCircle size={14} />
+                      <span>Por que {m.score}%?</span>
+                    </button>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {client?.phone && (
+                      <a
+                        href={getWhatsAppUrl(
+                          client.phone || '',
+                          `Olá, ${client.name}! Encontrei um imóvel com ${m.score}% de compatibilidade com a sua busca: "${property.title}". O que acha de darmos uma olhada?`
+                        ) || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-secondary"
+                        style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#15803D' }}
+                      >
+                        <MessageCircle size={14} />
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+
+                    {property.isPublic && client && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setSelectedMatch({
-                            score: m.score,
-                            clientName: client?.name,
-                            clientPhone: client?.phone,
-                            searchName: m.search?.name,
-                            offerTitle: property.title,
-                            offerType: 'PROPERTY',
-                            stage: 'Pronto',
-                            price: property.price,
-                            explanation: m.parsedExplanation || [],
-                          })
-                        }
+                        onClick={() => {
+                          setTargetShareClient({
+                            name: client.name,
+                            phone: client.phone || '',
+                          });
+                          setShareModalOpen(true);
+                        }}
                         className="btn-secondary"
-                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                        style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#059669' }}
+                        title="Apresentar este imóvel para este cliente da carteira"
                       >
-                        <HelpCircle size={14} />
-                        Por que combina?
+                        <Share2 size={13} />
+                        <span>Apresentar</span>
                       </button>
+                    )}
 
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTargetShareClient({ name: client?.name || 'Cliente', phone: client?.phone || '' });
-                            setShareModalOpen(true);
-                          }}
-                          className="btn-secondary"
-                          style={{
-                            padding: '6px 10px',
-                            fontSize: '0.78rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: '#065F46',
-                            backgroundColor: '#F0FDF4',
-                            borderColor: '#BBF7D0',
-                          }}
-                          title="Compartilhar link da apresentação com este cliente"
-                        >
-                          <Share2 size={13} />
-                          <span>{client?.name ? `Enviar para ${client.name.trim().split(' ')[0]}` : 'Compartilhar'}</span>
-                        </button>
+                    <Link
+                      href={`/mapa?offerId=${property.id}&offerType=PROPERTY&matchSearchId=${m.searchId}`}
+                      className="btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'var(--color-primary)' }}
+                      title="Explorar no mapa da carteira"
+                    >
+                      <MapPin size={13} color="var(--color-primary)" />
+                      <span>No mapa</span>
+                    </Link>
 
-                        {getWhatsAppUrl(client?.phone) && (
-                          <a
-                            href={getWhatsAppUrl(client.phone)!}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              padding: '6px 10px',
-                              fontSize: '0.78rem',
-                              backgroundColor: '#25D366',
-                              color: 'white',
-                              borderRadius: 'var(--radius-sm)',
-                              fontWeight: 700,
-                              textDecoration: 'none',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                            }}
-                            title="Conversar com o cliente no WhatsApp"
-                          >
-                            <MessageCircle size={13} />
-                            <span>WhatsApp</span>
-                          </a>
-                        )}
-
-                        <Link
-                          href={`/?buscaId=${m.searchId}`}
-                          className="btn-secondary"
-                          style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
-                          title="Explorar no mapa da carteira"
-                        >
-                          <MapPin size={13} color="var(--color-primary)" />
-                          <span>No mapa</span>
-                        </Link>
-
-                        <Link
-                          href={`/buscas/${m.searchId}`}
-                          className="btn-primary"
-                          style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px', justifyContent: 'center', textDecoration: 'none' }}
-                        >
-                          <span>Ver Busca</span>
-                          <ExternalLink size={13} />
-                        </Link>
-                      </div>
-                    </div>
+                    <Link
+                      href={`/buscas/${m.searchId}`}
+                      className="btn-primary"
+                      style={{ padding: '6px 12px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px', justifyContent: 'center', textDecoration: 'none' }}
+                    >
+                      <span>Ver Busca</span>
+                      <ExternalLink size={13} />
+                    </Link>
                   </div>
                 </div>
               );
@@ -892,6 +1414,330 @@ export default function ImovelDetalhesPage({
             }));
           }}
         />
+      )}
+
+      {/* Modal de Alteração de Preço Compartilhado (Anúncio Principal) */}
+      {showPriceModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                Atualizar Preço Compartilhado
+              </h3>
+              <button type="button" onClick={() => setShowPriceModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', color: '#92400E', fontSize: '0.82rem', lineHeight: 1.4 }}>
+              <strong>⚠️ Atenção:</strong> A alteração deste valor atualizará automaticamente o preço de venda de todos os anúncios ativos vinculados a este imóvel físico no Área Nobre.
+            </div>
+
+            {priceError && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.82rem' }}>
+                {priceError}
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                Novo Valor (R$) *
+              </label>
+              <input
+                type="text"
+                value={newSharedPrice}
+                onChange={(e) => setNewSharedPrice(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ex: 750000"
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '1rem', fontWeight: 700 }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                Motivo da Alteração (opcional)
+              </label>
+              <textarea
+                value={priceChangeReason}
+                onChange={(e) => setPriceChangeReason(e.target.value)}
+                placeholder="Ex: Negociação com proprietário, ajuste de mercado..."
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '0.86rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowPriceModal(false)}
+                className="btn-secondary"
+                disabled={submittingPrice}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateSharedPrice}
+                className="btn-primary"
+                disabled={submittingPrice || !newSharedPrice || Number(newSharedPrice) <= 0}
+              >
+                {submittingPrice ? 'Atualizando...' : 'Confirmar Alteração'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Solicitação de Revisão de Preço (Anúncio Secundário) */}
+      {showRevisionModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                Solicitar Revisão de Preço Compartilhado
+              </h3>
+              <button type="button" onClick={() => setShowRevisionModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.84rem', color: '#475569', lineHeight: 1.4 }}>
+              Sua solicitação será enviada ao <strong>corretor do Anúncio Principal</strong>. Caso aceita, o preço de todos os anúncios ativos será atualizado. Em caso de recusa, você poderá contestar administrativamente.
+            </p>
+
+            {revisionError && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.82rem' }}>
+                {revisionError}
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                Valor Proposto (R$) *
+              </label>
+              <input
+                type="text"
+                value={proposedPrice}
+                onChange={(e) => setProposedPrice(e.target.value.replace(/\D/g, ''))}
+                placeholder="Ex: 720000"
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '1rem', fontWeight: 700 }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
+                Justificativa / Observação *
+              </label>
+              <textarea
+                value={revisionJustification}
+                onChange={(e) => setRevisionJustification(e.target.value)}
+                placeholder="Informe o motivo da alteração acordado com o proprietário..."
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '0.86rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setShowRevisionModal(false)}
+                className="btn-secondary"
+                disabled={submittingRevision}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitPriceRevision}
+                className="btn-primary"
+                disabled={submittingRevision || !proposedPrice || Number(proposedPrice) <= 0 || !revisionJustification.trim()}
+              >
+                {submittingRevision ? 'Enviando...' : 'Enviar Solicitação'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Aceite de Revisão (Corretor Principal) */}
+      {acceptingRevision && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                Aceitar Revisão de Preço
+              </h3>
+              <button type="button" onClick={() => setAcceptingRevision(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.84rem', color: '#475569', lineHeight: 1.5 }}>
+              Você está aceitando a proposta de <strong>{acceptingRevision.requestingBroker?.name || 'Corretor parceiro'}</strong> para alterar o preço deste imóvel físico para <strong>R$ {acceptingRevision.suggestedPrice.toLocaleString('pt-BR')}</strong>.
+            </p>
+
+            <div style={{ padding: '12px 14px', borderRadius: '8px', backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', color: '#92400E', fontSize: '0.82rem', lineHeight: 1.4 }}>
+              <strong>⚠️ Atenção:</strong> Ao confirmar, o novo valor será aplicado a <strong>todos os anúncios ativos vinculados</strong> a esta unidade física.
+            </div>
+
+            {acceptError && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.82rem' }}>
+                {acceptError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setAcceptingRevision(null)}
+                className="btn-secondary"
+                disabled={acceptingSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleAcceptRevision}
+                className="btn-primary"
+                disabled={acceptingSubmitting}
+              >
+                {acceptingSubmitting ? 'Atualizando...' : 'Confirmar e Atualizar Preço'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Recusa de Revisão (Corretor Principal) */}
+      {rejectingRevision && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', maxWidth: '480px', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                Recusar Solicitação de Revisão
+              </h3>
+              <button type="button" onClick={() => setRejectingRevision(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.84rem', color: '#475569', lineHeight: 1.5 }}>
+              Para recusar a proposta de alteração de preço, informe obrigatoriamente o motivo da decisão.
+            </p>
+
+            {rejectError && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.82rem' }}>
+                {rejectError}
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
+                Motivo da Recusa *
+              </label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Ex: Proprietário ratificou que mantém o valor atual; valor abaixo da avaliação de mercado..."
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '0.86rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setRejectingRevision(null)}
+                className="btn-secondary"
+                disabled={rejectingSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleRejectRevision}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#DC2626',
+                  color: '#FFFFFF',
+                  fontWeight: 700,
+                  fontSize: '0.86rem',
+                  cursor: rejectingSubmitting || !rejectReason.trim() ? 'not-allowed' : 'pointer',
+                  opacity: rejectingSubmitting || !rejectReason.trim() ? 0.6 : 1,
+                }}
+                disabled={rejectingSubmitting || !rejectReason.trim()}
+              >
+                {rejectingSubmitting ? 'Registrando...' : 'Confirmar Recusa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Contestação Administrativa (Corretor Secundário) */}
+      {disputingRevision && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '16px', maxWidth: '520px', width: '100%', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Scale size={20} color="#6B21A8" />
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0F172A' }}>
+                  Contestar Decisão Administrativamente
+                </h3>
+              </div>
+              <button type="button" onClick={() => setDisputingRevision(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '0.84rem', color: '#475569', lineHeight: 1.5 }}>
+              Sua solicitação de revisão para <strong>R$ {disputingRevision.suggestedPrice.toLocaleString('pt-BR')}</strong> foi recusada pelo corretor principal. Você pode encaminhar o caso para arbitragem da administração do Área Nobre.
+            </p>
+
+            <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', color: '#166534', fontSize: '0.8rem', lineHeight: 1.4 }}>
+              🛡️ <strong>Garantia de Operação:</strong> A abertura de contestação não suspende seu anúncio nem o do colega corretor. Os anúncios permanecem ativos durante a avaliação técnica.
+            </div>
+
+            {disputeError && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.82rem' }}>
+                {disputeError}
+              </div>
+            )}
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
+                Argumentos Adicionais para a Administração (opcional)
+              </label>
+              <textarea
+                value={disputeJustification}
+                onChange={(e) => setDisputeJustification(e.target.value)}
+                placeholder="Ex: Confirmação direta com o proprietário por escrito nesta data..."
+                rows={3}
+                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid var(--border-light)', fontSize: '0.86rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setDisputingRevision(null)}
+                className="btn-secondary"
+                disabled={disputeSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDisputeRevision}
+                className="btn-primary"
+                disabled={disputeSubmitting}
+              >
+                {disputeSubmitting ? 'Encaminhando...' : 'Encaminhar Contestação'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

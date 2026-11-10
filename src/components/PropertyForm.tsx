@@ -29,12 +29,15 @@ import {
   ChevronRight,
   RotateCcw,
   Loader2,
+  Lock,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 const ParcelBoundaryModal = dynamic(() => import('./ParcelBoundaryModal'), { ssr: false });
 import PropertyAuthorizationModal from './PropertyAuthorizationModal';
-import BuildingSelector, { BuildingData } from './properties/BuildingSelector';
+import BuildingSelector, { BuildingData, SlotInfoData } from './properties/BuildingSelector';
 import { isLand } from '@/lib/property-display';
 
 interface PropertyFormProps {
@@ -113,6 +116,26 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [purpose, setPurpose] = useState(initialData?.purpose || 'Venda');
   const [status, setStatus] = useState(initialData?.status || 'Disponível');
   const [price, setPrice] = useState(initialData?.price ? String(initialData.price) : '');
+
+  // Vagas e Preço Compartilhado (F2.B05.3G.1)
+  const [slotInfo, setSlotInfo] = useState<SlotInfoData | null>(null);
+  const [slotError, setSlotError] = useState<{ message: string; code: string } | null>(null);
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
+  const [waitlistFeedback, setWaitlistFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Trava de preço compartilhado para corretores secundários
+  const isSecondaryInUnit = !isEditing && slotInfo !== null && slotInfo.activeListingsCount > 0;
+  const isSecondaryEditing = isEditing && Boolean(initialData?.physicalPropertyId) && !initialData?.isPrimaryListing;
+  const isPriceLocked = isSecondaryInUnit || isSecondaryEditing;
+  const isPrimaryEditing = isEditing && Boolean(initialData?.physicalPropertyId) && Boolean(initialData?.isPrimaryListing);
+
+  function handleSlotInfoChange(info: SlotInfoData | null) {
+    setSlotInfo(info);
+    setSlotError(null);
+    if (!isEditing && info && info.activeListingsCount > 0 && info.sharedPrice) {
+      setPrice(String(Math.round(info.sharedPrice)));
+    }
+  }
 
   // Suítes e Quartos (Pontos 14, 17 e 28 / Fase 1 Bloco 2)
   const isInitialLand = isLand(initialData?.propertyType);
@@ -647,6 +670,33 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       return;
     }
 
+    if (!isEditing && slotInfo?.userHasActiveListing) {
+      setError('Você já possui um anúncio ativo para esta unidade. Não é permitido criar anúncios duplicados.');
+      setSlotError({
+        code: 'DUPLICATE_BROKER',
+        message: 'Você já possui um anúncio ativo para esta unidade no condomínio.',
+      });
+      return;
+    }
+
+    if (!isEditing && slotInfo?.isFull && saveStatus === 'Disponível') {
+      setError('Capacidade máxima de 3 corretores atingida para este imóvel físico. Você pode salvar como rascunho ou ingressar na lista de espera.');
+      setSlotError({
+        code: 'SLOTS_FULL',
+        message: 'Este imóvel físico já possui três corretores com anúncios ativos no Área Nobre.',
+      });
+      return;
+    }
+
+    if (isPrimaryEditing && initialData?.price && Number(price) !== Number(initialData.price)) {
+      const confirmChange = window.confirm(
+        'Atenção: Você está alterando o preço de um Anúncio Principal.\n\nEsta alteração atualizará automaticamente o preço de venda de todos os anúncios ativos vinculados a este imóvel físico no Área Nobre.\n\nDeseja prosseguir com a atualização do preço compartilhado?'
+      );
+      if (!confirmChange) {
+        return;
+      }
+    }
+
     setLoading(true);
 
     let finalLat: number | null = latitude !== '' && !isNaN(Number(latitude)) ? Number(latitude) : null;
@@ -782,6 +832,24 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === 'SLOTS_FULL') {
+          setSlotError({
+            code: 'SLOTS_FULL',
+            message: data.error || 'Este imóvel já possui três corretores com anúncios ativos no Área Nobre. Todas as 3 vagas estão preenchidas no momento.',
+          });
+          setError('Capacidade máxima de 3 corretores atingida para este imóvel físico.');
+          setLoading(false);
+          return;
+        }
+        if (data.code === 'DUPLICATE_BROKER') {
+          setSlotError({
+            code: 'DUPLICATE_BROKER',
+            message: data.error || 'Você já possui um anúncio ativo para este imóvel físico. Cada corretor pode manter apenas um anúncio ativo por unidade.',
+          });
+          setError('Você já possui um anúncio ativo para esta unidade.');
+          setLoading(false);
+          return;
+        }
         throw new Error(data.error || 'Erro ao salvar imóvel.');
       }
 
@@ -791,6 +859,122 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
     } catch (err: any) {
       setError(err.message || 'Falha ao salvar imóvel.');
       setLoading(false);
+    }
+  }
+
+  async function handleJoinWaitlist() {
+    setError(null);
+    setWaitlistFeedback(null);
+
+    const physicalPropId = slotInfo?.physicalPropertyId;
+    if (!physicalPropId) {
+      setError('Não foi possível identificar o imóvel físico para ingressar na lista de espera.');
+      return;
+    }
+
+    if (!title.trim()) {
+      setError('Por favor, informe ao menos o título do imóvel antes de ingressar na lista de espera.');
+      return;
+    }
+
+    setJoiningWaitlist(true);
+    try {
+      let draftId = isEditing && initialData?.id ? initialData.id : null;
+
+      // Se ainda não foi salvo, salva o anúncio como 'Inativo' para preservar todos os dados digitados
+      if (!draftId) {
+        const payload = {
+          title,
+          internalCode: internalCode || null,
+          propertyType,
+          purpose,
+          status: 'Inativo',
+          price: Number(price) > 0 ? Number(price) : (slotInfo?.sharedPrice ? Number(slotInfo.sharedPrice) : 1),
+          bedrooms: totalBedroomsCalculated > 0 ? totalBedroomsCalculated : null,
+          suites: parsedSuitesCount > 0 ? parsedSuitesCount : null,
+          otherBedrooms: parsedOtherBedCount > 0 ? parsedOtherBedCount : null,
+          bathrooms: totalBathroomsCalculated > 0 ? totalBathroomsCalculated : null,
+          socialBathrooms: parsedSocialCount > 0 ? parsedSocialCount : null,
+          lavabos: parsedLavabosCount > 0 ? parsedLavabosCount : null,
+          parkingSpaces: totalParkingCalculated > 0 ? totalParkingCalculated : null,
+          coveredParkingSpaces: parsedCoveredCount > 0 ? parsedCoveredCount : null,
+          uncoveredParkingSpaces: parsedUncoveredCount > 0 ? parsedUncoveredCount : null,
+          privateArea: privateArea ? parseFloat(privateArea) : null,
+          totalArea: totalArea ? parseFloat(totalArea) : null,
+          address: address || null,
+          number: number || null,
+          complement: complement || null,
+          neighborhood: neighborhood || null,
+          city: city || 'Criciúma',
+          state: state || 'SC',
+          zipcode: zipcode || null,
+          latitude: latitude !== '' && !isNaN(Number(latitude)) ? Number(latitude) : null,
+          longitude: longitude !== '' && !isNaN(Number(longitude)) ? Number(longitude) : null,
+          description: description || null,
+          images: photos.filter((p) => p.status === 'success' && p.remoteUrl).map((p) => p.remoteUrl!),
+          buildingId: propertyType === 'Apartamento' ? buildingId : null,
+          unitNumber: propertyType === 'Apartamento' ? unitNumber?.trim() || null : null,
+          tower: propertyType === 'Apartamento' ? tower?.trim() || null : null,
+        };
+
+        const saveRes = await fetch('/api/properties', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) {
+          throw new Error(saveData.error || 'Falha ao salvar rascunho do anúncio.');
+        }
+        draftId = saveData.property?.id;
+      }
+
+      // Agora inscreve na lista de espera vinculando o draftId
+      const waitlistRes = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          physicalPropertyId: physicalPropId,
+          draftPropertyId: draftId || null,
+        }),
+      });
+
+      const waitlistData = await waitlistRes.json();
+      if (!waitlistRes.ok) {
+        if (waitlistData.code === 'DUPLICATE_WAITLIST') {
+          setWaitlistFeedback({
+            type: 'error',
+            text: 'Você já possui uma inscrição ativa na lista de espera deste imóvel.',
+          });
+          return;
+        }
+        throw new Error(waitlistData.error || 'Erro ao entrar na lista de espera.');
+      }
+
+      setWaitlistFeedback({
+        type: 'success',
+        text: `Inscrição confirmada com sucesso! Você é o ${waitlistData.position}º na lista de espera. Seu anúncio foi preservado em rascunho.`,
+      });
+
+      if (slotInfo) {
+        setSlotInfo({
+          ...slotInfo,
+          userHasWaitlist: true,
+          userWaitlistPosition: waitlistData.position,
+        });
+      }
+
+      setTimeout(() => {
+        router.push('/imoveis');
+      }, 2500);
+    } catch (err: any) {
+      setWaitlistFeedback({
+        type: 'error',
+        text: err.message || 'Erro ao ingressar na lista de espera.',
+      });
+    } finally {
+      setJoiningWaitlist(false);
     }
   }
 
@@ -844,6 +1028,31 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
         >
           <AlertCircle size={18} />
           <span>{error}</span>
+        </div>
+      )}
+
+      {slotError && (
+        <div
+          style={{
+            padding: '16px 20px',
+            backgroundColor: slotError.code === 'SLOTS_FULL' ? '#FFFBEB' : '#FEF2F2',
+            border: slotError.code === 'SLOTS_FULL' ? '1.5px solid #FCD34D' : '1.5px solid #FCA5A5',
+            borderRadius: 'var(--radius-md)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: slotError.code === 'SLOTS_FULL' ? '#92400E' : '#991B1B' }}>
+            <AlertTriangle size={20} />
+            <span>{slotError.code === 'SLOTS_FULL' ? 'Limite Máximo de Corretores Atingido' : 'Anúncio Duplicado Impeditivo'}</span>
+          </div>
+          <p style={{ margin: 0, fontSize: '0.88rem', color: slotError.code === 'SLOTS_FULL' ? '#B45309' : '#B91C1C', lineHeight: 1.4 }}>
+            {slotError.message}
+          </p>
+          <p style={{ margin: 0, fontSize: '0.80rem', color: slotError.code === 'SLOTS_FULL' ? '#78350F' : '#7F1D1D' }}>
+            ℹ️ Todas as suas informações preenchidas no formulário foram preservadas.
+          </p>
         </div>
       )}
 
@@ -993,13 +1202,28 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-              Valor (R$) *
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <label style={{ fontSize: '0.84rem', fontWeight: 600, margin: 0 }}>
+                Valor (R$) *
+              </label>
+              {isPriceLocked && (
+                <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#EFF6FF', color: '#1E40AF', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Lock size={12} />
+                  <span>Preço Compartilhado</span>
+                </span>
+              )}
+              {isPrimaryEditing && (
+                <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#ECFDF5', color: '#065F46', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Sparkles size={12} />
+                  <span>Anúncio Principal</span>
+                </span>
+              )}
+            </div>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
                 required
+                disabled={isPriceLocked}
                 value={formatCurrency(price)}
                 onChange={handlePriceChange}
                 placeholder="Ex: 650.000"
@@ -1007,10 +1231,12 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                   width: '100%',
                   padding: '10px 14px 10px 36px',
                   borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
-                  backgroundColor: 'var(--bg-subtle)',
+                  border: isPriceLocked ? '1px solid #93C5FD' : '1px solid var(--border-light)',
+                  backgroundColor: isPriceLocked ? '#F0F9FF' : 'var(--bg-subtle)',
                   fontWeight: 700,
                   fontSize: '0.98rem',
+                  color: isPriceLocked ? '#1E40AF' : undefined,
+                  cursor: isPriceLocked ? 'not-allowed' : 'text',
                 }}
               />
               <span
@@ -1021,12 +1247,30 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                   transform: 'translateY(-50%)',
                   fontSize: '0.84rem',
                   fontWeight: 600,
-                  color: 'var(--text-muted)',
+                  color: isPriceLocked ? '#2563EB' : 'var(--text-muted)',
                 }}
               >
                 R$
               </span>
             </div>
+            {isPriceLocked && (
+              <div style={{ marginTop: '6px', fontSize: '0.76rem', color: '#2563EB', lineHeight: 1.4 }}>
+                {isSecondaryInUnit ? (
+                  <span>
+                    Preço único compartilhado: R$ {formatCurrency(price)}. Definido pelo anúncio principal. Para propor alteração, utilize a opção de revisão de preço após a publicação.
+                  </span>
+                ) : (
+                  <span>
+                    Anúncio secundário: O preço de venda é sincronizado obrigatoriamente com o imóvel físico. Para propor alteração, utilize a opção "Solicitar Revisão de Preço".
+                  </span>
+                )}
+              </div>
+            )}
+            {isPrimaryEditing && (
+              <div style={{ marginTop: '6px', fontSize: '0.76rem', color: '#065F46', lineHeight: 1.4 }}>
+                Atenção: A alteração deste valor atualizará automaticamente o preço de venda de todos os anúncios ativos vinculados a este imóvel físico no Área Nobre.
+              </div>
+            )}
           </div>
         </div>
 
@@ -1998,6 +2242,8 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           onChangeUnitNumber={setUnitNumber}
           onChangeTower={setTower}
           onChangeFloor={setFloor}
+          onSlotInfoChange={handleSlotInfoChange}
+          isEditing={isEditing}
         />
       )}
 
@@ -3513,6 +3759,99 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
         onClose={() => setShowAuthModal(false)}
       />
 
+      {/* Aviso impeditivo de vagas no rodapé */}
+      {!isEditing && slotInfo?.userHasActiveListing && (
+        <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <AlertCircle size={16} />
+          <span>Você já possui um anúncio ativo para esta unidade. Não é permitido criar anúncios duplicados para o mesmo corretor.</span>
+        </div>
+      )}
+
+      {waitlistFeedback && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '8px',
+            backgroundColor: waitlistFeedback.type === 'success' ? '#ECFDF5' : '#FEF2F2',
+            border: waitlistFeedback.type === 'success' ? '1px solid #A7F3D0' : '1px solid #FCA5A5',
+            color: waitlistFeedback.type === 'success' ? '#065F46' : '#991B1B',
+            fontSize: '0.86rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          {waitlistFeedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          <span>{waitlistFeedback.text}</span>
+        </div>
+      )}
+
+      {!isEditing && slotInfo?.isFull && (
+        <div
+          style={{
+            padding: '16px 20px',
+            borderRadius: '10px',
+            backgroundColor: '#FFFBEB',
+            border: '1.5px solid #FCD34D',
+            color: '#92400E',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.92rem' }}>
+            <AlertTriangle size={18} color="#D97706" />
+            <span>Limite de 3 corretores atingido (Vagas esgotadas)</span>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '0.86rem', lineHeight: 1.45, color: '#B45309' }}>
+            Este imóvel já possui três corretores anunciantes. Você pode entrar na lista de espera e será avisado quando surgir uma oportunidade.
+          </p>
+
+          {slotInfo.userHasWaitlist ? (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '0.82rem',
+                color: '#065F46',
+                backgroundColor: '#ECFDF5',
+                border: '1px solid #A7F3D0',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                width: 'fit-content',
+                fontWeight: 600,
+              }}
+            >
+              <CheckCircle2 size={16} color="#059669" />
+              <span>Você já está inscrito na lista de espera deste imóvel{slotInfo.userWaitlistPosition ? ` (${slotInfo.userWaitlistPosition}º na fila)` : ''}.</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={handleJoinWaitlist}
+                disabled={joiningWaitlist || loading}
+                className="btn-primary"
+                style={{
+                  backgroundColor: '#D97706',
+                  borderColor: '#B45309',
+                  padding: '10px 18px',
+                  fontSize: '0.88rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                {joiningWaitlist ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
+                <span>{joiningWaitlist ? 'Entrando na lista...' : 'Entrar na lista de espera'}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Ações Finais */}
       <div
         style={{
@@ -3535,7 +3874,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
         <button
           type="button"
-          disabled={loading || uploading || photos.some((p) => p.status === 'uploading')}
+          disabled={loading || uploading || photos.some((p) => p.status === 'uploading') || (!isEditing && Boolean(slotInfo?.userHasActiveListing || slotInfo?.isFull))}
           onClick={() => handleSubmit('Disponível')}
           className="btn-primary"
           style={{ padding: '12px 24px' }}

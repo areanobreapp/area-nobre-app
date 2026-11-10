@@ -121,6 +121,12 @@ export async function recalculateMatchesForSearch(searchId: string): Promise<num
       images: {
         orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
       },
+      physicalProperty: {
+        select: {
+          id: true,
+          sharedPrice: true,
+        },
+      },
     },
   });
 
@@ -206,6 +212,12 @@ export async function recalculateMatchesForProperty(propertyId: string): Promise
     include: {
       images: {
         orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
+      },
+      physicalProperty: {
+        select: {
+          id: true,
+          sharedPrice: true,
+        },
       },
     },
   });

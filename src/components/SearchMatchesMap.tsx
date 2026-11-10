@@ -19,6 +19,7 @@ import {
   Layers,
   HelpCircle,
   ArrowRight,
+  Users,
 } from 'lucide-react';
 import CircularMatchScore from './CircularMatchScore';
 import { calculateHaversineDistanceKm } from '@/lib/geo';
@@ -658,6 +659,43 @@ export default function SearchMatchesMap({
               )}
             </div>
 
+            {/* Imóvel Compartilhado: Anúncios dos Corretores (F2.B05.3G.4) */}
+            {selectedMatch.coListings && selectedMatch.coListings.length > 1 && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  padding: '8px 10px',
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid #E2E8F0',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <span style={{ fontSize: '0.70rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Users size={11} color="#475569" />
+                  <span>{selectedMatch.coListings.length} corretores com anúncio:</span>
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {selectedMatch.coListings.map((cl: any) => {
+                    const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || 'Corretor';
+                    return (
+                      <Link
+                        key={cl.id}
+                        href={`/imoveis/${cl.id}`}
+                        className="btn-secondary"
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', textDecoration: 'none', backgroundColor: '#FFFFFF', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                      >
+                        <span><strong>{bName}</strong> {cl.isPrimaryListing ? '<span style=\"color:#059669; font-size:0.66rem;\">(Principal)</span>' : ''}</span>
+                        <ExternalLink size={10} color="var(--color-primary)" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
               {onOpenExplanation && (
                 <button
@@ -1011,6 +1049,29 @@ export default function SearchMatchesMap({
                         {offerNeighborhood ? `${offerNeighborhood}, ` : ''}{offerCity || 'Criciúma'}
                       </span>
                     </div>
+
+                    {/* Badge de Corretores Anunciantes (F2.B05.3G.4) */}
+                    {m.brokerCount && m.brokerCount > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingTop: '2px' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            color: '#3730A3',
+                            backgroundColor: '#EEF2FF',
+                            border: '1px solid #C7D2FE',
+                            padding: '2px 6px',
+                            borderRadius: 'var(--radius-full)',
+                          }}
+                        >
+                          <Users size={10} />
+                          <span>{m.brokerCount} corretores anunciantes</span>
+                        </span>
+                      </div>
+                    )}
 
                     {/* Ações: "Por que combina?" e "Ver detalhes" */}
                     <div style={{ marginTop: 'auto', paddingTop: '8px', display: 'flex', gap: '6px' }}>

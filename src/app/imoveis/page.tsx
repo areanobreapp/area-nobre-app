@@ -18,9 +18,14 @@ import {
   Share2,
   Globe,
   User,
+  DollarSign,
+  Clock,
 } from 'lucide-react';
 import SharePropertyModal from '@/components/SharePropertyModal';
 import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
+import PriceRevisionsManager from '@/components/properties/PriceRevisionsManager';
+import WaitlistManager from '@/components/properties/WaitlistManager';
+import WaitlistOfferBanner from '@/components/properties/WaitlistOfferBanner';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
 
@@ -29,12 +34,16 @@ export default function ImoveisPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Todos');
-  const [scope, setScope] = useState<'mine' | 'shared'>('mine');
+  const [scope, setScope] = useState<'mine' | 'shared' | 'revisions' | 'waitlist'>('mine');
   const [locationModalItem, setLocationModalItem] = useState<any | null>(null);
   const [shareModalProperty, setShareModalProperty] = useState<any | null>(null);
 
   useEffect(() => {
     async function fetchProperties() {
+      if (scope === 'revisions' || scope === 'waitlist') {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       try {
         const queryParams = new URLSearchParams();
@@ -113,6 +122,16 @@ export default function ImoveisPage() {
         </div>
       </div>
 
+      {/* Banner de Convocação Ativa da Lista de Espera */}
+      <WaitlistOfferBanner
+        onOfferAccepted={() => {
+          // Se o corretor estiver na aba Meus Imóveis, recarrega a lista para mostrar o novo anúncio ativo
+          if (scope === 'mine') {
+            window.location.reload();
+          }
+        }}
+      />
+
       {/* Barra de Pesquisa e Filtros */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         <div style={{ position: 'relative', width: '100%' }}>
@@ -182,36 +201,86 @@ export default function ImoveisPage() {
             <Globe size={15} />
             <span>Imóveis da Rede</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setScope('revisions')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              backgroundColor: scope === 'revisions' ? '#FFFBEB' : 'transparent',
+              color: scope === 'revisions' ? '#B45309' : 'var(--text-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <DollarSign size={15} />
+            <span>Revisões de Preço</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setScope('waitlist')}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+              borderRadius: 'var(--radius-sm)',
+              border: 'none',
+              cursor: 'pointer',
+              backgroundColor: scope === 'waitlist' ? '#EFF6FF' : 'transparent',
+              color: scope === 'waitlist' ? '#1E40AF' : 'var(--text-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <Clock size={15} />
+            <span>Lista de Espera</span>
+          </button>
         </div>
 
-        {/* Status Pills */}
-        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-          {['Todos', 'Disponível', 'Reservado', 'Vendido/Alugado', 'Inativo'].map((st) => (
-            <button
-              key={st}
-              type="button"
-              onClick={() => setStatusFilter(st)}
-              className={statusFilter === st ? 'btn-primary' : 'btn-secondary'}
-              style={{
-                padding: '6px 14px',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                borderRadius: 'var(--radius-full)',
-                flexShrink: 0,
-              }}
-            >
-              {st}
-            </button>
-          ))}
-        </div>
+        {scope === 'revisions' ? (
+          <PriceRevisionsManager />
+        ) : scope === 'waitlist' ? (
+          <WaitlistManager />
+        ) : (
+          /* Status Pills */
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+            {['Todos', 'Disponível', 'Reservado', 'Vendido/Alugado', 'Inativo'].map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                className={statusFilter === st ? 'btn-primary' : 'btn-secondary'}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-full)',
+                  flexShrink: 0,
+                }}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Listagem de Cards de Imóveis */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
-          Carregando carteira de imóveis...
-        </div>
-      ) : properties.length === 0 ? (
+      {scope !== 'revisions' && (
+        <>
+          {/* Listagem de Cards de Imóveis */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+              Carregando carteira de imóveis...
+            </div>
+          ) : properties.length === 0 ? (
         <div
           className="card"
           style={{
@@ -345,6 +414,27 @@ export default function ImoveisPage() {
                       <MapPin size={14} color="var(--color-primary)" />
                       {p.neighborhood ? `${p.neighborhood}, ` : ''}{p.city || ''}
                     </p>
+
+                    {p.physicalPropertyId && (
+                      <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span
+                          style={{
+                            fontSize: '0.70rem',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            backgroundColor: p.isPrimaryListing ? '#DCFCE7' : '#EEF2FF',
+                            color: p.isPrimaryListing ? '#166534' : '#3730A3',
+                            border: p.isPrimaryListing ? '1px solid #BBF7D0' : '1px solid #C7D2FE',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {p.isPrimaryListing ? '⭐ Principal' : '👥 Secundário'}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          {p.physicalProperty?.activeListingsCount ? `${p.physicalProperty.activeListingsCount}/3 vagas` : '1/3 vagas'}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Características Padronizadas */}
@@ -398,6 +488,8 @@ export default function ImoveisPage() {
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* Modal Interativo de Geocodificação e Ajuste no Mapa */}

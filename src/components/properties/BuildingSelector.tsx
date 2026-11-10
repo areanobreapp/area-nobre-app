@@ -16,10 +16,38 @@ import {
   Layers,
   Sparkles,
   Info,
+  Users,
+  Lock,
+  AlertTriangle,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
+
+export interface SlotInfoData {
+  unitExists: boolean;
+  unit?: { id: string; unitNumber: string; tower: string | null; floor: number | null } | null;
+  hasPhysicalProperty: boolean;
+  physicalPropertyId?: string;
+  activeListingsCount: number;
+  availableSlots: number;
+  isPrimaryEligible: boolean;
+  sharedPrice: number | null;
+  isFull: boolean;
+  userHasActiveListing: boolean;
+  userHasWaitlist?: boolean;
+  userWaitlistPosition?: number | null;
+  otherBrokers: Array<{
+    listingId: string;
+    isPrimary: boolean;
+    slot: number | null;
+    brokerId?: string;
+    brokerName: string;
+    commercialName: string | null;
+    creci: string | null;
+  }>;
+  waitlistCount?: number;
+}
 
 export interface BuildingData {
   id: string;
@@ -54,6 +82,8 @@ interface BuildingSelectorProps {
   onChangeUnitNumber: (val: string) => void;
   onChangeTower: (val: string) => void;
   onChangeFloor: (val: string) => void;
+  onSlotInfoChange?: (info: SlotInfoData | null) => void;
+  isEditing?: boolean;
 }
 
 export default function BuildingSelector({
@@ -66,12 +96,53 @@ export default function BuildingSelector({
   onChangeUnitNumber,
   onChangeTower,
   onChangeFloor,
+  onSlotInfoChange,
+  isEditing = false,
 }: BuildingSelectorProps) {
   const [selectedBuilding, setSelectedBuilding] = useState<BuildingData | null>(initialBuilding || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<BuildingData[]>([]);
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+
+  // Status de Vagas e Preço Compartilhado da Unidade Selecionada
+  const [slotInfo, setSlotInfo] = useState<SlotInfoData | null>(null);
+  const [loadingSlot, setLoadingSlot] = useState(false);
+
+  useEffect(() => {
+    if (!selectedBuildingId || !unitNumber.trim()) {
+      setSlotInfo(null);
+      onSlotInfoChange?.(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingSlot(true);
+      try {
+        const query = new URLSearchParams({
+          unitNumber: unitNumber.trim(),
+          ...(tower.trim() ? { tower: tower.trim() } : {}),
+        });
+        const res = await fetch(`/api/buildings/${selectedBuildingId}/units?${query.toString()}`);
+        if (res.ok) {
+          const data: SlotInfoData = await res.json();
+          setSlotInfo(data);
+          onSlotInfoChange?.(data);
+        } else {
+          setSlotInfo(null);
+          onSlotInfoChange?.(null);
+        }
+      } catch (err) {
+        console.error('Erro ao consultar vagas da unidade:', err);
+        setSlotInfo(null);
+        onSlotInfoChange?.(null);
+      } finally {
+        setLoadingSlot(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [selectedBuildingId, unitNumber, tower]);
 
   // Modal de cadastro colaborativo de novo edifício
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -670,6 +741,150 @@ export default function BuildingSelector({
             A identificação exata (número da unidade e torre) é sigilosa e nunca é exibida nos compartilhamentos públicos ou para corretores parceiros.
           </span>
         </div>
+
+        {/* Feedback visual de Vagas e Preço Compartilhado da Unidade */}
+        {loadingSlot && (
+          <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#F3F4F6', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#6B7280' }}>
+            <Loader2 size={16} className="animate-spin" />
+            <span>Consultando disponibilidade e vagas da unidade no condomínio...</span>
+          </div>
+        )}
+
+        {!loadingSlot && slotInfo && (
+          <div style={{ marginTop: '14px' }}>
+            {/* Caso 1: Corretor logado já possui anúncio ativo nesta unidade */}
+            {slotInfo.userHasActiveListing ? (
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: '#FEF2F2',
+                  border: '1.5px solid #F87171',
+                  color: '#991B1B',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
+                  <AlertCircle size={18} color="#DC2626" />
+                  <span>Você já possui um anúncio ativo para esta unidade</span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.82rem', color: '#B91C1C', lineHeight: 1.4 }}>
+                  Cada corretor pode manter apenas um anúncio ativo por unidade física no Área Nobre. Para atualizar seu imóvel existente, edite-o em sua carteira.
+                </p>
+              </div>
+            ) : slotInfo.isFull ? (
+              /* Caso 2: 3 vagas ocupadas (Limite atingido) */
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: '#FFFBEB',
+                  border: '1.5px solid #FCD34D',
+                  color: '#92400E',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
+                    <AlertTriangle size={18} color="#D97706" />
+                    <span>Limite de 3 corretores atingido (Vagas esgotadas)</span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 700 }}>
+                    3 de 3 vagas preenchidas
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: '#B45309', lineHeight: 1.45 }}>
+                  Este imóvel já possui três corretores anunciantes. Você pode entrar na lista de espera e será avisado quando surgir uma oportunidade.
+                </p>
+                {slotInfo.userHasWaitlist && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.80rem', color: '#065F46', backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', padding: '4px 10px', borderRadius: '6px', fontWeight: 600 }}>
+                    <CheckCircle2 size={14} color="#059669" />
+                    <span>Você já está inscrito nesta lista de espera{slotInfo.userWaitlistPosition ? ` (${slotInfo.userWaitlistPosition}º na fila)` : ''}.</span>
+                  </div>
+                )}
+                {slotInfo.otherBrokers.length > 0 && (
+                  <div style={{ fontSize: '0.76rem', color: '#78350F', marginTop: '2px' }}>
+                    <strong>Corretores com anúncios ativos:</strong>{' '}
+                    {slotInfo.otherBrokers.map((b) => b.commercialName || b.brokerName).join(', ')}
+                  </div>
+                )}
+              </div>
+            ) : slotInfo.activeListingsCount > 0 ? (
+              /* Caso 3: Imóvel Compartilhado (Vaga 2 ou 3 disponível) */
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: '#EFF6FF',
+                  border: '1.5px solid #93C5FD',
+                  color: '#1E40AF',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
+                    <Users size={18} color="#2563EB" />
+                    <span>Imóvel Compartilhado — Vaga {slotInfo.activeListingsCount + 1} de 3</span>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#DBEAFE', color: '#1D4ED8', fontWeight: 700 }}>
+                    {slotInfo.availableSlots} {slotInfo.availableSlots === 1 ? 'vaga restante' : 'vagas restantes'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                  <span style={{ fontSize: '0.82rem', color: '#1E3A8A' }}>Preço único compartilhado:</span>
+                  <strong style={{ fontSize: '1.1rem', color: '#1E40AF' }}>
+                    R$ {slotInfo.sharedPrice ? slotInfo.sharedPrice.toLocaleString('pt-BR') : 'Consulte'}
+                  </strong>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.79rem', color: '#2563EB', lineHeight: 1.4 }}>
+                  Definido pelo anúncio principal. Todos os anúncios desta unidade devem apresentar obrigatoriamente o mesmo valor de venda. O campo de preço foi ajustado automaticamente.
+                </p>
+                {slotInfo.otherBrokers.length > 0 && (
+                  <div style={{ fontSize: '0.76rem', color: '#1E40AF', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Shield size={13} color="#2563EB" />
+                    <span>
+                      <strong>Corretor principal:</strong>{' '}
+                      {slotInfo.otherBrokers.find((b) => b.isPrimary)?.commercialName || slotInfo.otherBrokers.find((b) => b.isPrimary)?.brokerName || 'Ativo'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Caso 4: Primeiro anúncio da unidade (Anúncio Principal) */
+              <div
+                style={{
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  backgroundColor: '#ECFDF5',
+                  border: '1.5px solid #6EE7B7',
+                  color: '#065F46',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
+                    <Sparkles size={18} color="#059669" />
+                    <span>Primeiro anúncio desta unidade (Anúncio Principal)</span>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#D1FAE5', color: '#047857', fontWeight: 700 }}>
+                    3 vagas disponíveis
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.80rem', color: '#047857', lineHeight: 1.4 }}>
+                  Você será o corretor do <strong>Anúncio Principal</strong> desta unidade física. O valor que você cadastrar no formulário definirá o <strong>preço compartilhado de referência</strong> para os próximos corretores.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Modal Colaborativo de Cadastro de Novo Edifício */}
