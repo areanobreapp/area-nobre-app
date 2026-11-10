@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import LegalDocumentsManager from '@/components/admin/LegalDocumentsManager';
 import LegalAuditViewer from '@/components/admin/LegalAuditViewer';
+import BuildingManager from '@/components/admin/BuildingManager';
 
 interface AdminUser {
   id: string;
@@ -54,7 +55,7 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [adminTab, setAdminTab] = useState<'users' | 'legal' | 'audit'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'buildings' | 'legal' | 'audit'>('users');
 
   // Configurações da Plataforma (Ponto 13)
   const [supportPhone, setSupportPhone] = useState('5548999273694');
@@ -292,6 +293,29 @@ export default function AdminPage() {
         >
           <Users size={18} />
           <span>Usuários e Plataforma</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setAdminTab('buildings')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'buildings' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'buildings' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Building size={18} />
+          <span>Edifícios Residenciais</span>
         </button>
 
         <button
@@ -823,7 +847,10 @@ export default function AdminPage() {
         </>
       )}
 
-      {/* Aba 2: Gestão de Documentos Jurídicos (Ponto 20 / Etapa 1.5) */}
+      {/* Aba 2: Gestão de Edifícios Residenciais (Fase 2 / Ponto 25) */}
+      {adminTab === 'buildings' && <BuildingManager />}
+
+      {/* Aba 3: Gestão de Documentos Jurídicos (Ponto 20 / Etapa 1.5) */}
       {adminTab === 'legal' && <LegalDocumentsManager />}
 
       {/* Aba 3: Auditoria Jurídica de Aceites e Autorizações (Ponto 20 / Etapa 1.5) */}

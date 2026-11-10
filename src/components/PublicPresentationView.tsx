@@ -118,10 +118,13 @@ export default function PublicPresentationView({
   }
 
   // Lista de diferenciais confirmados (apenas o que for explicitamente true)
+  const isApt = property.propertyType === 'Apartamento';
   const amenities: { label: string; icon?: any }[] = [];
-  if (property.hasPool) amenities.push({ label: 'Piscina' });
-  if (property.hasGym) amenities.push({ label: 'Academia' });
-  if (property.hasBarbecue) amenities.push({ label: 'Churrasqueira' });
+  if (property.hasPool) {
+    amenities.push({ label: isApt ? (property.isPenthouse ? 'Piscina privativa' : 'Piscina') : 'Piscina' });
+  }
+  if (property.hasGym) amenities.push({ label: isApt ? 'Academia no condomínio' : 'Academia' });
+  if (property.hasBarbecue) amenities.push({ label: isApt ? 'Churrasqueira na sacada' : 'Churrasqueira' });
   if (property.hasPartyHall) amenities.push({ label: 'Salão de festas' });
   if (property.hasElevator) amenities.push({ label: 'Elevador' });
   if (property.hasPetSpace) amenities.push({ label: 'Espaço pet' });

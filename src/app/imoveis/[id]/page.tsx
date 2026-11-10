@@ -447,6 +447,18 @@ export default function ImovelDetalhesPage({
             <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)' }}>
               {property.title}
             </h1>
+            {property.building && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '8px', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', color: '#166534', fontSize: '0.84rem', fontWeight: 700, marginTop: '4px', marginBottom: '4px' }}>
+                <Building2 size={15} />
+                <span>Edifício {property.building.name}</span>
+                {property.physicalProperty?.unit?.unitNumber && (
+                  <span style={{ color: '#4B5563', fontWeight: 600 }}>
+                    • Unidade {property.physicalProperty.unit.unitNumber}
+                    {property.physicalProperty.unit.tower ? ` (${property.physicalProperty.unit.tower})` : ''}
+                  </span>
+                )}
+              </div>
+            )}
             <p style={{ fontSize: '0.92rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
               <MapPin size={16} color="var(--color-primary)" />
               {property.address ? `${property.address}, ${property.number || 'S/N'} — ` : ''}

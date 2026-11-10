@@ -39,6 +39,9 @@ export async function resolvePublicOffer(publicId: string): Promise<ResolvedPubl
           user: {
             include: { profile: true },
           },
+          building: {
+            select: { id: true, name: true },
+          },
         },
       },
     },
@@ -106,6 +109,9 @@ export async function resolvePublicOffer(publicId: string): Promise<ResolvedPubl
       },
       user: {
         include: { profile: true },
+      },
+      building: {
+        select: { id: true, name: true },
       },
     },
   });

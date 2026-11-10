@@ -64,6 +64,9 @@ export interface PublicPropertyDTO {
   streetPaving: string | null;
   commercialType: string | null;
 
+  // Edifício residencial existente (opcional, sem identificar unidade ou dados sensíveis)
+  buildingName?: string | null;
+
   // Contexto de Empreendimento (quando for tipologia de lançamento / em construção)
   isDevelopmentOffer: boolean;
   development?: {
@@ -317,6 +320,7 @@ export function toPublicPropertyDTO(
     inAllotment: entity.inAllotment ?? null,
     streetPaving: entity.streetPaving ?? null,
     commercialType: entity.commercialType ?? null,
+    buildingName: entity.building?.name || null,
 
     isDevelopmentOffer: false,
     broker: resolvedBroker,

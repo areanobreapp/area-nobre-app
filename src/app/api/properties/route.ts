@@ -6,6 +6,7 @@ import { getGeoProvider } from '@/lib/geo';
 import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
 import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 import { isLand } from '@/lib/property-display';
+import { linkPropertyToBuildingAndUnit } from '@/lib/building-service';
 
 export async function GET(req: NextRequest) {
   try {
@@ -97,6 +98,36 @@ export async function GET(req: NextRequest) {
         _count: {
           select: { matches: true },
         },
+        building: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            number: true,
+            neighborhood: true,
+            city: true,
+            hasPool: true,
+            hasGym: true,
+            hasPartyHall: true,
+            hasElevator: true,
+            hasPetSpace: true,
+            hasBarbecue: true,
+          },
+        },
+        physicalProperty: {
+          select: {
+            id: true,
+            complement: true,
+            unit: {
+              select: {
+                id: true,
+                unitNumber: true,
+                tower: true,
+                floor: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -111,6 +142,7 @@ export async function GET(req: NextRequest) {
         registryNumber: null,
         boundary: null,
         boundaryArea: null,
+        physicalProperty: null, // Protege identificação confidencial da unidade
       };
     });
 
@@ -187,6 +219,9 @@ export async function POST(req: NextRequest) {
       streetPaving,
       commercialType,
       images, // array de URLs
+      buildingId,
+      unitNumber,
+      tower,
     } = body;
 
     if (!title || !propertyType || !purpose || price === undefined || price === null || String(price).trim() === '') {
@@ -312,6 +347,50 @@ export async function POST(req: NextRequest) {
 
     const isLandPlot = isLand(propertyType);
 
+    let resolvedBuildingId: string | null = null;
+    let resolvedPhysicalPropertyId: string | null = null;
+    let finalAddress = address?.trim() || null;
+    let finalNeighborhood = neighborhood?.trim() || null;
+    let finalCity = city?.trim() || null;
+    let finalState = state?.trim() || null;
+    let finalZipcode = zipcode?.trim() || null;
+    let finalNumber = number?.trim() || null;
+
+    if (propertyType === 'Apartamento' && buildingId) {
+      try {
+        const linkRes = await linkPropertyToBuildingAndUnit({
+          buildingId,
+          unitNumber,
+          tower,
+          floor: floor !== undefined && floor !== null && floor !== '' ? parseInt(String(floor), 10) : null,
+          privateArea: parsedPrivateArea,
+          totalArea: parsedTotalArea,
+          bedrooms: computedBedrooms,
+          suites: parsedSuites,
+          bathrooms: computedBathrooms,
+          parkingSpaces: computedParkingSpaces,
+        });
+
+        resolvedBuildingId = linkRes.buildingId;
+        resolvedPhysicalPropertyId = linkRes.physicalPropertyId;
+
+        // Aproveita automaticamente dados compartilhados de localização do edifício
+        finalAddress = finalAddress || linkRes.building.address;
+        finalNeighborhood = finalNeighborhood || linkRes.building.neighborhood;
+        finalCity = finalCity || linkRes.building.city;
+        finalState = finalState || linkRes.building.state;
+        finalZipcode = finalZipcode || linkRes.building.zipcode;
+        finalNumber = finalNumber || linkRes.building.number;
+
+        if (finalLat === null || finalLng === null) {
+          finalLat = linkRes.building.latitude;
+          finalLng = linkRes.building.longitude;
+        }
+      } catch (err: any) {
+        return NextResponse.json({ error: err.message || 'Falha ao vincular edifício.' }, { status: 400 });
+      }
+    }
+
     const property = await prisma.property.create({
       data: {
         userId: user.id,
@@ -340,15 +419,17 @@ export async function POST(req: NextRequest) {
         uncoveredParkingSpaces: isLandPlot ? null : parsedUncovered,
         description: description?.trim() || null,
         internalNotes: internalNotes?.trim() || null,
-        address: address?.trim() || null,
-        number: number?.trim() || null,
+        address: finalAddress,
+        number: finalNumber,
         complement: complement?.trim() || null,
-        neighborhood: neighborhood?.trim() || null,
-        city: city?.trim() || null,
-        state: state?.trim() || null,
-        zipcode: zipcode?.trim() || null,
+        neighborhood: finalNeighborhood,
+        city: finalCity,
+        state: finalState,
+        zipcode: finalZipcode,
         latitude: finalLat,
         longitude: finalLng,
+        buildingId: resolvedBuildingId,
+        physicalPropertyId: resolvedPhysicalPropertyId,
         boundary: boundary ? String(boundary) : null,
         boundaryArea: boundaryArea !== null && boundaryArea !== undefined && !isNaN(Number(boundaryArea)) ? Number(boundaryArea) : null,
         
@@ -382,6 +463,14 @@ export async function POST(req: NextRequest) {
       },
       include: {
         images: true,
+        building: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            neighborhood: true,
+          },
+        },
       },
     });
 

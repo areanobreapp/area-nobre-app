@@ -5,6 +5,7 @@ import { recalculateMatchesForProperty } from '@/lib/matching';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
 import { canPropertyBePubliclyExposed, recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 import { isLand } from '@/lib/property-display';
+import { linkPropertyToBuildingAndUnit } from '@/lib/building-service';
 
 export async function GET(
   req: NextRequest,
@@ -28,6 +29,44 @@ export async function GET(
       include: {
         images: {
           orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
+        },
+        building: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            number: true,
+            neighborhood: true,
+            city: true,
+            state: true,
+            zipcode: true,
+            latitude: true,
+            longitude: true,
+            totalFloors: true,
+            unitsPerFloor: true,
+            towers: true,
+            hasPool: true,
+            hasGym: true,
+            hasPartyHall: true,
+            hasElevator: true,
+            hasPetSpace: true,
+            hasBarbecue: true,
+            verifiedByAdmin: true,
+          },
+        },
+        physicalProperty: {
+          select: {
+            id: true,
+            complement: true,
+            unit: {
+              select: {
+                id: true,
+                unitNumber: true,
+                tower: true,
+                floor: true,
+              },
+            },
+          },
         },
         responsibleBroker: {
           select: {
@@ -108,6 +147,7 @@ export async function GET(
       exchangeNotes: (!isOwner && !isAdmin) ? null : property.exchangeNotes,
       registryNumber: (!isOwner && !isAdmin) ? null : property.registryNumber,
       boundary: (!isOwner && !isAdmin) ? null : property.boundary,
+      physicalProperty: (!isOwner && !isAdmin) ? null : property.physicalProperty,
       matches: formattedMatches,
       authorizationState: exposureCheck,
     };
@@ -236,6 +276,9 @@ export async function PUT(
       streetPaving,
       commercialType,
       images, // array de URLs atualizado
+      buildingId,
+      unitNumber,
+      tower,
     } = body;
 
     const effectiveType = propertyType || existing.propertyType;
@@ -277,9 +320,36 @@ export async function PUT(
       });
     }
 
+    let resolvedBuildingId = existing.buildingId;
+    let resolvedPhysicalPropertyId = existing.physicalPropertyId;
+
+    if (buildingId !== undefined) {
+      if (buildingId && effectiveType === 'Apartamento') {
+        const linkRes = await linkPropertyToBuildingAndUnit({
+          buildingId,
+          unitNumber,
+          tower,
+          floor: floor !== undefined ? (floor !== null && floor !== '' ? parseInt(String(floor), 10) : null) : existing.floor,
+          privateArea: isLandPlot ? null : (privateArea !== undefined ? (privateArea ? parseFloat(String(privateArea)) : null) : existing.privateArea),
+          totalArea: totalArea !== undefined ? (totalArea ? parseFloat(String(totalArea)) : null) : existing.totalArea,
+          bedrooms: isLandPlot ? 0 : computedBedrooms,
+          suites: isLandPlot ? 0 : parsedSuites,
+          bathrooms: isLandPlot ? 0 : computedBathrooms,
+          parkingSpaces: isLandPlot ? 0 : (parkingSpaces !== undefined ? parseInt(String(parkingSpaces), 10) : existing.parkingSpaces),
+        });
+        resolvedBuildingId = linkRes.buildingId;
+        resolvedPhysicalPropertyId = linkRes.physicalPropertyId;
+      } else {
+        resolvedBuildingId = null;
+        resolvedPhysicalPropertyId = null;
+      }
+    }
+
     const updated = await prisma.property.update({
       where: { id },
       data: {
+        buildingId: resolvedBuildingId,
+        physicalPropertyId: resolvedPhysicalPropertyId,
         title: title !== undefined ? title.trim() : existing.title,
         internalCode: internalCode !== undefined ? internalCode?.trim() || null : existing.internalCode,
         propertyType: propertyType || existing.propertyType,
@@ -336,6 +406,14 @@ export async function PUT(
       },
       include: {
         images: true,
+        building: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            neighborhood: true,
+          },
+        },
       },
     });
 

@@ -34,6 +34,7 @@ import {
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 const ParcelBoundaryModal = dynamic(() => import('./ParcelBoundaryModal'), { ssr: false });
 import PropertyAuthorizationModal from './PropertyAuthorizationModal';
+import BuildingSelector, { BuildingData } from './properties/BuildingSelector';
 import { isLand } from '@/lib/property-display';
 
 interface PropertyFormProps {
@@ -273,6 +274,38 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [latitude, setLatitude] = useState(initialData?.latitude ? String(initialData.latitude) : '');
   const [longitude, setLongitude] = useState(initialData?.longitude ? String(initialData.longitude) : '');
   const [geoPrecision, setGeoPrecision] = useState<{ precision?: 'precise' | 'approximate'; precisionLevel?: string } | null>(null);
+
+  // Edifício e Unidade (Fase 2 / Ponto 25)
+  const [buildingId, setBuildingId] = useState<string | null>(initialData?.buildingId || null);
+  const [initialBuildingData, setInitialBuildingData] = useState<BuildingData | null>(initialData?.building || null);
+  const [unitNumber, setUnitNumber] = useState<string>(initialData?.physicalProperty?.unit?.unitNumber || '');
+  const [tower, setTower] = useState<string>(initialData?.physicalProperty?.unit?.tower || '');
+
+  function handleSelectBuilding(building: BuildingData | null) {
+    if (building) {
+      setBuildingId(building.id);
+      setAddress(building.address);
+      if (building.number) setNumber(building.number);
+      setNeighborhood(building.neighborhood);
+      setCity(building.city);
+      setState(building.state);
+      if (building.zipcode) setZipcode(building.zipcode);
+      setLatitude(String(building.latitude));
+      setLongitude(String(building.longitude));
+
+      // Herda comodidades prediais compartilhadas do condomínio se estiverem presentes no edifício
+      if (building.hasElevator !== null && building.hasElevator !== undefined) setHasElevator(Boolean(building.hasElevator));
+      if (building.hasGym !== null && building.hasGym !== undefined) setHasGym(Boolean(building.hasGym));
+      if (building.hasPartyHall !== null && building.hasPartyHall !== undefined) setHasPartyHall(Boolean(building.hasPartyHall));
+      if (building.hasPetSpace !== null && building.hasPetSpace !== undefined) setHasPetSpace(Boolean(building.hasPetSpace));
+
+      // NOTA (Fase 2 / Ponto 25): Comodidades privativas da unidade (como churrasqueira na sacada ou piscina privativa da cobertura)
+      // pertencem à unidade autônoma e NÃO são sobrescritas pelas comodidades do edifício geral, evitando que itens
+      // coletivos sejam divulgados incorretamente como privativos da unidade.
+    } else {
+      setBuildingId(null);
+    }
+  }
 
   // Delimitação do terreno (Fase 4.2)
   const [boundary, setBoundary] = useState<string | null>(initialData?.boundary || null);
@@ -732,6 +765,9 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       commercialType: commercialType || null,
       images: photos.filter((p) => p.status === 'success' && p.remoteUrl).map((p) => p.remoteUrl!),
       hasOwnerAuthorization,
+      buildingId: propertyType === 'Apartamento' ? buildingId : null,
+      unitNumber: propertyType === 'Apartamento' ? unitNumber?.trim() || null : null,
+      tower: propertyType === 'Apartamento' ? tower?.trim() || null : null,
     };
 
     try {
@@ -1950,6 +1986,21 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
         )}
       </div>
 
+      {/* Vínculo com Edifício Residencial (Fase 2 / Ponto 25) */}
+      {propertyType === 'Apartamento' && (
+        <BuildingSelector
+          selectedBuildingId={buildingId}
+          initialBuilding={initialBuildingData}
+          unitNumber={unitNumber}
+          tower={tower}
+          floor={floor}
+          onSelectBuilding={handleSelectBuilding}
+          onChangeUnitNumber={setUnitNumber}
+          onChangeTower={setTower}
+          onChangeFloor={setFloor}
+        />
+      )}
+
       {/* BLOCO 3: Localização */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
@@ -3007,7 +3058,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                    Piscina
+                    {propertyType === 'Apartamento' ? 'Piscina Privativa (cobertura/terraço)' : 'Piscina'}
                   </label>
                   <select
                     value={hasPool === null ? '' : hasPool ? 'true' : 'false'}
@@ -3021,14 +3072,14 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                     }}
                   >
                     <option value="">Não informado</option>
-                    <option value="true">Sim, possui piscina</option>
+                    <option value="true">{propertyType === 'Apartamento' ? 'Sim, possui piscina privativa' : 'Sim, possui piscina'}</option>
                     <option value="false">Não possui</option>
                   </select>
                 </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                    Academia / Fitness
+                    Academia / Fitness {propertyType === 'Apartamento' ? '(condomínio)' : ''}
                   </label>
                   <select
                     value={hasGym === null ? '' : hasGym ? 'true' : 'false'}
@@ -3049,7 +3100,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px' }}>
-                    Churrasqueira
+                    {propertyType === 'Apartamento' ? 'Churrasqueira Privativa (sacada)' : 'Churrasqueira'}
                   </label>
                   <select
                     value={hasBarbecue === null ? '' : hasBarbecue ? 'true' : 'false'}
@@ -3063,7 +3114,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
                     }}
                   >
                     <option value="">Não informado</option>
-                    <option value="true">Sim, possui churrasqueira</option>
+                    <option value="true">{propertyType === 'Apartamento' ? 'Sim, possui churrasqueira na unidade' : 'Sim, possui churrasqueira'}</option>
                     <option value="false">Não possui</option>
                   </select>
                 </div>
