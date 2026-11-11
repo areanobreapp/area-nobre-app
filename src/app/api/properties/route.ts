@@ -6,7 +6,7 @@ import { getGeoProvider } from '@/lib/geo';
 import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
 import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/legal/service';
 import { isLand } from '@/lib/property-display';
-import { linkPropertyToBuildingAndUnit } from '@/lib/building-service';
+import { linkPropertyToBuildingAndUnit, normalizeBuildingName } from '@/lib/building-service';
 import { ListingSlotService, SlotClaimResult } from '@/lib/listing-slot-service';
 
 class ListingSlotError extends Error {
@@ -74,15 +74,34 @@ export async function GET(req: NextRequest) {
     }
 
     if (search) {
-      andConditions.push({
-        OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { internalCode: { contains: search, mode: 'insensitive' } },
-          { neighborhood: { contains: search, mode: 'insensitive' } },
-          { city: { contains: search, mode: 'insensitive' } },
-          { address: { contains: search, mode: 'insensitive' } },
-        ],
-      });
+      const trimmedSearch = search.trim();
+      const normalizedSearch = normalizeBuildingName(trimmedSearch);
+
+      const searchOr: any[] = [
+        { title: { contains: trimmedSearch, mode: 'insensitive' } },
+        { internalCode: { contains: trimmedSearch, mode: 'insensitive' } },
+        { neighborhood: { contains: trimmedSearch, mode: 'insensitive' } },
+        { city: { contains: trimmedSearch, mode: 'insensitive' } },
+        { address: { contains: trimmedSearch, mode: 'insensitive' } },
+        // Edifício direto
+        { building: { name: { contains: trimmedSearch, mode: 'insensitive' } } },
+        { building: { alternativeNames: { contains: trimmedSearch, mode: 'insensitive' } } },
+        // Edifício via PhysicalProperty
+        { physicalProperty: { building: { name: { contains: trimmedSearch, mode: 'insensitive' } } } },
+        { physicalProperty: { building: { alternativeNames: { contains: trimmedSearch, mode: 'insensitive' } } } },
+        // Edifício via PhysicalProperty -> Unit -> Building
+        { physicalProperty: { unit: { building: { name: { contains: trimmedSearch, mode: 'insensitive' } } } } },
+      ];
+
+      if (normalizedSearch) {
+        searchOr.push(
+          { building: { normalizedName: { contains: normalizedSearch, mode: 'insensitive' } } },
+          { physicalProperty: { building: { normalizedName: { contains: normalizedSearch, mode: 'insensitive' } } } },
+          { physicalProperty: { unit: { building: { normalizedName: { contains: normalizedSearch, mode: 'insensitive' } } } } }
+        );
+      }
+
+      andConditions.push({ OR: searchOr });
     }
 
     const where: any = andConditions.length > 0 ? { AND: andConditions } : {};
@@ -120,6 +139,8 @@ export async function GET(req: NextRequest) {
           select: {
             id: true,
             name: true,
+            normalizedName: true,
+            alternativeNames: true,
             address: true,
             number: true,
             neighborhood: true,
@@ -139,6 +160,17 @@ export async function GET(req: NextRequest) {
             activeListingsCount: true,
             sharedPrice: true,
             primaryListingId: true,
+            building: {
+              select: {
+                id: true,
+                name: true,
+                normalizedName: true,
+                alternativeNames: true,
+                address: true,
+                neighborhood: true,
+                city: true,
+              },
+            },
             unit: {
               select: {
                 id: true,

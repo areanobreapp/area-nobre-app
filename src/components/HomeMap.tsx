@@ -72,6 +72,7 @@ import {
   resolveBathrooms,
   resolveParking,
 } from '@/lib/property-display';
+import { normalizeBuildingName } from '@/lib/building-service';
 
 export interface BrokerIdentityInfo {
   id: string;
@@ -126,6 +127,16 @@ export interface PropertyItem {
   isDevelopment?: false;
   physicalPropertyId?: string | null;
   physicalProperty?: any;
+  buildingId?: string | null;
+  building?: {
+    id: string;
+    name: string;
+    normalizedName?: string | null;
+    alternativeNames?: string | null;
+    address?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+  } | null;
   coListings?: CoListingSummary[];
   brokerCount?: number;
   canonicalPrice?: number;
@@ -583,15 +594,52 @@ export default function HomeMap({
         return false;
       }
 
-      // 2. Busca por Texto (Endereço, Bairro, Cidade ou Nome)
+      // 2. Busca por Texto (Endereço, Bairro, Cidade, Nome, Edifício e Co-anúncios)
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const titleMatch = (item.isDevelopment ? item.name : item.title).toLowerCase().includes(q);
-        const cityMatch = (item.city || '').toLowerCase().includes(q);
-        const neighMatch = (item.neighborhood || '').toLowerCase().includes(q);
-        const addrMatch = (item.address || '').toLowerCase().includes(q);
-        const devMatch = item.isDevelopment ? (item.developer || '').toLowerCase().includes(q) : false;
-        if (!titleMatch && !cityMatch && !neighMatch && !addrMatch && !devMatch) {
+        const rawQ = searchQuery.trim();
+        const normQ = normalizeBuildingName(rawQ);
+        const qSimple = rawQ.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+        const titleSimple = (item.isDevelopment ? item.name : item.title).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        let titleMatch = titleSimple.includes(qSimple);
+
+        // Se houver coListings consolidados, verifica também os títulos dos demais anúncios do imóvel
+        if (!titleMatch && !item.isDevelopment && item.coListings && item.coListings.length > 0) {
+          titleMatch = item.coListings.some((cl: any) =>
+            (cl.title || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes(qSimple)
+          );
+        }
+
+        const citySimple = (item.city || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const cityMatch = citySimple.includes(qSimple);
+
+        const neighSimple = (item.neighborhood || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const neighMatch = neighSimple.includes(qSimple);
+
+        const addrSimple = (item.address || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const addrMatch = addrSimple.includes(qSimple);
+
+        const devSimple = item.isDevelopment ? (item.developer || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() : '';
+        const devMatch = devSimple.includes(qSimple);
+
+        // Busca por Edifício (nome oficial, nome normalizado, nomes alternativos)
+        let buildingMatch = false;
+        if (!item.isDevelopment) {
+          const b = item.building || item.physicalProperty?.building;
+          if (b) {
+            const bNameSimple = (b.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const bNorm = (b.normalizedName || '').toLowerCase();
+            const bAltSimple = (b.alternativeNames || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+            buildingMatch =
+              bNameSimple.includes(qSimple) ||
+              bAltSimple.includes(qSimple) ||
+              (normQ !== '' && bNorm.includes(normQ)) ||
+              (normQ !== '' && normalizeBuildingName(b.name).includes(normQ));
+          }
+        }
+
+        if (!titleMatch && !cityMatch && !neighMatch && !addrMatch && !devMatch && !buildingMatch) {
           return false;
         }
       }

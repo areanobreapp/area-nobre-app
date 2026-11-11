@@ -57,6 +57,17 @@ export default async function HomePage({
             sharedPrice: true,
             activeListingsCount: true,
             primaryListingId: true,
+            building: {
+              select: {
+                id: true,
+                name: true,
+                normalizedName: true,
+                alternativeNames: true,
+                address: true,
+                neighborhood: true,
+                city: true,
+              },
+            },
             listings: {
               where: {
                 status: 'Disponível',
@@ -104,6 +115,17 @@ export default async function HomePage({
               },
               orderBy: [{ isPrimaryListing: 'desc' }, { createdAt: 'asc' }],
             },
+          },
+        },
+        building: {
+          select: {
+            id: true,
+            name: true,
+            normalizedName: true,
+            alternativeNames: true,
+            address: true,
+            neighborhood: true,
+            city: true,
           },
         },
       },

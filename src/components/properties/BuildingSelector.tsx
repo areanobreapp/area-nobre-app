@@ -1571,8 +1571,9 @@ export default function BuildingSelector({
       {showGeoModal && selectedBuilding && (
         <LocationPickerModal
           isOpen={showGeoModal}
-          initialLat={selectedBuilding.latitude ?? -28.6775}
-          initialLng={selectedBuilding.longitude ?? -49.3700}
+          initialLat={selectedBuilding.latitude !== null && !isNaN(selectedBuilding.latitude) ? selectedBuilding.latitude : null}
+          initialLng={selectedBuilding.longitude !== null && !isNaN(selectedBuilding.longitude) ? selectedBuilding.longitude : null}
+          geoValidationStatus={selectedBuilding.geoValidationStatus}
           title={`Confirmar Localização: ${selectedBuilding.name}`}
           addressToGeocode={`${selectedBuilding.address || ''}${selectedBuilding.number ? `, ${selectedBuilding.number}` : ''}, ${selectedBuilding.neighborhood || ''}, ${selectedBuilding.city || 'Criciúma'}, ${selectedBuilding.state || 'SC'}`}
           onConfirm={(lat, lng) => handleConfirmGeoPin(lat, lng)}

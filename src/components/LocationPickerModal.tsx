@@ -19,6 +19,7 @@ export interface LocationPickerProps {
   addressToGeocode?: string;
   addressComponents?: AddressComponents;
   initialAddress?: string;
+  geoValidationStatus?: string | null;
   onConfirm?: (
     lat: number,
     lng: number,
@@ -39,6 +40,8 @@ export interface LocationPickerProps {
   title?: string;
 }
 
+export type LocationReliability = 'CONFIRMED' | 'ESTIMATED' | 'GEOCODED' | 'FALLBACK_MUNICIPAL';
+
 export default function LocationPickerModal({
   isOpen,
   initialLat,
@@ -46,6 +49,7 @@ export default function LocationPickerModal({
   addressToGeocode,
   addressComponents,
   initialAddress,
+  geoValidationStatus,
   onConfirm,
   onConfirmLocation,
   onCancel,
@@ -56,11 +60,37 @@ export default function LocationPickerModal({
   const defaultLat = -28.6775;
   const defaultLng = -49.3700;
 
+  const hasValidInitialCoords =
+    initialLat !== null &&
+    initialLat !== undefined &&
+    !isNaN(Number(initialLat)) &&
+    initialLng !== null &&
+    initialLng !== undefined &&
+    !isNaN(Number(initialLng));
+
+  const isConfirmed = Boolean(
+    hasValidInitialCoords &&
+      geoValidationStatus &&
+      [
+        'ADMIN_VALIDATED',
+        'MULTI_BROKER_CONFIRMED',
+        'SINGLE_BROKER_CONFIRMED',
+        'CONFIRMED',
+        'MANUAL_OVERRIDE',
+      ].includes(geoValidationStatus)
+  );
+
+  const initialReliabilityLevel: LocationReliability = hasValidInitialCoords
+    ? isConfirmed
+      ? 'CONFIRMED'
+      : 'ESTIMATED'
+    : 'FALLBACK_MUNICIPAL';
+
   const effectiveAddress = addressToGeocode || initialAddress || '';
   const handleClose = onCancel || onClose || (() => {});
 
-  const [lat, setLat] = useState<number>(initialLat ?? defaultLat);
-  const [lng, setLng] = useState<number>(initialLng ?? defaultLng);
+  const [lat, setLat] = useState<number>(hasValidInitialCoords ? Number(initialLat) : defaultLat);
+  const [lng, setLng] = useState<number>(hasValidInitialCoords ? Number(initialLng) : defaultLng);
   const [loading, setLoading] = useState<boolean>(false);
   const [addressFound, setAddressFound] = useState<string>('');
   const [providerSource, setProviderSource] = useState<string>('');
@@ -68,6 +98,7 @@ export default function LocationPickerModal({
   const [precisionLevel, setPrecisionLevel] = useState<string>('street');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [foundStatus, setFoundStatus] = useState<'found' | 'not_found' | null>(null);
+  const [reliabilityLevel, setReliabilityLevel] = useState<LocationReliability>(initialReliabilityLevel);
   const [isAdjusting, setIsAdjusting] = useState<boolean>(false);
 
   // Basemap ativo (Mapa vetorial ou Satélite) persistido localmente
@@ -82,12 +113,13 @@ export default function LocationPickerModal({
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    const startLat = initialLat ?? defaultLat;
-    const startLng = initialLng ?? defaultLng;
+    const startLat = hasValidInitialCoords ? Number(initialLat) : defaultLat;
+    const startLng = hasValidInitialCoords ? Number(initialLng) : defaultLng;
+    const initialZoom = isConfirmed ? 18 : hasValidInitialCoords ? 17 : 14;
 
     const map = L.map(mapContainerRef.current, {
       center: [startLat, startLng],
-      zoom: initialLat ? 16 : 14,
+      zoom: initialZoom,
       zoomControl: true,
       maxZoom: 20,
     });
@@ -100,43 +132,30 @@ export default function LocationPickerModal({
     tileLayer.addTo(map);
     baseMapLayerRef.current = tileLayer;
 
-    // Ícone personalizado moderno e de alta visibilidade com âncora matemática exata
-    const pinIcon = L.divIcon({
+    // Pilar 3: Marcador Agulha de Precisão (24x44px, âncora matemática na ponta [12, 43.5])
+    const needlePinIcon = L.divIcon({
       html: `
-        <div style="position: relative; width: 38px; height: 46px;">
-          <div style="
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 38px;
-            height: 38px;
-            background: #1E4620;
-            color: white;
-            border-radius: 50% 50% 50% 0;
-            transform: rotate(-45deg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
-            border: 2px solid white;
-          ">
-            <div style="transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-                <circle cx="12" cy="10" r="3"/>
-              </svg>
-            </div>
-          </div>
+        <div style="position: relative; width: 24px; height: 44px; pointer-events: none;">
+          <svg width="24" height="44" viewBox="0 0 24 44" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
+            <!-- Sombra de ancoragem no solo sob a ponta da agulha -->
+            <ellipse cx="12" cy="43" rx="4" ry="1.2" fill="rgba(0,0,0,0.45)" />
+            <!-- Haste vertical ultrafina da agulha (2px afunilando para 1px) com borda branca para contraste sobre satélite e mapa -->
+            <path d="M11 16 L11.5 42 L12 43.5 L12.5 42 L13 16 Z" fill="#1E4620" stroke="#FFFFFF" stroke-width="0.75" stroke-linejoin="round" />
+            <!-- Esfera superior de precisão (15px) com núcleo verde vivo e mira de centro -->
+            <circle cx="12" cy="9.5" r="7.5" fill="#1E4620" stroke="#FFFFFF" stroke-width="2" />
+            <circle cx="12" cy="9.5" r="3.5" fill="#4ADE80" />
+            <circle cx="12" cy="9.5" r="1.2" fill="#FFFFFF" />
+          </svg>
         </div>
       `,
-      className: 'location-picker-pin',
-      iconSize: [38, 46],
-      iconAnchor: [19, 46],
-      popupAnchor: [0, -46],
+      className: 'precision-needle-pin',
+      iconSize: [24, 44],
+      iconAnchor: [12, 43.5],
+      popupAnchor: [0, -44],
     });
 
     const marker = L.marker([startLat, startLng], {
-      icon: pinIcon,
+      icon: needlePinIcon,
       draggable: true,
     }).addTo(map);
 
@@ -176,12 +195,19 @@ export default function LocationPickerModal({
       }
     }, 150);
 
-    // Se temos endereço para geocodificar e não tínhamos coordenadas salvas, executa a busca automática
-    if ((effectiveAddress || addressComponents?.street || addressComponents?.postalCode) && !initialLat) {
+    // Pilar 2: Hierarquia de Localização
+    // Nível 3: Se não tínhamos coordenadas salvas e temos endereço, dispara geocodificação automática via GeoBase
+    if (!hasValidInitialCoords && (effectiveAddress || addressComponents?.street || addressComponents?.postalCode)) {
       handleGeocodeAddress(effectiveAddress, addressComponents, map, marker);
-    } else if (initialLat && initialLng) {
+    } else if (hasValidInitialCoords) {
       setFoundStatus('found');
-      setAddressFound(effectiveAddress || 'Localização previamente configurada');
+      setReliabilityLevel(isConfirmed ? 'CONFIRMED' : 'ESTIMATED');
+      setAddressFound(
+        effectiveAddress ||
+          (isConfirmed
+            ? 'Localização confirmada da edificação'
+            : 'Localização previamente registrada (estimada)')
+      );
     }
 
     return () => {
@@ -253,17 +279,20 @@ export default function LocationPickerModal({
         setPrecision(top.precision || 'approximate');
         setPrecisionLevel(top.precisionLevel || 'street');
         setFoundStatus('found');
+        setReliabilityLevel('GEOCODED');
 
         if (map && marker) {
           marker.setLatLng([top.lat, top.lng]);
-          map.setView([top.lat, top.lng], 16, { animate: true });
+          map.setView([top.lat, top.lng], 17, { animate: true });
         }
       } else {
         setFoundStatus('not_found');
+        setReliabilityLevel('FALLBACK_MUNICIPAL');
         setErrorMessage('Não conseguimos localizar automaticamente este endereço. Posicione o marcador no mapa para confirmar a localização.');
       }
     } catch (err: any) {
       setFoundStatus('not_found');
+      setReliabilityLevel('FALLBACK_MUNICIPAL');
       setErrorMessage('Não conseguimos localizar automaticamente este endereço. Posicione o marcador no mapa para confirmar a localização.');
     } finally {
       setLoading(false);
@@ -392,68 +421,96 @@ export default function LocationPickerModal({
                 justifyContent: 'space-between',
               }}
             >
-              <span>💡 <strong>Dica:</strong> Arraste o pino para alinhar com o acesso do imóvel.</span>
+              <span>💡 <strong>Dica:</strong> Posicione a ponta da agulha sobre a cobertura ou acesso do imóvel.</span>
             </div>
           </div>
 
           {/* Coluna de Ferramentas, Status e Coordenadas */}
           <div className="map-modal-controls-side">
+            <style jsx global>{`
+              .precision-needle-pin {
+                background: transparent !important;
+                border: none !important;
+              }
+            `}</style>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {/* Banner de Status UX com Diferenciação Precisa vs Aproximada */}
+              {/* Banner de Status UX com Hierarquia de 4 Níveis e Ajuste Manual */}
               {loading ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--color-primary)', fontSize: '0.88rem', fontWeight: 600, padding: '12px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
                   <RefreshCw size={18} className="animate-spin" />
                   <span>Localizando endereço automaticamente via GeoBase...</span>
                 </div>
-              ) : foundStatus === 'found' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '14px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
+              ) : isAdjusting ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px', backgroundColor: '#F0FDF4', borderRadius: 'var(--radius-md)', border: '1px solid #BBF7D0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#DCFCE7', color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Check size={14} strokeWidth={3} />
+                    </div>
+                    <span style={{ color: '#166534', fontWeight: 800, fontSize: '0.90rem' }}>
+                      Posição ajustada pelo corretor
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#166534', margin: 0, lineHeight: 1.4 }}>
+                    📍 Agulha reposicionada manualmente no mapa. Clique em <strong>Confirmar Localização</strong> para salvar.
+                  </p>
+                </div>
+              ) : reliabilityLevel === 'CONFIRMED' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px', backgroundColor: '#ECFDF5', borderRadius: 'var(--radius-md)', border: '1px solid #A7F3D0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#D1FAE5', color: '#065F46', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Check size={14} strokeWidth={3} />
+                    </div>
+                    <span style={{ color: '#065F46', fontWeight: 800, fontSize: '0.90rem' }}>
+                      Localização confirmada da edificação
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#047857', margin: 0, lineHeight: 1.4 }}>
+                    {addressFound || effectiveAddress || 'Coordenadas verificadas e validadas no Cadastro Mestre.'}
+                  </p>
+                </div>
+              ) : reliabilityLevel === 'ESTIMATED' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px', backgroundColor: '#EFF6FF', borderRadius: 'var(--radius-md)', border: '1px solid #BFDBFE' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#DBEAFE', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Navigation size={14} strokeWidth={2.5} />
+                    </div>
+                    <span style={{ color: '#1E40AF', fontWeight: 800, fontSize: '0.90rem' }}>
+                      Localização estimada — confira no mapa
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.82rem', color: '#1E3A8A', margin: 0, lineHeight: 1.4 }}>
+                    Coordenadas registradas no sistema. Por favor, confira e ajuste a agulha na cobertura do edifício se necessário.
+                  </p>
+                </div>
+              ) : reliabilityLevel === 'GEOCODED' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '12px 14px', backgroundColor: '#FFFBEB', borderRadius: 'var(--radius-md)', border: '1px solid #FDE68A' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {precision === 'precise' ? (
-                      <>
-                        <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#D1FAE5', color: '#065F46', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Check size={14} strokeWidth={3} />
-                        </div>
-                        <span style={{ color: '#065F46', fontWeight: 800, fontSize: '0.90rem' }}>
-                          Localização precisa encontrada
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#DBEAFE', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Navigation size={14} strokeWidth={2.5} />
-                        </div>
-                        <span style={{ color: '#1E40AF', fontWeight: 800, fontSize: '0.90rem' }}>
-                          {precisionLevel === 'street'
-                            ? 'Localização aproximada na via'
-                            : 'Localização aproximada na região'}
-                        </span>
-                      </>
-                    )}
-
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', backgroundColor: '#FEF3C7', color: '#92400E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Compass size={14} strokeWidth={2.5} />
+                    </div>
+                    <span style={{ color: '#92400E', fontWeight: 800, fontSize: '0.90rem' }}>
+                      Posição sugerida por endereço (não confirmada)
+                    </span>
                     {providerSource && (
-                      <span style={{ fontSize: '0.70rem', backgroundColor: '#E0E7FF', color: '#3730A3', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                      <span style={{ fontSize: '0.70rem', backgroundColor: '#FEF3C7', color: '#78350F', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
                         {providerSource}
                       </span>
                     )}
                   </div>
-
-                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                  <p style={{ fontSize: '0.82rem', color: '#78350F', margin: 0, lineHeight: 1.4 }}>
                     {addressFound || effectiveAddress}
                   </p>
-
-                  {precision === 'approximate' && (
-                    <div style={{ fontSize: '0.76rem', color: '#4B5563', backgroundColor: '#F3F4F6', padding: '6px 10px', borderRadius: 6 }}>
-                      💡 O mapa centralizou na via. Você pode arrastar o pino para fixar o ponto exato.
-                    </div>
-                  )}
+                  <div style={{ fontSize: '0.76rem', color: '#92400E', backgroundColor: '#FEF9C3', padding: '6px 10px', borderRadius: 6 }}>
+                    💡 O mapa centralizou na via. Arraste a agulha sobre o telhado do edifício para fixar o ponto exato.
+                  </div>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#B45309', backgroundColor: '#FFFBEB', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid #FDE68A' }}>
-                  <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2, color: '#D97706' }} />
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', color: '#9A3412', backgroundColor: '#FFF7ED', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid #FED7AA' }}>
+                  <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2, color: '#EA580C' }} />
                   <div style={{ fontSize: '0.84rem', lineHeight: '1.4' }}>
-                    <strong>Localização automática não encontrada:</strong>
-                    <div style={{ marginTop: '2px' }}>
-                      Não conseguimos localizar automaticamente este endereço. Posicione o marcador no mapa para confirmar.
+                    <strong style={{ color: '#9A3412' }}>Posição aproximada de referência (não confirmada):</strong>
+                    <div style={{ marginTop: '2px', color: '#C2410C' }}>
+                      Não foi possível localizar o endereço automaticamente. Navegue no mapa e posicione a agulha sobre a edificação.
                     </div>
                   </div>
                 </div>
@@ -479,7 +536,10 @@ export default function LocationPickerModal({
                 <button
                   type="button"
                   title="Recalcular coordenadas para o endereço digitado"
-                  onClick={() => handleGeocodeAddress(effectiveAddress, addressComponents)}
+                  onClick={() => {
+                    setIsAdjusting(false);
+                    handleGeocodeAddress(effectiveAddress, addressComponents);
+                  }}
                   disabled={loading}
                   style={{
                     padding: '8px 12px',
@@ -548,7 +608,10 @@ export default function LocationPickerModal({
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => handleGeocodeAddress(effectiveAddress, addressComponents)}
+            onClick={() => {
+              setIsAdjusting(false);
+              handleGeocodeAddress(effectiveAddress, addressComponents);
+            }}
             disabled={loading}
             style={{ padding: '9px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
