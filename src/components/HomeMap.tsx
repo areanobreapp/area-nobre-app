@@ -136,6 +136,8 @@ export interface PropertyItem {
     address?: string | null;
     neighborhood?: string | null;
     city?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   } | null;
   coListings?: CoListingSummary[];
   brokerCount?: number;
@@ -185,6 +187,28 @@ export type MapItem = (PropertyItem | DevelopmentItem) & {
   coListings?: CoListingSummary[];
   canonicalPrice?: number;
 };
+
+export interface BuildingSuggestion {
+  id: string;
+  name: string;
+  city: string;
+  neighborhood?: string | null;
+  address?: string | null;
+  activeCount: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  primaryItemId?: string;
+  isDevelopment?: boolean;
+}
+
+export interface AddressSuggestion {
+  formattedAddress: string;
+  street?: string;
+  neighborhood?: string;
+  city?: string;
+  lat: number;
+  lng: number;
+}
 
 interface HomeMapProps {
   initialProperties: PropertyItem[];
@@ -356,6 +380,23 @@ export default function HomeMap({
   const [navigatedLocation, setNavigatedLocation] = useState<{ lat: number; lng: number; label: string } | null>(null);
   const [geocodeFeedback, setGeocodeFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const navigatedMarkerRef = useRef<L.Marker | null>(null);
+
+  // Sugestões inteligentes da barra de busca: Edifícios vs Endereços (Etapa J.2.B.2)
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
+  const [isSearchingAddresses, setIsSearchingAddresses] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Fecha o dropdown de sugestões ao clicar fora do container de busca
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Filtros contextuais
   const [filters, setFilters] = useState<FilterState>({
@@ -729,6 +770,199 @@ export default function HomeMap({
   }, [filteredItems]);
 
   const unmappedCount = filteredItems.length - mappedItems.length;
+
+  // Edifícios correspondentes à busca com anúncios ativos na carteira e no escopo atual (Etapa J.2.B.2)
+  const buildingSuggestions = useMemo<BuildingSuggestion[]>(() => {
+    const rawQ = searchQuery.trim();
+    if (rawQ.length < 2) return [];
+
+    const normQ = normalizeBuildingName(rawQ);
+    const qSimple = rawQ.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    // Filtra itens pelo escopo ativo (Todos os imóveis vs Meus imóveis)
+    const scopedItems = allItems.filter((item) => {
+      if (!activeSearchContext && scopeFilter === 'mine') {
+        const isMine =
+          (item.responsibleBrokerId && item.responsibleBrokerId === user?.id) ||
+          item.userId === user?.id ||
+          (item.coListings && item.coListings.some((cl: any) => {
+            const bId = cl.responsibleBroker?.id || cl.user?.id || cl.responsibleBrokerId || cl.userId;
+            return bId === user?.id;
+          }));
+        if (!isMine) return false;
+      }
+      return true;
+    });
+
+    const buildingMap = new Map<string, BuildingSuggestion>();
+
+    for (const item of scopedItems) {
+      if (item.isDevelopment) {
+        // Empreendimento / Edifício em construção
+        const devNameSimple = (item.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const devNorm = normalizeBuildingName(item.name || '');
+        const devMatch = devNameSimple.includes(qSimple) || (normQ !== '' && devNorm.includes(normQ));
+
+        if (devMatch) {
+          const key = `dev_${item.id}`;
+          if (!buildingMap.has(key)) {
+            buildingMap.set(key, {
+              id: item.id,
+              name: item.name,
+              city: item.city || 'Criciúma',
+              neighborhood: item.neighborhood || '',
+              address: item.address || '',
+              activeCount: 1,
+              latitude: item.latitude,
+              longitude: item.longitude,
+              primaryItemId: item.id,
+              isDevelopment: true,
+            });
+          }
+        }
+      } else {
+        // Imóvel pronto vinculado a edifício (raiz ou via PhysicalProperty)
+        const b = item.building || item.physicalProperty?.building;
+        if (b && b.name) {
+          const bNameSimple = (b.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const bNorm = (b.normalizedName || '').toLowerCase();
+          const bAltSimple = (b.alternativeNames || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+          const bMatch =
+            bNameSimple.includes(qSimple) ||
+            bAltSimple.includes(qSimple) ||
+            (normQ !== '' && bNorm.includes(normQ)) ||
+            (normQ !== '' && normalizeBuildingName(b.name).includes(normQ));
+
+          if (bMatch) {
+            const key = b.id || bNorm || b.name;
+            const existing = buildingMap.get(key);
+            let offerCount = 1;
+            if (scopeFilter === 'mine') {
+              if (item.coListings && item.coListings.length > 0) {
+                const myCount = item.coListings.filter((cl: any) => {
+                  const bId = cl.responsibleBroker?.id || cl.user?.id || cl.responsibleBrokerId || cl.userId;
+                  return bId === user?.id;
+                }).length;
+                offerCount = myCount > 0 ? myCount : 1;
+              } else {
+                offerCount = 1;
+              }
+            } else {
+              offerCount = item.coListings && item.coListings.length > 0 ? item.coListings.length : 1;
+            }
+
+            if (existing) {
+              existing.activeCount += offerCount;
+              if (!existing.latitude && (b.latitude || item.latitude)) {
+                existing.latitude = b.latitude ?? item.latitude;
+                existing.longitude = b.longitude ?? item.longitude;
+              }
+            } else {
+              buildingMap.set(key, {
+                id: b.id || item.id,
+                name: b.name,
+                city: b.city || item.city || 'Criciúma',
+                neighborhood: b.neighborhood || item.neighborhood || '',
+                address: b.address || item.address || '',
+                activeCount: offerCount,
+                latitude: b.latitude ?? item.latitude,
+                longitude: b.longitude ?? item.longitude,
+                primaryItemId: item.id,
+                isDevelopment: false,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(buildingMap.values());
+  }, [allItems, searchQuery, scopeFilter, user?.id, activeSearchContext]);
+
+  // Busca assíncrona de endereços/ruas via geocodificação GeoBase (debounced 300ms)
+  useEffect(() => {
+    const rawQ = searchQuery.trim();
+    if (rawQ.length < 3) {
+      setAddressSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingAddresses(true);
+      try {
+        const res = await fetch('/api/geo/geocode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: rawQ, limit: 3 }),
+        });
+        const data = await res.json();
+        if (res.ok && data.results && data.results.length > 0) {
+          const suggestions: AddressSuggestion[] = data.results.map((r: any) => ({
+            formattedAddress: r.formattedAddress || rawQ,
+            street: r.street,
+            neighborhood: r.neighborhood,
+            city: r.city,
+            lat: r.lat,
+            lng: r.lng,
+          }));
+          setAddressSuggestions(suggestions);
+        } else {
+          setAddressSuggestions([]);
+        }
+      } catch (err) {
+        setAddressSuggestions([]);
+      } finally {
+        setIsSearchingAddresses(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Seleção de sugestão de Edifício
+  function handleSelectBuildingSuggestion(b: BuildingSuggestion) {
+    setSearchQuery(b.name);
+    setShowSuggestions(false);
+    setNavigatedLocation(null);
+
+    const map = mapInstanceRef.current;
+    if (map && b.latitude != null && b.longitude != null && !isNaN(b.latitude) && !isNaN(b.longitude)) {
+      map.flyTo([b.latitude, b.longitude], 17, { animate: true, duration: 1.2 });
+    }
+
+    if (b.primaryItemId) {
+      const match = allItems.find((i) => i.id === b.primaryItemId);
+      if (match) setSelectedItem(match);
+    }
+
+    setGeocodeFeedback({
+      type: 'success',
+      message: `Exibindo ${b.activeCount} ${b.activeCount === 1 ? 'anúncio vinculado' : 'anúncios vinculados'} no ${b.name}`,
+    });
+    setTimeout(() => setGeocodeFeedback(null), 6000);
+  }
+
+  // Seleção de sugestão de Endereço/Rua
+  function handleSelectAddressSuggestion(a: AddressSuggestion) {
+    setSearchQuery(a.formattedAddress);
+    setShowSuggestions(false);
+
+    const map = mapInstanceRef.current;
+    if (map && a.lat != null && a.lng != null && !isNaN(a.lat) && !isNaN(a.lng)) {
+      map.flyTo([a.lat, a.lng], 15, { animate: true, duration: 1.2 });
+      setNavigatedLocation({
+        lat: a.lat,
+        lng: a.lng,
+        label: a.formattedAddress,
+      });
+      setGeocodeFeedback({
+        type: 'success',
+        message: `Mapa centralizado em: ${a.formattedAddress}`,
+      });
+      setTimeout(() => setGeocodeFeedback(null), 6000);
+    }
+  }
 
   // Verifica se há filtros ativos para exibir badge de "Limpar"
   const hasActiveFilters = useMemo(() => {
@@ -1320,6 +1554,14 @@ export default function HomeMap({
     const query = searchQuery.trim();
     if (!query) return;
 
+    setShowSuggestions(false);
+
+    // Se houver um edifício correspondente na carteira ativa, prioriza a seleção do edifício!
+    if (buildingSuggestions.length > 0) {
+      handleSelectBuildingSuggestion(buildingSuggestions[0]);
+      return;
+    }
+
     setIsGeocodingLocation(true);
     setGeocodeFeedback(null);
 
@@ -1676,75 +1918,262 @@ export default function HomeMap({
 
       {/* 3. BARRA DE PESQUISA & SELETORES DE TIPO (CASA, APARTAMENTO, TERRENO, COMÉRCIO, EM CONSTRUÇÃO) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {/* Input de Busca de Localização & Navegação Geográfica */}
-        <form onSubmit={handleNavigateToLocation} style={{ display: 'flex', gap: '8px', width: '100%' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar endereço, bairro, cidade (pressione Enter para navegar no mapa)..."
-              style={{
-                width: '100%',
-                padding: '11px 40px 11px 40px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-light)',
-                backgroundColor: 'var(--bg-surface)',
-                fontSize: '0.92rem',
-                boxShadow: 'var(--shadow-xs)',
-                outline: 'none',
-              }}
-            />
-            <Search
-              size={18}
-              color="#9CA3AF"
-              style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setNavigatedLocation(null);
-                  setGeocodeFeedback(null);
+        {/* Container de Busca com Sugestões Inteligentes de Edifícios vs Endereços */}
+        <div ref={searchContainerRef} style={{ position: 'relative', width: '100%' }}>
+          <form onSubmit={handleNavigateToLocation} style={{ display: 'flex', gap: '8px', width: '100%' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSuggestions(true);
                 }}
+                onFocus={() => {
+                  if (searchQuery.trim().length >= 2) setShowSuggestions(true);
+                }}
+                placeholder="Buscar edifício, condomínio, endereço ou cidade..."
                 style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#9CA3AF',
+                  width: '100%',
+                  padding: '11px 40px 11px 40px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-light)',
+                  backgroundColor: 'var(--bg-surface)',
+                  fontSize: '0.92rem',
+                  boxShadow: 'var(--shadow-xs)',
+                  outline: 'none',
                 }}
-              >
-                <X size={16} />
-              </button>
-            )}
-          </div>
+              />
+              <Search
+                size={18}
+                color="#9CA3AF"
+                style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setNavigatedLocation(null);
+                    setGeocodeFeedback(null);
+                    setShowSuggestions(false);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#9CA3AF',
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
 
-          <button
-            type="submit"
-            disabled={!searchQuery.trim() || isGeocodingLocation}
-            className="btn-secondary"
-            title="Localizar região no mapa com a cartografia GeoBase"
-            style={{
-              padding: '0 16px',
-              fontSize: '0.84rem',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-              height: '44px',
-              opacity: !searchQuery.trim() ? 0.6 : 1,
-            }}
-          >
-            <Compass size={16} color="var(--color-primary)" />
-            <span>{isGeocodingLocation ? 'Localizando...' : 'Ir ao local'}</span>
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={!searchQuery.trim() || isGeocodingLocation}
+              className="btn-secondary"
+              title="Localizar região no mapa com a cartografia GeoBase"
+              style={{
+                padding: '0 16px',
+                fontSize: '0.84rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                height: '44px',
+                opacity: !searchQuery.trim() ? 0.6 : 1,
+              }}
+            >
+              <Compass size={16} color="var(--color-primary)" />
+              <span>{isGeocodingLocation ? 'Localizando...' : 'Ir ao local'}</span>
+            </button>
+          </form>
+
+          {/* Dropdown de Sugestões Inteligentes: Edifícios vs Endereços (Etapa J.2.B.2) */}
+          {showSuggestions && searchQuery.trim().length >= 2 && (buildingSuggestions.length > 0 || addressSuggestions.length > 0 || isSearchingAddresses) && (
+            <div
+              className="search-suggestions-dropdown"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                left: 0,
+                right: 0,
+                backgroundColor: '#FFFFFF',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
+                border: '1px solid var(--border-light)',
+                zIndex: 1200,
+                maxHeight: '380px',
+                overflowY: 'auto',
+              }}
+            >
+              {/* Bloco 1: Edifícios com anúncios ativos vinculados */}
+              {buildingSuggestions.length > 0 && (
+                <div>
+                  <div
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color: 'var(--color-primary)',
+                      backgroundColor: '#F0FDF4',
+                      borderBottom: '1px solid var(--border-light)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Building2 size={13} />
+                    <span>Edifícios ({buildingSuggestions.length})</span>
+                  </div>
+                  {buildingSuggestions.map((b) => (
+                    <div
+                      key={b.id}
+                      onClick={() => handleSelectBuildingSuggestion(b)}
+                      style={{
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-light)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#F9FAFB')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: '#E8F5E9',
+                            color: 'var(--color-primary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Building2 size={17} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {b.name}
+                          </div>
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {[b.neighborhood, b.city].filter(Boolean).join(', ') || 'Criciúma'}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          backgroundColor: '#DCFCE7',
+                          color: '#166534',
+                          borderRadius: '999px',
+                          whiteSpace: 'nowrap',
+                          marginLeft: '8px',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {b.activeCount} {b.activeCount === 1 ? 'anúncio vinculado' : 'anúncios vinculados'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Bloco 2: Endereços e Ruas (Localização Geográfica) */}
+              {(addressSuggestions.length > 0 || isSearchingAddresses) && (
+                <div>
+                  <div
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color: '#4B5563',
+                      backgroundColor: '#F9FAFB',
+                      borderBottom: '1px solid var(--border-light)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <MapPin size={13} />
+                    <span>Endereços</span>
+                  </div>
+                  {isSearchingAddresses && addressSuggestions.length === 0 && (
+                    <div style={{ padding: '12px 14px', fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Buscando endereços no mapa...</span>
+                    </div>
+                  )}
+                  {addressSuggestions.map((a, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => handleSelectAddressSuggestion(a)}
+                      style={{
+                        padding: '10px 14px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-light)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#F9FAFB')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                        <div
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: '#F3F4F6',
+                            color: '#4B5563',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <MapPin size={16} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {a.formattedAddress}
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                            localização geográfica
+                          </div>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0, marginLeft: '8px' }}>
+                        Ir ao local →
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Feedback de Navegação Geográfica / Alerta de Erro */}
         {geocodeFeedback && (

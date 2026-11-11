@@ -66,6 +66,8 @@ export default async function HomePage({
                 address: true,
                 neighborhood: true,
                 city: true,
+                latitude: true,
+                longitude: true,
               },
             },
             listings: {
@@ -126,6 +128,8 @@ export default async function HomePage({
             address: true,
             neighborhood: true,
             city: true,
+            latitude: true,
+            longitude: true,
           },
         },
       },
