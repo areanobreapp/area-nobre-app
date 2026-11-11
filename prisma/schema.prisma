@@ -37,6 +37,9 @@ model User {
   priceRevisionsRequested PriceRevisionRequest[]         @relation("PriceRevisionsRequested")
   priceRevisionsDecided   PriceRevisionRequest[]         @relation("PriceRevisionsDecided")
   updatedPhysicalPrices   PhysicalProperty[]             @relation("PhysicalPropertyPriceUpdater")
+  locationContributions   BuildingLocationContribution[] @relation("BrokerLocationContributions")
+  decidedLocationContributions BuildingLocationContribution[] @relation("DecidedLocationContributions")
+  decidedBuildingGeos     Building[]                     @relation("BuildingGeoAdminDecider")
 }
 
 model BrokerProfile {
@@ -502,15 +505,26 @@ model Building {
   name                String
   normalizedName      String             // Normalizado para buscas rápidas (ex: "solar das acacias")
   
+  // Identificação Mestre e Autoridade de Origem
+  externalId          String?            // Código da Prefeitura (ex: "1003", "2541")
+  source              String             @default("MANUAL") // "PREFEITURA_CRICIUMA" | "MANUAL" | "IMPORT_XLSX"
+  sourceBatch         String?            // Identificador do lote (ex: "CRICIUMA_PREF_2026_01")
+  condoType           String?            @default("VERTICAL") // "VERTICAL" | "HORIZONTAL" | "MISTO" | "COMERCIAL"
+  alternativeNames    String?            // JSON ou texto com variações de grafia
+  blockOrTower        String?            // Identificação de torre/bloco no complexo (ex: "Bloco 02")
+  isMultiTowerMember  Boolean            @default(false)    // Indica se faz parte de complexo com múltiplos códigos
+
   // Localização Predial Compartilhada
   address             String             // Logradouro (ex: "Rua Coronel Pedro Benedet")
   number              String?            // Número predial (ex: "350")
-  neighborhood        String             // Bairro
+  neighborhood        String?            // Bairro
   city                String             @default("Criciúma")
   state               String             @default("SC")
   zipcode             String?
-  latitude            Float
-  longitude           Float
+  latitude            Float?
+  longitude           Float?
+  geoValidationStatus String             @default("UNVERIFIED") // UNVERIFIED | APPROXIMATE | CONFIRMED | MANUAL_OVERRIDE
+  geoConfidence       Float?
   
   // Estrutura do Edifício
   totalFloors         Int?               // Quantidade de pavimentos
@@ -530,22 +544,75 @@ model Building {
   hasBarbecue         Boolean?
   coverImageUrl       String?
   
-  // Governança Colaborativa
+  // Governança Colaborativa e Auditoria
+  dataValidationStatus String            @default("VALIDATED") // VALIDATED | PENDING_REVIEW | SUSPICIOUS | REJECTED
   status              String             @default("ACTIVE") // ACTIVE | PENDING_REVIEW | MERGED | INACTIVE
   verifiedByAdmin     Boolean            @default(false)
-  createdById         String
-  createdBy           User               @relation("CreatedBuildings", fields: [createdById], references: [id])
+  createdById         String?
+  createdBy           User?              @relation("CreatedBuildings", fields: [createdById], references: [id], onDelete: SetNull)
   
+  // Validação Colaborativa de Localização (Etapa H)
+  geoContributorsCount Int               @default(0)
+  geoLastConfirmedAt   DateTime?
+  geoAdminDecidedAt    DateTime?
+  geoAdminDecidedById  String?
+  geoAdminDecidedBy    User?             @relation("BuildingGeoAdminDecider", fields: [geoAdminDecidedById], references: [id], onDelete: SetNull)
+
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
   units               BuildingUnit[]
   physicalProperties  PhysicalProperty[]
   properties          Property[]
+  locationContributions BuildingLocationContribution[]
 
+  @@unique([city, source, externalId], name: "city_source_external_unique")
   @@index([city, neighborhood])
   @@index([latitude, longitude])
   @@index([normalizedName])
+  @@index([source, dataValidationStatus])
+  @@index([sourceBatch])
+}
+
+// ==============================================================================
+// Contribuições Colaborativas de Localização de Edifícios (Etapa H)
+// Registra o histórico individual de propostas, confirmações e divergências de pins
+// ==============================================================================
+model BuildingLocationContribution {
+  id                   String    @id @default(cuid())
+  buildingId           String
+  building             Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  brokerId             String
+  broker               User      @relation("BrokerLocationContributions", fields: [brokerId], references: [id], onDelete: Cascade)
+  
+  latitude             Float
+  longitude            Float
+  
+  // "CONFIRMED_EXISTING" | "PROPOSED_NEW" | "PROPOSED_ADJUSTMENT" | "SKIPPED"
+  contributionType     String
+  
+  // "PENDING" | "ACCEPTED" | "SUPERSEDED" | "REJECTED" | "FLAGGED_DIVERGENT"
+  status               String    @default("PENDING")
+  
+  // "BROKER_MAP_PIN" | "APPROXIMATE_GEOCODE" | "ADMIN_OVERRIDE"
+  source               String    @default("BROKER_MAP_PIN")
+  
+  distanceFromCurrent  Float?    // Distância em metros da coordenada anterior/estimada
+  decisionNotes        String?   @db.Text
+  decidedById          String?
+  decidedBy            User?     @relation("DecidedLocationContributions", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt            DateTime?
+  
+  // Estrutura preparada para pontuação futura (Gamificação dormente)
+  pointsAwarded        Int       @default(0)
+  pointsEligible       Boolean   @default(true)
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([buildingId, status])
+  @@index([brokerId, createdAt])
+  @@index([status])
 }
 
 // ==============================================================================

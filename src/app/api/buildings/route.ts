@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Se o logradouro não for idêntico, verifica o bairro
-      const sameNeighborhood = cand.neighborhood.trim().toLowerCase() === effectiveNeighborhood.toLowerCase();
+      const sameNeighborhood = Boolean(cand.neighborhood && cand.neighborhood.trim().toLowerCase() === effectiveNeighborhood.toLowerCase());
       if (sameNeighborhood) {
         // Se ambos têm logradouros informados e são claramente diferentes (ex: "Raymundo Pícolo" vs "Almirante Barroso"),
         // são edifícios diferentes no mesmo bairro (fases distintas ou empreendimentos com nomes similares).

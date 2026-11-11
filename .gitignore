@@ -48,6 +48,11 @@ backups/
 *.backup
 migration-dumps/
 
+# Raw Reference Spreadsheets & Municipal Datasets (Local analysis only)
+referenciais/
+*.xlsx
+*.xls
+
 # Vercel
 .vercel
 

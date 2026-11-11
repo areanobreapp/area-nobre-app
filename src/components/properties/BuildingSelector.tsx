@@ -58,8 +58,8 @@ export interface BuildingData {
   city: string;
   state: string;
   zipcode: string | null;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   totalFloors: number | null;
   unitsPerFloor: number | null;
   towers: string | null;
@@ -70,6 +70,12 @@ export interface BuildingData {
   hasPetSpace?: boolean | null;
   hasBarbecue?: boolean | null;
   verifiedByAdmin?: boolean;
+  externalId?: string | null;
+  source?: string | null;
+  condoType?: string | null;
+  geoValidationStatus?: string | null;
+  geoConfidence?: number | null;
+  geoContributorsCount?: number | null;
 }
 
 interface BuildingSelectorProps {
@@ -171,6 +177,12 @@ export default function BuildingSelector({
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Estados de Validação Colaborativa de Localização (Etapa H)
+  const [showGeoModal, setShowGeoModal] = useState(false);
+  const [geoSubmitting, setGeoSubmitting] = useState(false);
+  const [geoFeedback, setGeoFeedback] = useState<{ type: 'success' | 'warning' | 'error' | 'info'; text: string } | null>(null);
+  const [geoSkipped, setGeoSkipped] = useState(false);
+
   // Fecha dropdown ao clicar fora
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -220,11 +232,143 @@ export default function BuildingSelector({
     onSelectBuilding(b);
     setShowDropdown(false);
     setSearchQuery('');
+    setGeoFeedback(null);
+    setGeoSkipped(false);
   }
 
   function handleClearBuilding() {
     setSelectedBuilding(null);
     onSelectBuilding(null);
+    setGeoFeedback(null);
+    setGeoSkipped(false);
+  }
+
+  async function handleOneClickConfirm() {
+    if (!selectedBuilding || selectedBuilding.latitude === null || selectedBuilding.longitude === null) return;
+    setGeoSubmitting(true);
+    try {
+      const res = await fetch(`/api/buildings/${selectedBuilding.id}/location-contributions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          latitude: selectedBuilding.latitude,
+          longitude: selectedBuilding.longitude,
+          contributionType: 'CONFIRMED_EXISTING',
+          source: 'BROKER_MAP_PIN',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setGeoFeedback({
+          type: data.building?.geoValidationStatus === 'DIVERGENT' ? 'warning' : 'success',
+          text: data.message || 'Localização confirmada com sucesso!',
+        });
+        if (data.building) {
+          const updated = {
+            ...selectedBuilding,
+            geoValidationStatus: data.building.geoValidationStatus,
+            geoConfidence: data.building.geoConfidence,
+            geoContributorsCount: data.building.geoContributorsCount,
+          };
+          setSelectedBuilding(updated);
+          onSelectBuilding(updated);
+        }
+      } else {
+        setGeoFeedback({
+          type: 'error',
+          text: data.error || 'Erro ao confirmar localização.',
+        });
+      }
+    } catch (err: any) {
+      setGeoFeedback({
+        type: 'error',
+        text: err.message || 'Erro de conexão ao confirmar localização.',
+      });
+    } finally {
+      setGeoSubmitting(false);
+    }
+  }
+
+  async function handleConfirmGeoPin(lat: number, lng: number) {
+    if (!selectedBuilding) return;
+    setGeoSubmitting(true);
+    try {
+      const isNew = selectedBuilding.latitude === null || selectedBuilding.longitude === null;
+      const isAdjustment = !isNew && (
+        Math.abs(selectedBuilding.latitude! - lat) > 0.00001 ||
+        Math.abs(selectedBuilding.longitude! - lng) > 0.00001
+      );
+      const contributionType = isNew
+        ? 'PROPOSED_NEW'
+        : isAdjustment
+        ? 'PROPOSED_ADJUSTMENT'
+        : 'CONFIRMED_EXISTING';
+
+      const res = await fetch(`/api/buildings/${selectedBuilding.id}/location-contributions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          latitude: lat,
+          longitude: lng,
+          contributionType,
+          source: 'BROKER_MAP_PIN',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setGeoFeedback({
+          type: data.building?.geoValidationStatus === 'DIVERGENT' ? 'warning' : 'success',
+          text: data.message || 'Contribuição registrada com sucesso!',
+        });
+        if (data.building) {
+          const updated = {
+            ...selectedBuilding,
+            latitude: data.building.latitude ?? lat,
+            longitude: data.building.longitude ?? lng,
+            geoValidationStatus: data.building.geoValidationStatus,
+            geoConfidence: data.building.geoConfidence,
+            geoContributorsCount: data.building.geoContributorsCount,
+          };
+          setSelectedBuilding(updated);
+          onSelectBuilding(updated);
+        }
+      } else {
+        setGeoFeedback({
+          type: 'error',
+          text: data.error || 'Erro ao registrar contribuição.',
+        });
+      }
+    } catch (err: any) {
+      setGeoFeedback({
+        type: 'error',
+        text: err.message || 'Erro de comunicação ao registrar localização.',
+      });
+    } finally {
+      setGeoSubmitting(false);
+      setShowGeoModal(false);
+    }
+  }
+
+  async function handleSkipGeo() {
+    if (!selectedBuilding) return;
+    setGeoSkipped(true);
+    setGeoFeedback({
+      type: 'info',
+      text: 'Confirmação pulada. Você pode prosseguir com o cadastro do apartamento normalmente.',
+    });
+    try {
+      await fetch(`/api/buildings/${selectedBuilding.id}/location-contributions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contributionType: 'SKIPPED',
+        }),
+      });
+    } catch {
+      // Ignora erro no skip
+    }
   }
 
   function handleOpenCreateModal() {
@@ -488,6 +632,235 @@ export default function BuildingSelector({
               </span>
             )}
           </div>
+
+          {/* Validação Colaborativa de Localização (Etapa H) */}
+          <div
+            style={{
+              marginTop: '8px',
+              padding: '12px 14px',
+              backgroundColor: '#FFFFFF',
+              borderRadius: '8px',
+              border: '1px solid #E5E7EB',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <MapPin size={15} color="#1E4620" />
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1F2937' }}>
+                  Localização Geográfica do Edifício
+                </span>
+              </div>
+
+              {/* Badges de Status Geográfico */}
+              {selectedBuilding.geoValidationStatus === 'ADMIN_VALIDATED' ? (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#DCFCE7', color: '#166534', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Lock size={11} />
+                  <span>Validada Oficial (Admin)</span>
+                </span>
+              ) : selectedBuilding.geoValidationStatus === 'MULTI_BROKER_CONFIRMED' ? (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#ECFDF5', color: '#047857', display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #A7F3D0' }}>
+                  <Users size={11} />
+                  <span>Confirmada por Parceiros</span>
+                </span>
+              ) : selectedBuilding.geoValidationStatus === 'SINGLE_BROKER_CONFIRMED' ? (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#EFF6FF', color: '#1D4ED8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <CheckCircle2 size={11} />
+                  <span>Confirmada por 1 Corretor</span>
+                </span>
+              ) : selectedBuilding.geoValidationStatus === 'DIVERGENT' ? (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#FEF3C7', color: '#B45309', display: 'flex', alignItems: 'center', gap: '4px', border: '1px solid #FDE68A' }}>
+                  <AlertTriangle size={11} />
+                  <span>Divergência em Análise</span>
+                </span>
+              ) : selectedBuilding.geoValidationStatus === 'ESTIMATED' ? (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#FFF7ED', color: '#C2410C', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Clock size={11} />
+                  <span>Estimativa Aproximada</span>
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.70rem', fontWeight: 700, padding: '2px 8px', borderRadius: '999px', backgroundColor: '#F3F4F6', color: '#4B5563', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>⚪ Localização Pendente</span>
+                </span>
+              )}
+            </div>
+
+            {/* Descrição e feedback contextual */}
+            <div style={{ fontSize: '0.76rem', color: '#4B5563', marginBottom: '10px', lineHeight: 1.4 }}>
+              {selectedBuilding.geoValidationStatus === 'ADMIN_VALIDATED' ? (
+                <span>As coordenadas deste edifício foram homologadas pela administração. Você pode sugerir um ajuste caso identifique melhorias de precisão.</span>
+              ) : selectedBuilding.geoValidationStatus === 'MULTI_BROKER_CONFIRMED' ? (
+                <span>Ponto no mapa confirmado por múltiplos corretores parceiros com tolerância consistente.</span>
+              ) : selectedBuilding.geoValidationStatus === 'SINGLE_BROKER_CONFIRMED' ? (
+                <span>Ponto preliminar indicado por 1 corretor. Ao confirmar, você eleva a confiança deste edifício para toda a rede.</span>
+              ) : selectedBuilding.geoValidationStatus === 'DIVERGENT' ? (
+                <span style={{ color: '#92400E' }}>Foram registradas indicações divergentes de localização. Ajude a esclarecer marcando o ponto exato no mapa.</span>
+              ) : selectedBuilding.latitude !== null && selectedBuilding.longitude !== null ? (
+                <span>Coordenadas estimadas ({selectedBuilding.latitude.toFixed(5)}, {selectedBuilding.longitude.toFixed(5)}). Confirme ou ajuste para o endereço exato.</span>
+              ) : (
+                <span>Edifício cadastrado sem coordenadas geográficas. Ao posicionar o pin no mapa, você torna este edifício visível em pesquisas de mapa com anúncios ativos.</span>
+              )}
+            </div>
+
+            {/* Mensagem de Feedback da Ação */}
+            {geoFeedback && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  marginBottom: '10px',
+                  fontSize: '0.76rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor:
+                    geoFeedback.type === 'success'
+                      ? '#F0FDF4'
+                      : geoFeedback.type === 'warning'
+                      ? '#FFFBEB'
+                      : geoFeedback.type === 'info'
+                      ? '#EFF6FF'
+                      : '#FEF2F2',
+                  color:
+                    geoFeedback.type === 'success'
+                      ? '#166534'
+                      : geoFeedback.type === 'warning'
+                      ? '#92400E'
+                      : geoFeedback.type === 'info'
+                      ? '#1E40AF'
+                      : '#991B1B',
+                  border: `1px solid ${
+                    geoFeedback.type === 'success'
+                      ? '#BBF7D0'
+                      : geoFeedback.type === 'warning'
+                      ? '#FDE68A'
+                      : geoFeedback.type === 'info'
+                      ? '#BFDBFE'
+                      : '#FECACA'
+                  }`,
+                }}
+              >
+                {geoFeedback.type === 'success' && <CheckCircle2 size={13} />}
+                {geoFeedback.type === 'warning' && <AlertTriangle size={13} />}
+                {geoFeedback.type === 'info' && <Info size={13} />}
+                {geoFeedback.type === 'error' && <AlertCircle size={13} />}
+                <span>{geoFeedback.text}</span>
+              </div>
+            )}
+
+            {/* Ações interativas de colaboração */}
+            {!geoSkipped && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                {selectedBuilding.latitude !== null && selectedBuilding.longitude !== null ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleOneClickConfirm}
+                      disabled={geoSubmitting}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        backgroundColor: '#1E4620',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        fontSize: '0.76rem',
+                        fontWeight: 700,
+                        cursor: geoSubmitting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        opacity: geoSubmitting ? 0.7 : 1,
+                      }}
+                    >
+                      {geoSubmitting ? <Loader2 size={12} className="spin" /> : <Check size={12} />}
+                      <span>Confirmar Localização Correta</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowGeoModal(true)}
+                      disabled={geoSubmitting}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        backgroundColor: '#F3F4F6',
+                        color: '#374151',
+                        border: '1px solid #D1D5DB',
+                        fontSize: '0.76rem',
+                        fontWeight: 600,
+                        cursor: geoSubmitting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <MapPin size={12} />
+                      <span>Ajustar Pin no Mapa</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSkipGeo}
+                      disabled={geoSubmitting}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        background: 'none',
+                        color: '#6B7280',
+                        border: 'none',
+                        fontSize: '0.74rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      Não sei confirmar
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowGeoModal(true)}
+                      disabled={geoSubmitting}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        backgroundColor: '#1E4620',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        fontSize: '0.76rem',
+                        fontWeight: 700,
+                        cursor: geoSubmitting ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <MapPin size={12} />
+                      <span>Indicar Posição no Mapa</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSkipGeo}
+                      disabled={geoSubmitting}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        background: 'none',
+                        color: '#6B7280',
+                        border: 'none',
+                        fontSize: '0.74rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      Não sei confirmar agora (pular)
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         /* Busca ou Cadastro de Edifício */
@@ -579,8 +952,20 @@ export default function BuildingSelector({
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#FFFFFF')}
                     >
                       <div>
-                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#111827' }}>
-                          {b.name}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#111827' }}>
+                            {b.name}
+                          </span>
+                          {b.externalId && (
+                            <span style={{ fontSize: '0.68rem', backgroundColor: '#EFF6FF', color: '#1D4ED8', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                              🏛️ Cód: {b.externalId}
+                            </span>
+                          )}
+                          {b.verifiedByAdmin && (
+                            <span style={{ fontSize: '0.68rem', backgroundColor: '#DCFCE7', color: '#166534', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                              ✓ Oficial
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#6B7280', marginTop: '2px' }}>
                           {b.address}{b.number ? `, ${b.number}` : ''} • {b.neighborhood}
@@ -1168,6 +1553,19 @@ export default function BuildingSelector({
             setShowLocationPicker(false);
           }}
           onCancel={() => setShowLocationPicker(false)}
+        />
+      )}
+
+      {/* Modal de Validação / Ajuste de Localização de Edifício Existente (Etapa H) */}
+      {showGeoModal && selectedBuilding && (
+        <LocationPickerModal
+          isOpen={showGeoModal}
+          initialLat={selectedBuilding.latitude ?? -28.6775}
+          initialLng={selectedBuilding.longitude ?? -49.3700}
+          title={`Confirmar Localização: ${selectedBuilding.name}`}
+          addressToGeocode={`${selectedBuilding.address || ''}${selectedBuilding.number ? `, ${selectedBuilding.number}` : ''}, ${selectedBuilding.neighborhood || ''}, ${selectedBuilding.city || 'Criciúma'}, ${selectedBuilding.state || 'SC'}`}
+          onConfirm={(lat, lng) => handleConfirmGeoPin(lat, lng)}
+          onCancel={() => setShowGeoModal(false)}
         />
       )}
     </div>

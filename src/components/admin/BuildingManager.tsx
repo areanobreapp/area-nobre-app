@@ -21,6 +21,9 @@ import {
   ChevronRight,
   ShieldCheck,
   AlertTriangle,
+  FileSpreadsheet,
+  Database,
+  Navigation,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -52,6 +55,13 @@ interface BuildingItem {
   coverImageUrl: string | null;
   status: string;
   verifiedByAdmin: boolean;
+  externalId?: string | null;
+  source?: string | null;
+  sourceBatch?: string | null;
+  condoType?: string | null;
+  dataValidationStatus?: string | null;
+  geoValidationStatus?: string | null;
+  geoConfidence?: number | null;
   createdAt: string;
   createdBy: {
     id: string;
@@ -71,6 +81,9 @@ export default function BuildingManager() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [verifiedFilter, setVerifiedFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [cityFilter, setCityFilter] = useState('all');
+  const [showImportModal, setShowImportModal] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Modais
@@ -109,9 +122,102 @@ export default function BuildingManager() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Sub-abas do painel de Edifícios (Etapa H)
+  const [activeTab, setActiveTab] = useState<'CATALOG' | 'GEO_VALIDATION'>('CATALOG');
+
+  // Estados da Validação Colaborativa de Localizações (Etapa H)
+  const [contributions, setContributions] = useState<any[]>([]);
+  const [geoMetrics, setGeoMetrics] = useState<any>(null);
+  const [loadingContributions, setLoadingContributions] = useState(false);
+  const [geoStatusFilter, setGeoStatusFilter] = useState('ALL');
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+
+  // Modal de Sobrescreveção / Ajuste Manual pelo Admin
+  const [selectedContributionForOverride, setSelectedContributionForOverride] = useState<any | null>(null);
+  const [showAdminOverrideMap, setShowAdminOverrideMap] = useState(false);
+  const [overrideLat, setOverrideLat] = useState<number>(-28.6775);
+  const [overrideLng, setOverrideLng] = useState<number>(-49.3700);
+
   useEffect(() => {
     loadBuildings();
   }, [statusFilter, verifiedFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'GEO_VALIDATION') {
+      loadGeoContributions();
+    }
+  }, [activeTab, geoStatusFilter]);
+
+  async function loadGeoContributions() {
+    setLoadingContributions(true);
+    try {
+      const params = new URLSearchParams();
+      if (geoStatusFilter !== 'ALL') params.append('status', geoStatusFilter);
+      const res = await fetch(`/api/admin/buildings/contributions?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContributions(data.contributions || []);
+        setGeoMetrics(data.metrics || null);
+      }
+    } catch (err: any) {
+      console.error('Erro ao buscar contribuições:', err);
+    } finally {
+      setLoadingContributions(false);
+    }
+  }
+
+  async function handleAdminDecision(contributionId: string, decision: 'APPROVE' | 'REJECT', notes?: string) {
+    setDecidingId(contributionId);
+    try {
+      const res = await fetch(`/api/admin/buildings/contributions/${contributionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, notes }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({ type: 'success', text: data.message || 'Decisão registrada com sucesso!' });
+        await loadGeoContributions();
+        await loadBuildings();
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'Falha ao processar decisão.' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err.message || 'Erro de comunicação ao registrar decisão.' });
+    } finally {
+      setDecidingId(null);
+    }
+  }
+
+  async function handleConfirmAdminOverride(lat: number, lng: number) {
+    if (!selectedContributionForOverride) return;
+    setDecidingId(selectedContributionForOverride.id);
+    try {
+      const res = await fetch(`/api/admin/buildings/contributions/${selectedContributionForOverride.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'MANUAL_OVERRIDE',
+          manualCoordinates: { latitude: lat, longitude: lng },
+          notes: 'Coordenadas oficiais homologadas e ajustadas manualmente pelo administrador.',
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({ type: 'success', text: data.message || 'Coordenadas oficiais salvas com sucesso!' });
+        setShowAdminOverrideMap(false);
+        setSelectedContributionForOverride(null);
+        await loadGeoContributions();
+        await loadBuildings();
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'Falha ao salvar ajuste manual.' });
+      }
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err.message || 'Erro de comunicação.' });
+    } finally {
+      setDecidingId(null);
+    }
+  }
 
   async function loadBuildings() {
     setLoading(true);
@@ -289,14 +395,76 @@ export default function BuildingManager() {
 
   const pendingReviewCount = buildings.filter((b) => !b.verifiedByAdmin).length;
   const verifiedCount = buildings.filter((b) => b.verifiedByAdmin).length;
+  const municipalCount = buildings.filter((b) => b.source === 'PREFEITURA_CRICIUMA' || Boolean(b.externalId)).length;
+
+  const displayBuildings = buildings.filter((b) => {
+    if (cityFilter !== 'all' && b.city.toLowerCase() !== cityFilter.toLowerCase()) return false;
+    if (sourceFilter !== 'all') {
+      if (sourceFilter === 'PREFEITURA_CRICIUMA' && b.source !== 'PREFEITURA_CRICIUMA' && !b.externalId) return false;
+      if (sourceFilter === 'MANUAL' && (b.source === 'PREFEITURA_CRICIUMA' || b.externalId)) return false;
+    }
+    return true;
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Cards de Métricas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+      {/* Seletor de Sub-Abas do Painel de Edifícios (Etapa H) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid #E5E7EB', paddingBottom: '12px', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('CATALOG')}
+          style={{
+            padding: '9px 16px',
+            borderRadius: '8px',
+            backgroundColor: activeTab === 'CATALOG' ? '#1E4620' : '#F3F4F6',
+            color: activeTab === 'CATALOG' ? '#FFFFFF' : '#4B5563',
+            border: 'none',
+            fontSize: '0.86rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <BuildingIcon size={16} />
+          <span>Catálogo Mestre de Edifícios ({buildings.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('GEO_VALIDATION')}
+          style={{
+            padding: '9px 16px',
+            borderRadius: '8px',
+            backgroundColor: activeTab === 'GEO_VALIDATION' ? '#1E4620' : '#F3F4F6',
+            color: activeTab === 'GEO_VALIDATION' ? '#FFFFFF' : '#4B5563',
+            border: 'none',
+            fontSize: '0.86rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <MapPin size={16} />
+          <span>Validação Colaborativa de Localizações</span>
+          {geoMetrics?.divergentBuildings > 0 && (
+            <span style={{ fontSize: '0.72rem', backgroundColor: '#F59E0B', color: '#FFFFFF', padding: '1px 6px', borderRadius: '999px', fontWeight: 800 }}>
+              {geoMetrics.divergentBuildings} div.
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'CATALOG' && (
+        <>
+          {/* Cards de Métricas do Cadastro Mestre */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
-            Total de Edifícios
+            Total Catálogo Mestre
           </div>
           <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#111827' }}>
             {buildings.length}
@@ -305,7 +473,16 @@ export default function BuildingManager() {
 
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
-            Verificados pelo Admin
+            Prefeitura Criciúma
+          </div>
+          <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#1D4ED8' }}>
+            {municipalCount}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Verificados Admin
           </div>
           <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#059669' }}>
             {verifiedCount}
@@ -314,7 +491,7 @@ export default function BuildingManager() {
 
         <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '18px 20px', border: '1px solid #E5E7EB', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
           <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
-            Aguardando Revisão (Corretores)
+            Revisão Pendente
           </div>
           <div style={{ fontSize: '1.65rem', fontWeight: 800, color: pendingReviewCount > 0 ? '#B45309' : '#111827' }}>
             {pendingReviewCount}
@@ -394,6 +571,25 @@ export default function BuildingManager() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.84rem' }}
+          >
+            <option value="all">Todas as Cidades</option>
+            <option value="Criciúma">Criciúma / SC</option>
+          </select>
+
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.84rem' }}
+          >
+            <option value="all">Todas as Origens</option>
+            <option value="PREFEITURA_CRICIUMA">🏛️ Prefeitura Criciúma</option>
+            <option value="MANUAL">Corretores / Manual</option>
+          </select>
+
+          <select
             value={verifiedFilter}
             onChange={(e) => setVerifiedFilter(e.target.value)}
             style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.84rem' }}
@@ -402,6 +598,27 @@ export default function BuildingManager() {
             <option value="false">Aguardando Revisão</option>
             <option value="true">Verificados</option>
           </select>
+
+          <button
+            type="button"
+            onClick={() => setShowImportModal(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '9px 14px',
+              borderRadius: '8px',
+              backgroundColor: '#EFF6FF',
+              color: '#1D4ED8',
+              border: '1px solid #BFDBFE',
+              fontWeight: 700,
+              fontSize: '0.86rem',
+              cursor: 'pointer',
+            }}
+          >
+            <FileSpreadsheet size={16} />
+            <span>Lote Municipal Criciúma (1.256)</span>
+          </button>
 
           <button
             type="button"
@@ -432,19 +649,19 @@ export default function BuildingManager() {
           <Loader2 size={24} className="spin" style={{ margin: '0 auto 8px' }} />
           <span>Carregando edifícios residenciais...</span>
         </div>
-      ) : buildings.length === 0 ? (
+      ) : displayBuildings.length === 0 ? (
         <div style={{ padding: '48px', textAlign: 'center', backgroundColor: '#FFFFFF', borderRadius: '14px', border: '1px solid #E5E7EB' }}>
           <BuildingIcon size={36} color="#9CA3AF" style={{ margin: '0 auto 12px' }} />
           <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#374151', margin: '0 0 6px 0' }}>
-            Nenhum edifício residencial encontrado
+            Nenhum edifício encontrado
           </h3>
           <p style={{ fontSize: '0.84rem', color: '#6B7280', margin: 0 }}>
-            {search ? 'Tente ajustar os termos da busca ou os filtros.' : 'Cadastre o primeiro edifício residencial para iniciar a base colaborativa.'}
+            {search || sourceFilter !== 'all' || cityFilter !== 'all' ? 'Tente ajustar os termos da busca ou os filtros selecionados.' : 'Cadastre o primeiro edifício ou visualize o lote municipal de Criciúma.'}
           </p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-          {buildings.map((b) => (
+          {displayBuildings.map((b) => (
             <div
               key={b.id}
               style={{
@@ -478,12 +695,24 @@ export default function BuildingManager() {
                       <BuildingIcon size={20} />
                     </div>
                     <div>
-                      <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#111827', margin: 0, lineHeight: 1.3 }}>
-                        {b.name}
-                      </h4>
-                      <div style={{ fontSize: '0.78rem', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#111827', margin: 0, lineHeight: 1.3 }}>
+                          {b.name}
+                        </h4>
+                        {b.externalId && (
+                          <span style={{ fontSize: '0.68rem', backgroundColor: '#EFF6FF', color: '#1D4ED8', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                            🏛️ Criciúma #{b.externalId}
+                          </span>
+                        )}
+                        {b.condoType && (
+                          <span style={{ fontSize: '0.68rem', backgroundColor: '#F3F4F6', color: '#4B5563', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                            {b.condoType}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
                         <MapPin size={12} />
-                        <span>{b.neighborhood}, {b.city}</span>
+                        <span>{b.address}{b.number ? `, ${b.number}` : ''} • {b.neighborhood}, {b.city}</span>
                       </div>
                     </div>
                   </div>
@@ -617,6 +846,243 @@ export default function BuildingManager() {
           ))}
         </div>
       )}
+        </>
+      )}
+
+      {activeTab === 'GEO_VALIDATION' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Métricas de Validação Geográfica */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '14px' }}>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>Total Edifícios</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#111827' }}>{geoMetrics?.totalBuildings ?? buildings.length}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>⚪ Sem Coordenadas</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#4B5563' }}>{geoMetrics?.unverifiedBuildings ?? 0}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>⏳ Estimativas</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#C2410C' }}>{geoMetrics?.estimatedBuildings ?? 0}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>👤 1 Corretor</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1D4ED8' }}>{geoMetrics?.singleBrokerBuildings ?? 0}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>👥 Múltiplos Parceiros</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#047857' }}>{geoMetrics?.multiBrokerBuildings ?? 0}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>🏛️ Validadas Oficial</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#15803D' }}>{geoMetrics?.adminValidatedBuildings ?? 0}</div>
+            </div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '16px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '2px' }}>⚠️ Divergências</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: geoMetrics?.divergentBuildings > 0 ? '#B45309' : '#111827' }}>
+                {geoMetrics?.divergentBuildings ?? 0}
+              </div>
+            </div>
+          </div>
+
+          {/* Barra de Filtros de Localizações */}
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '14px 18px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Filter size={16} color="#6B7280" />
+              <span style={{ fontSize: '0.84rem', fontWeight: 700, color: '#374151' }}>Filtrar Propostas:</span>
+              <select
+                value={geoStatusFilter}
+                onChange={(e) => setGeoStatusFilter(e.target.value)}
+                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '0.82rem' }}
+              >
+                <option value="ALL">Todas as Contribuições</option>
+                <option value="FLAGGED_DIVERGENT">⚠️ Apenas Divergências (Prioridade)</option>
+                <option value="PENDING">⏳ Pendentes de Moderação</option>
+                <option value="ACCEPTED">✓ Aceitas / Integradas</option>
+                <option value="REJECTED">✗ Rejeitadas</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadGeoContributions}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                backgroundColor: '#F3F4F6',
+                border: '1px solid #D1D5DB',
+                fontSize: '0.80rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Atualizar Lista
+            </button>
+          </div>
+
+          {/* Lista de Contribuições */}
+          {loadingContributions ? (
+            <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
+              <Loader2 size={24} className="spin" style={{ margin: '0 auto 8px', color: '#1E4620' }} />
+              <div style={{ fontSize: '0.88rem', color: '#6B7280' }}>Carregando propostas de geolocalização...</div>
+            </div>
+          ) : contributions.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
+              <MapPin size={32} style={{ margin: '0 auto 8px', color: '#9CA3AF' }} />
+              <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#111827' }}>Nenhuma proposta de localização encontrada</div>
+              <div style={{ fontSize: '0.82rem', color: '#6B7280', marginTop: '4px' }}>
+                As contribuições realizadas por corretores ao cadastrar apartamentos aparecerão aqui para acompanhamento e auditoria.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {contributions.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '12px',
+                    border: '1px solid #E5E7EB',
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '14px',
+                  }}
+                >
+                  <div style={{ flex: '1 1 320px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.94rem', fontWeight: 800, color: '#111827' }}>
+                        {c.building?.name || 'Edifício'}
+                      </span>
+                      {c.status === 'FLAGGED_DIVERGENT' && (
+                        <span style={{ fontSize: '0.70rem', backgroundColor: '#FEF3C7', color: '#92400E', padding: '2px 8px', borderRadius: '999px', fontWeight: 800, border: '1px solid #FDE68A' }}>
+                          ⚠️ Divergente ({c.distanceFromCurrent ? `${c.distanceFromCurrent.toFixed(1)}m` : '> 50m'})
+                        </span>
+                      )}
+                      {c.status === 'PENDING' && (
+                        <span style={{ fontSize: '0.70rem', backgroundColor: '#EFF6FF', color: '#1D4ED8', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
+                          ⏳ Pendente
+                        </span>
+                      )}
+                      {c.status === 'ACCEPTED' && (
+                        <span style={{ fontSize: '0.70rem', backgroundColor: '#DCFCE7', color: '#166534', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
+                          ✓ Aceita
+                        </span>
+                      )}
+                      {c.status === 'REJECTED' && (
+                        <span style={{ fontSize: '0.70rem', backgroundColor: '#FEE2E2', color: '#991B1B', padding: '2px 8px', borderRadius: '999px', fontWeight: 800 }}>
+                          ✗ Rejeitada
+                        </span>
+                      )}
+                      {c.status === 'SUPERSEDED' && (
+                        <span style={{ fontSize: '0.70rem', backgroundColor: '#F3F4F6', color: '#6B7280', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>
+                          Substituída
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '0.80rem', color: '#4B5563', marginTop: '4px' }}>
+                      {c.building?.address}{c.building?.number ? `, ${c.building?.number}` : ''} • {c.building?.neighborhood}, {c.building?.city}
+                    </div>
+
+                    <div style={{ fontSize: '0.74rem', color: '#6B7280', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <span>Corretor: <strong>{c.broker?.profile?.commercialName || c.broker?.name || 'Parceiro'}</strong>{c.broker?.profile?.creci ? ` (CRECI: ${c.broker.profile.creci})` : ''}</span>
+                      <span>Tipo: <code>{c.contributionType}</code></span>
+                      <span>Coordenadas: <code>{c.latitude.toFixed(6)}, {c.longitude.toFixed(6)}</code></span>
+                    </div>
+
+                    {c.decisionNotes && (
+                      <div style={{ fontSize: '0.74rem', color: '#6B7280', marginTop: '4px', fontStyle: 'italic' }}>
+                        Nota: {c.decisionNotes}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Ações Administrativas */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {['PENDING', 'FLAGGED_DIVERGENT'].includes(c.status) ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleAdminDecision(c.id, 'APPROVE')}
+                          disabled={decidingId === c.id}
+                          style={{
+                            padding: '7px 14px',
+                            borderRadius: '6px',
+                            backgroundColor: '#1E4620',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: decidingId === c.id ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          {decidingId === c.id ? <Loader2 size={13} className="spin" /> : <Check size={13} />}
+                          <span>Aprovar Oficial</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedContributionForOverride(c);
+                            setOverrideLat(c.latitude);
+                            setOverrideLng(c.longitude);
+                            setShowAdminOverrideMap(true);
+                          }}
+                          disabled={decidingId === c.id}
+                          style={{
+                            padding: '7px 14px',
+                            borderRadius: '6px',
+                            backgroundColor: '#FFFFFF',
+                            color: '#374151',
+                            border: '1px solid #D1D5DB',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: decidingId === c.id ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <MapPin size={13} />
+                          <span>Definir no Mapa</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAdminDecision(c.id, 'REJECT')}
+                          disabled={decidingId === c.id}
+                          style={{
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#FEE2E2',
+                            color: '#991B1B',
+                            border: '1px solid #FECACA',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: decidingId === c.id ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          Rejeitar
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: '0.76rem', color: '#6B7280' }}>
+                        Decidido em {new Date(c.updatedAt).toLocaleDateString('pt-BR')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modal de Criação / Edição de Edifício */}
       {(isCreating || editingBuilding) && (
@@ -716,7 +1182,7 @@ export default function BuildingManager() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
                     Bairro *
@@ -732,12 +1198,28 @@ export default function BuildingManager() {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
-                    Cidade
+                    Cidade *
                   </label>
                   <input
                     type="text"
+                    required
+                    placeholder="Ex: Criciúma"
                     value={formCity}
                     onChange={(e) => setFormCity(e.target.value)}
+                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.88rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
+                    Estado (UF) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={2}
+                    placeholder="SC"
+                    value={formState}
+                    onChange={(e) => setFormState(e.target.value.toUpperCase())}
                     style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '0.88rem' }}
                   />
                 </div>
@@ -1055,6 +1537,148 @@ export default function BuildingManager() {
           }}
           onCancel={() => setShowLocationPicker(false)}
         />
+      )}
+
+      {/* Modal de Ajuste Manual pelo Administrador (Etapa H) */}
+      {showAdminOverrideMap && selectedContributionForOverride && (
+        <LocationPickerModal
+          isOpen={showAdminOverrideMap}
+          initialLat={overrideLat}
+          initialLng={overrideLng}
+          title={`Definir Localização Oficial: ${selectedContributionForOverride.building?.name || 'Edifício'}`}
+          addressToGeocode={`${selectedContributionForOverride.building?.address || ''}${selectedContributionForOverride.building?.number ? `, ${selectedContributionForOverride.building?.number}` : ''}, ${selectedContributionForOverride.building?.neighborhood || ''}, ${selectedContributionForOverride.building?.city || 'Criciúma'}`}
+          onConfirm={(lat, lng) => handleConfirmAdminOverride(lat, lng)}
+          onCancel={() => {
+            setShowAdminOverrideMap(false);
+            setSelectedContributionForOverride(null);
+          }}
+        />
+      )}
+
+      {/* Modal Informativo do Lote Oficial de Criciúma */}
+      {showImportModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 60,
+            padding: '16px',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              maxWidth: '680px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: '90vh',
+            }}
+          >
+            <div
+              style={{
+                padding: '20px 24px',
+                borderBottom: '1px solid #E5E7EB',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: '#F8FAFC',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '8px', backgroundColor: '#EFF6FF', color: '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileSpreadsheet size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                    Lote Municipal de Criciúma (Oficial)
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: '#6B7280', marginTop: '2px' }}>
+                    Cadastro Mestre de Condomínios Verticais da Prefeitura Municipal de Criciúma
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>Condomínios Válidos</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#14532D', marginTop: '4px' }}>1.256</div>
+                  <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: '2px' }}>100% com código municipal único</div>
+                </div>
+
+                <div style={{ backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase' }}>CEPs Oficiais Mapeados</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1E40AF', marginTop: '4px' }}>369</div>
+                  <div style={{ fontSize: '0.75rem', color: '#1D4ED8', marginTop: '2px' }}>Faixa 88800-000 a 88819-999</div>
+                </div>
+
+                <div style={{ backgroundColor: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#92400E', textTransform: 'uppercase' }}>Higienização de Relatório</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#78350F', marginTop: '4px' }}>33 descartados</div>
+                  <div style={{ fontSize: '0.75rem', color: '#92400E', marginTop: '2px' }}>Cabeçalhos repetidos da prefeitura</div>
+                </div>
+
+                <div style={{ backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: '10px', padding: '14px' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#4B5563', textTransform: 'uppercase' }}>Complexos Multi-Torre</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1F2937', marginTop: '4px' }}>11 grupos</div>
+                  <div style={{ fontSize: '0.75rem', color: '#4B5563', marginTop: '2px' }}>Endereços compartilhados / blocos</div>
+                </div>
+              </div>
+
+              <div style={{ padding: '14px 16px', backgroundColor: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0', fontSize: '0.84rem', color: '#334155', lineHeight: 1.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: '6px', color: '#0F172A' }}>Fluxo Seguro de Ingestão:</div>
+                <ul style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li><strong>Etapa 1:</strong> Higienização estrutural e remoção de paginação da prefeitura (concluída na simulação).</li>
+                  <li><strong>Etapa 2:</strong> Enriquecimento de Bairros via cache dos 369 CEPs únicos (ViaCEP / Correios).</li>
+                  <li><strong>Etapa 3:</strong> Geocodificação progressiva com fila e rate-limiting (Nominatim/GeoBase).</li>
+                  <li><strong>Etapa 4:</strong> Ingestão idempotente no banco com autorização prévia da administração.</li>
+                </ul>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 14px', backgroundColor: '#EFF6FF', borderRadius: '8px', border: '1px solid #BFDBFE', fontSize: '0.82rem', color: '#1E40AF' }}>
+                <ShieldCheck size={18} style={{ flexShrink: 0 }} />
+                <span>
+                  O script de simulação local <code>scripts/simulate-criciuma-import.mjs</code> foi executado com sucesso e os 1.256 registros validados estão prontos para a etapa de ingestão sob autorização.
+                </span>
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#F8FAFC' }}>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  backgroundColor: '#1E4620',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.86rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

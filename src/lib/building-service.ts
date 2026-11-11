@@ -1,6 +1,8 @@
 import { prisma as defaultPrisma } from '@/lib/db';
 import type { PrismaClient } from '@prisma/client';
 
+export * from './building-location-service';
+
 /**
  * Normaliza o nome do edifício para buscas e prevenção de duplicidades:
  * - Remove acentos / diacríticos
@@ -16,11 +18,11 @@ export function normalizeBuildingName(rawName: string): string {
     .replace(/[\u0300-\u036f]/g, '') // Remove diacríticos
     .toLowerCase();
 
-  // Remove múltiplos prefixos comuns em sequência ("Edifício Residencial", "Edifício Condomínio", etc.)
+  // Remove múltiplos prefixos comuns em sequência ("Edifício Residencial", "Edifício Condomínio", "Ed. Cond. Res.", etc.)
   let previous = '';
   while (previous !== normalized) {
     previous = normalized;
-    normalized = normalized.replace(/^(edificio|ed\.|ed|residencial|condominio|cond\.|cond)\s+/i, '');
+    normalized = normalized.replace(/^(edificio|ed\.|ed|residencial|res\.|res|condominio|cond\.|cond)\s+/i, '');
   }
 
   // Remove caracteres especiais mantendo apenas letras, números e espaços

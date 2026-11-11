@@ -318,7 +318,7 @@ export default function AdminPage() {
           }}
         >
           <Building size={18} />
-          <span>Edifícios Residenciais</span>
+          <span>Edifícios e Condomínios</span>
         </button>
 
         <button
