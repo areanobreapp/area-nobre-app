@@ -325,17 +325,20 @@ export default function ParcelBoundaryModal({
   }
 
   function handleUndo() {
+    if (vertices.length === 0) return;
     if (isClosed) {
       setIsClosed(false);
-      return;
     }
     setVertices((prev) => prev.slice(0, prev.length - 1));
   }
 
   function handleClear() {
-    setVertices([]);
-    setIsClosed(false);
-    setCalculatedArea(0);
+    if (vertices.length === 0) return;
+    if (window.confirm('Deseja realmente limpar toda a demarcação desenhada? Todos os vértices serão removidos.')) {
+      setVertices([]);
+      setIsClosed(false);
+      setCalculatedArea(0);
+    }
   }
 
   function handleSave() {
@@ -538,6 +541,7 @@ export default function ParcelBoundaryModal({
                   type="button"
                   onClick={handleUndo}
                   disabled={vertices.length === 0}
+                  title="Remove o último ponto adicionado na demarcação"
                   style={{
                     padding: '8px 14px',
                     fontSize: '0.82rem',
@@ -553,13 +557,14 @@ export default function ParcelBoundaryModal({
                   }}
                 >
                   <Undo2 size={15} />
-                  <span>Desfazer</span>
+                  <span>Desfazer último ponto</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={handleClear}
                   disabled={vertices.length === 0}
+                  title="Limpa todos os pontos e reinicia a demarcação (solicita confirmação)"
                   style={{
                     padding: '8px 14px',
                     fontSize: '0.82rem',
@@ -575,7 +580,7 @@ export default function ParcelBoundaryModal({
                   }}
                 >
                   <Trash2 size={15} />
-                  <span>Limpar</span>
+                  <span>Limpar demarcação</span>
                 </button>
               </div>
 

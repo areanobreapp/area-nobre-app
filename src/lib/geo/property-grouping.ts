@@ -59,14 +59,16 @@ export function consolidateProperties<T extends {
   physicalPropertyId?: string | null;
   physicalProperty?: {
     id: string;
-    sharedPrice?: number | string | null;
+    sharedPrice?: number | string | any | null;
     activeListingsCount?: number;
     primaryListingId?: string | null;
     listings?: any[];
   } | null;
+  responsibleBrokerId?: string | null;
   responsibleBroker?: any;
+  userId?: string | null;
   user?: any;
-}>(rawProperties: T[]): Array<T & {
+}>(rawProperties: T[], currentUserId?: string | null): Array<T & {
   canonicalPrice: number;
   brokerCount: number;
   coListings: CoListingSummary[];
@@ -109,8 +111,13 @@ export function consolidateProperties<T extends {
   }> = [];
 
   physicalGroupMap.forEach((groupings, physicalId) => {
-    // Elege o anúncio de representação (preferência ao primário oficial ou mais antigo)
-    const primary = groupings.find((g) => g.isPrimaryListing) || groupings[0];
+    // Se o corretor autenticado possui um anúncio ativo próprio nesta unidade, prioriza o anúncio próprio como representação
+    const userListing = currentUserId
+      ? groupings.find((g) => (g.responsibleBrokerId && g.responsibleBrokerId === currentUserId) || g.userId === currentUserId)
+      : null;
+
+    // Caso contrário, elege o anúncio de representação (preferência ao primário oficial ou mais antigo)
+    const primary = userListing || groupings.find((g) => g.isPrimaryListing) || groupings[0];
 
     // Preço canônico obrigatório: PhysicalProperty.sharedPrice
     const sharedPrice = primary.physicalProperty?.sharedPrice != null
@@ -147,6 +154,9 @@ export function consolidateProperties<T extends {
     }
 
     const coListings = Array.from(coListingsMap.values()).sort((a, b) => {
+      // Prioriza anúncio representativo selecionado
+      if (a.id === primary.id) return -1;
+      if (b.id === primary.id) return 1;
       if (a.isPrimaryListing && !b.isPrimaryListing) return -1;
       if (!a.isPrimaryListing && b.isPrimaryListing) return 1;
       return 0;

@@ -63,12 +63,12 @@ interface BuildingItem {
   geoValidationStatus?: string | null;
   geoConfidence?: number | null;
   createdAt: string;
-  createdBy: {
+  createdBy?: {
     id: string;
     name: string;
     email: string;
     role: string;
-  };
+  } | null;
   _count?: {
     units: number;
     properties: number;
@@ -283,7 +283,16 @@ export default function BuildingManager() {
     setFormLng(b.longitude);
     setFormFloors(b.totalFloors ? String(b.totalFloors) : '');
     setFormUnitsPerFloor(b.unitsPerFloor ? String(b.unitsPerFloor) : '');
-    setFormTowers(b.towers ? (Array.isArray(JSON.parse(b.towers || '[]')) ? JSON.parse(b.towers || '[]').join(', ') : b.towers) : '');
+    let parsedTowersStr = '';
+    if (b.towers) {
+      try {
+        const parsed = JSON.parse(b.towers);
+        parsedTowersStr = Array.isArray(parsed) ? parsed.join(', ') : String(b.towers);
+      } catch {
+        parsedTowersStr = String(b.towers);
+      }
+    }
+    setFormTowers(parsedTowersStr);
     setFormLandRegistry(b.landRegistryNumber || '');
     setFormLandOffice(b.landRegistryOffice || '');
     setFormHasPool(Boolean(b.hasPool));
@@ -791,7 +800,7 @@ export default function BuildingManager() {
 
                 {/* Métricas e cadastro */}
                 <div style={{ fontSize: '0.76rem', color: '#9CA3AF', borderTop: '1px solid #F3F4F6', paddingTop: '8px', marginTop: '10px' }}>
-                  <span>Cadastrado por: <strong>{b.createdBy.name}</strong></span>
+                  <span>Cadastrado por: <strong>{b.createdBy?.name || 'Sistema / Municipal'}</strong></span>
                   {b._count && (
                     <span style={{ marginLeft: '10px' }}>
                       • <strong>{b._count.properties}</strong> anúncio(s) • <strong>{b._count.units}</strong> unidade(s)

@@ -1217,9 +1217,14 @@ export default function BuildingSelector({
                     <Users size={18} color="#2563EB" />
                     <span>Imóvel Compartilhado — Vaga {slotInfo.activeListingsCount + 1} de 3</span>
                   </div>
-                  <span style={{ fontSize: '0.75rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#DBEAFE', color: '#1D4ED8', fontWeight: 700 }}>
-                    {slotInfo.availableSlots} {slotInfo.availableSlots === 1 ? 'vaga restante' : 'vagas restantes'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#DBEAFE', color: '#1E40AF', fontWeight: 700 }}>
+                      {slotInfo.activeListingsCount} de 3 vagas preenchidas
+                    </span>
+                    <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#EFF6FF', color: '#2563EB', fontWeight: 600, border: '1px solid #BFDBFE' }}>
+                      {slotInfo.availableSlots} {slotInfo.availableSlots === 1 ? 'vaga restante' : 'vagas restantes'}
+                    </span>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                   <span style={{ fontSize: '0.82rem', color: '#1E3A8A' }}>Preço único compartilhado:</span>

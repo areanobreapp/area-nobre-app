@@ -512,11 +512,11 @@ export default function HomeMap({
       return matchedItems.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
     }
 
-    const consolidatedProps = consolidateProperties(initialProperties);
+    const consolidatedProps = consolidateProperties(initialProperties, user?.id);
     const props = consolidatedProps.map((p) => ({ ...p, isDevelopment: false as const }));
     const devs = initialDevelopments.map((d) => ({ ...d, isDevelopment: true as const }));
     return [...props, ...devs];
-  }, [initialProperties, initialDevelopments, activeSearchContext]);
+  }, [initialProperties, initialDevelopments, activeSearchContext, user?.id]);
 
   // Contagens para o seletor de escopo Todos | Meus imóveis
   const allSharedCount = useMemo(() => allItems.length, [allItems]);
@@ -3095,7 +3095,7 @@ export default function HomeMap({
                 borderRadius: 'var(--radius-sm)',
               }}
             >
-              <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? 'Abrir anúncio principal' : 'Ver imóvel')}</span>
+              <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? (selectedItem.userId === user?.id || selectedItem.responsibleBrokerId === user?.id ? 'Ver meu anúncio' : 'Abrir anúncio principal') : 'Ver imóvel')}</span>
               <ArrowRight size={14} />
             </Link>
           </div>

@@ -53,6 +53,20 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Proteção contra perda de dados acidental (beforeunload)
+  React.useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (isDirty && !loading) {
+        e.preventDefault();
+        e.returnValue = 'Você possui alterações não salvas no cadastro do imóvel. Deseja realmente sair?';
+        return e.returnValue;
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty, loading]);
 
   // Autorização do Proprietário (Fase 1 / Ponto 20 / Etapa 1.4)
   const [hasOwnerAuthorization, setHasOwnerAuthorization] = useState(false);
@@ -853,6 +867,7 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
         throw new Error(data.error || 'Erro ao salvar imóvel.');
       }
 
+      setIsDirty(false);
       const matchQuery = data.matchCount ? `?newMatches=${data.matchCount}` : '';
       router.push(`/imoveis/${data.property.id}${matchQuery}`);
       router.refresh();
@@ -979,11 +994,20 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   }
 
   return (
-    <div style={{ maxWidth: '840px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <div
+      style={{ maxWidth: '840px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}
+      onInputCapture={() => !isDirty && setIsDirty(true)}
+      onChangeCapture={() => !isDirty && setIsDirty(true)}
+    >
       {/* Voltar */}
       <button
         type="button"
-        onClick={() => router.back()}
+        onClick={() => {
+          if (isDirty && !window.confirm('Você possui alterações não salvas no cadastro do imóvel. Deseja realmente voltar e descartar os dados?')) {
+            return;
+          }
+          router.back();
+        }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',

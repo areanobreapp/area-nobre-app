@@ -197,13 +197,18 @@ export async function GET(
 
     const exposureCheck = (isOwner || isAdmin) ? await canPropertyBePubliclyExposed(property.id) : null;
 
+    // Detecta se o corretor autenticado possui um anúncio ativo próprio vinculado a este mesmo imóvel físico
+    const userOwnListing = property.physicalProperty?.listings?.find(
+      (l) => l.userId === user.id || l.responsibleBrokerId === user.id
+    );
+
     const sanitizedProperty: any = {
       ...property,
       internalNotes: (!isOwner && !isAdmin) ? null : property.internalNotes,
       exchangeNotes: (!isOwner && !isAdmin) ? null : property.exchangeNotes,
       registryNumber: (!isOwner && !isAdmin) ? null : property.registryNumber,
       boundary: (!isOwner && !isAdmin) ? null : property.boundary,
-      physicalProperty: (!isOwner && !isAdmin) ? null : property.physicalProperty,
+      physicalProperty: property.physicalProperty,
       matches: formattedMatches,
       authorizationState: exposureCheck,
     };
@@ -212,6 +217,7 @@ export async function GET(
       success: true,
       property: sanitizedProperty,
       isOwner: isOwner || isAdmin,
+      userOwnListingId: userOwnListing?.id || null,
     });
   } catch (error) {
     console.error('Erro ao buscar imóvel:', error);

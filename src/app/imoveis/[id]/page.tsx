@@ -301,6 +301,13 @@ export default function ImovelDetalhesPage({
         const res = await fetch(`/api/properties/${id}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Erro ao carregar imóvel.');
+
+        // Se o corretor autenticado possuir um anúncio próprio para esta unidade física, prioriza o próprio anúncio
+        if (!data.isOwner && data.userOwnListingId && data.userOwnListingId !== id) {
+          router.replace(`/imoveis/${data.userOwnListingId}`);
+          return;
+        }
+
         setProperty(data.property);
         setIsOwner(data.isOwner ?? true);
         if (data.property?.physicalPropertyId) {
@@ -313,7 +320,7 @@ export default function ImovelDetalhesPage({
       }
     }
     loadProperty();
-  }, [id]);
+  }, [id, router]);
 
   async function handleToggleStatus(newStatus: string) {
     try {
@@ -859,7 +866,7 @@ export default function ImovelDetalhesPage({
               </h2>
             </div>
             <span style={{ fontSize: '0.76rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#E0F2FE', color: '#0369A1', fontWeight: 700 }}>
-              {property.physicalProperty?.activeListingsCount || 1} de 3 vagas preenchidas
+              {property.physicalProperty?.activeListingsCount ?? (property.physicalProperty?.listings?.length || 1)} de 3 vagas preenchidas
             </span>
           </div>
 
@@ -1247,21 +1254,25 @@ export default function ImovelDetalhesPage({
 
                       {topBadges.length > 0 && (
                         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                          {topBadges.map((badge: string, bIdx: number) => (
-                            <span
-                              key={bIdx}
-                              style={{
-                                fontSize: '0.74rem',
-                                padding: '2px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                backgroundColor: 'var(--bg-subtle)',
-                                color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-light)',
-                              }}
-                            >
-                              {badge}
-                            </span>
-                          ))}
+                          {topBadges.map((badge: any, bIdx: number) => {
+                            const label = typeof badge === 'string' ? badge : (badge?.title || badge?.detail || '');
+                            if (!label) return null;
+                            return (
+                              <span
+                                key={bIdx}
+                                style={{
+                                  fontSize: '0.74rem',
+                                  padding: '2px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  backgroundColor: 'var(--bg-subtle)',
+                                  color: 'var(--text-secondary)',
+                                  border: '1px solid var(--border-light)',
+                                }}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
