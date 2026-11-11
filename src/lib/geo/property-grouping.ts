@@ -515,19 +515,29 @@ export function groupPropertiesForMap<T extends {
     });
 
     // Agrupamento por andar e torre
-    const floorMap = new Map<string, { floor: number | null; tower: string | null; floorLabel: string; units: BuildingUnitDetail[] }>();
+    interface FloorEntry {
+      floor: number | null;
+      tower: string | null;
+      floorLabel: string;
+      units: BuildingUnitDetail[];
+    }
+    const floorMap = new Map<string, FloorEntry>();
 
     for (const u of units) {
       const towerPrefix = u.tower ? `tower_${u.tower.trim().toLowerCase()}_` : '';
       const key = u.floor !== null ? `${towerPrefix}floor_${u.floor}` : `${towerPrefix}floor_unknown`;
-      const entry = floorMap.get(key) || {
-        floor: u.floor,
-        tower: u.tower,
-        floorLabel: u.floorLabel,
-        units: [],
-      };
-      entry.units.push(u);
-      floorMap.set(key, entry);
+      const existingEntry = floorMap.get(key);
+      if (!existingEntry) {
+        const newEntry: FloorEntry = {
+          floor: u.floor,
+          tower: u.tower || null,
+          floorLabel: u.floorLabel,
+          units: [u],
+        };
+        floorMap.set(key, newEntry);
+      } else {
+        existingEntry.units.push(u);
+      }
     }
 
     // Ordenação dos andares (Torre primeiro, depois crescente por andar; nulos ao fim)
