@@ -267,3 +267,337 @@ export function consolidateMatches(rawMatches: any[]): any[] {
   return [...consolidated, ...nonGrouped].sort((a, b) => (b.score || 0) - (a.score || 0));
 }
 
+// ==============================================================================
+// ÁREA NOBRE — ETAPA J.2.C.5
+// Agrupamento de Apartamentos por Edifício no Mapa
+// ==============================================================================
+
+export interface BuildingUnitDetail {
+  id: string; // ID do anúncio representativo
+  physicalPropertyId: string;
+  unitId?: string | null;
+  unitNumber?: string | null;
+  normalizedUnit?: string | null;
+  tower?: string | null;
+  floor: number | null;
+  floorLabel: string;
+  title: string;
+  price: number; // Preço canônico compartilhado
+  bedrooms: number;
+  suites: number;
+  bathrooms: number;
+  parkingSpaces: number;
+  privateArea?: number | null;
+  totalArea?: number | null;
+  coListings: CoListingSummary[];
+  isMine: boolean;
+  coverImageUrl?: string | null;
+  status: string;
+  property: any;
+}
+
+export interface BuildingFloorGroup {
+  floor: number | null;
+  floorLabel: string;
+  units: BuildingUnitDetail[];
+}
+
+export interface BuildingGroupItem {
+  id: string;
+  isBuildingGroup: true;
+  isDevelopment: false;
+  buildingId: string;
+  name: string;
+  normalizedName?: string | null;
+  alternativeNames?: string | null;
+  address?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  latitude: number;
+  longitude: number;
+  coverImageUrl?: string | null;
+  boundary?: string | null;
+  boundaryArea?: number | null;
+  totalUnitsCount: number; // Quantidade de unidades físicas distintas disponíveis
+  totalListingsCount: number; // Quantidade total de anúncios vinculados
+  minPrice: number; // Menor preço canônico
+  floors: BuildingFloorGroup[];
+  units: BuildingUnitDetail[];
+  hasMyListing: boolean;
+  propertyType: string;
+  purpose: string;
+  title: string;
+  price: number;
+}
+
+export function extractFloorNumber(
+  floorValue: number | null | undefined,
+  unitNumber?: string | null,
+  complement?: string | null,
+  title?: string | null
+): number | null {
+  if (floorValue !== null && floorValue !== undefined && !isNaN(Number(floorValue))) {
+    return Number(floorValue);
+  }
+
+  const combined = `${unitNumber || ''} ${complement || ''} ${title || ''}`.trim();
+  if (!combined) return null;
+
+  // 1. Padrão explícito: "3º andar", "4 andar", "10º pav"
+  const matchAndar = combined.match(/\b(\d+)\s*[ºªo°]?\s*(?:andar|pavimento|pav)\b/i);
+  if (matchAndar) {
+    return parseInt(matchAndar[1], 10);
+  }
+
+  // 2. Padrão numérico de unidade autônoma clássica: "301", "401", "1204", "Ap 302"
+  const matchUnit = combined.match(/\b(?:ap|apto|apartamento|unidade|unid)?\s*([1-9][0-9]{2,3})\b/i);
+  if (matchUnit) {
+    const num = parseInt(matchUnit[1], 10);
+    return Math.floor(num / 100);
+  }
+
+  return null;
+}
+
+export function formatFloorLabel(floor: number | null): string {
+  if (floor === null || floor === undefined) return 'Andar não informado';
+  if (floor === 0) return 'Térreo';
+  if (floor < 0) return `${Math.abs(floor)}º Subsolo`;
+  return `${floor}º Andar`;
+}
+
+/**
+ * Agrupa apartamentos pelo Edifício mestre, garantindo a hierarquia estrita:
+ * Edifício > Andar > Unidade Física (PhysicalProperty / BuildingUnit) > Anúncio (Property) > Corretor
+ * 
+ * Imóveis que não pertencem a edifícios cadastrados (casas, terrenos e empreendimentos)
+ * são preservados de forma individual e independente.
+ */
+export function groupPropertiesForMap<T extends {
+  id: string;
+  price?: number;
+  canonicalPrice?: number;
+  title?: string;
+  name?: string;
+  isDevelopment?: boolean;
+  propertyType?: string;
+  purpose?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  address?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  buildingId?: string | null;
+  building?: any;
+  physicalPropertyId?: string | null;
+  physicalProperty?: any;
+  coListings?: CoListingSummary[];
+  brokerCount?: number;
+  images?: any[];
+  bedrooms?: number;
+  suites?: number;
+  bathrooms?: number;
+  parkingSpaces?: number;
+  privateArea?: number | null;
+  totalArea?: number | null;
+  status?: string;
+  userId?: string | null;
+  responsibleBrokerId?: string | null;
+}>(
+  items: T[],
+  currentUserId?: string | null
+): {
+  buildingGroups: BuildingGroupItem[];
+  standaloneItems: T[];
+  allMapEntities: Array<BuildingGroupItem | T>;
+} {
+  const buildingMap = new Map<string, T[]>();
+  const standaloneItems: T[] = [];
+
+  for (const item of items) {
+    // Empreendimentos em lançamento já possuem agrupamento próprio de tipologias
+    if (item.isDevelopment) {
+      standaloneItems.push(item);
+      continue;
+    }
+
+    const b = item.building || item.physicalProperty?.building;
+    const bId = item.buildingId || item.physicalProperty?.buildingId || b?.id;
+
+    const hasValidCoords =
+      b &&
+      b.latitude != null &&
+      b.longitude != null &&
+      !isNaN(b.latitude) &&
+      !isNaN(b.longitude);
+
+    // Apenas agrupa se for apartamento vinculado a um Edifício válido com coordenadas
+    const isApartment = (item.propertyType || '').toLowerCase() === 'apartamento';
+
+    if (bId && b && hasValidCoords && isApartment) {
+      const list = buildingMap.get(bId) || [];
+      list.push(item);
+      buildingMap.set(bId, list);
+    } else {
+      standaloneItems.push(item);
+    }
+  }
+
+  const buildingGroups: BuildingGroupItem[] = [];
+
+  buildingMap.forEach((buildingProps, bId) => {
+    const firstProp = buildingProps[0];
+    const b = firstProp.building || firstProp.physicalProperty?.building;
+
+    const units: BuildingUnitDetail[] = buildingProps.map((p) => {
+      const unitInfo = p.physicalProperty?.unit;
+      const unitNum = unitInfo?.unitNumber || (p as any).unitNumber || null;
+      const complement = (p as any).complement || null;
+      const title = p.title || 'Apartamento';
+
+      const tower = unitInfo?.tower || (p as any).tower || null;
+      const floor = extractFloorNumber(unitInfo?.floor, unitNum, complement, title);
+      const baseFloorLabel = formatFloorLabel(floor);
+      const floorLabel = tower ? `${tower} — ${baseFloorLabel}` : baseFloorLabel;
+
+      const price = p.canonicalPrice != null ? Number(p.canonicalPrice) : Number(p.price);
+
+      const coListings = p.coListings || [
+        {
+          id: p.id,
+          title,
+          price,
+          isPrimaryListing: true,
+          responsibleBroker: (p as any).responsibleBroker || (p as any).user,
+        },
+      ];
+
+      const isMine =
+        (currentUserId && p.responsibleBrokerId === currentUserId) ||
+        (currentUserId && p.userId === currentUserId) ||
+        (currentUserId &&
+          coListings.some(
+            (c: any) =>
+              c.responsibleBroker?.id === currentUserId ||
+              c.user?.id === currentUserId ||
+              c.responsibleBrokerId === currentUserId ||
+              c.userId === currentUserId
+          ));
+
+      const coverImg =
+        p.images && p.images.length > 0
+          ? (typeof p.images[0] === 'string' ? p.images[0] : p.images[0].url)
+          : null;
+
+      return {
+        id: p.id,
+        physicalPropertyId: p.physicalPropertyId || p.physicalProperty?.id || p.id,
+        unitId: unitInfo?.id || null,
+        unitNumber: unitNum,
+        normalizedUnit: unitInfo?.normalizedUnit || null,
+        tower: unitInfo?.tower || null,
+        floor,
+        floorLabel,
+        title,
+        price,
+        bedrooms: unitInfo?.bedrooms ?? p.bedrooms ?? 0,
+        suites: unitInfo?.suites ?? p.suites ?? 0,
+        bathrooms: unitInfo?.bathrooms ?? p.bathrooms ?? 0,
+        parkingSpaces: unitInfo?.parkingSpaces ?? p.parkingSpaces ?? 0,
+        privateArea: unitInfo?.privateArea ?? p.privateArea ?? null,
+        totalArea: unitInfo?.totalArea ?? p.totalArea ?? null,
+        coListings,
+        isMine: Boolean(isMine),
+        coverImageUrl: coverImg,
+        status: p.status || 'Disponível',
+        property: p,
+      };
+    });
+
+    // Agrupamento por andar e torre
+    const floorMap = new Map<string, { floor: number | null; tower: string | null; floorLabel: string; units: BuildingUnitDetail[] }>();
+
+    for (const u of units) {
+      const towerPrefix = u.tower ? `tower_${u.tower.trim().toLowerCase()}_` : '';
+      const key = u.floor !== null ? `${towerPrefix}floor_${u.floor}` : `${towerPrefix}floor_unknown`;
+      const entry = floorMap.get(key) || {
+        floor: u.floor,
+        tower: u.tower,
+        floorLabel: u.floorLabel,
+        units: [],
+      };
+      entry.units.push(u);
+      floorMap.set(key, entry);
+    }
+
+    // Ordenação dos andares (Torre primeiro, depois crescente por andar; nulos ao fim)
+    const sortedFloors = Array.from(floorMap.values()).sort((a, b) => {
+      if (a.tower && b.tower && a.tower !== b.tower) {
+        return a.tower.localeCompare(b.tower, undefined, { numeric: true });
+      }
+      if (a.tower && !b.tower) return -1;
+      if (!a.tower && b.tower) return 1;
+
+      if (a.floor === null && b.floor !== null) return 1;
+      if (a.floor !== null && b.floor === null) return -1;
+      if (a.floor === null && b.floor === null) return 0;
+      return (a.floor as number) - (b.floor as number);
+    });
+
+    // Ordenação das unidades dentro de cada andar por número de unidade ou preço
+    sortedFloors.forEach((f) => {
+      f.units.sort((a, b) => {
+        if (a.unitNumber && b.unitNumber) {
+          return a.unitNumber.localeCompare(b.unitNumber, undefined, { numeric: true });
+        }
+        return a.price - b.price;
+      });
+    });
+
+    const prices = units.map((u) => u.price).filter((pr) => pr > 0);
+    const minPrice = prices.length > 0 ? Math.min(...prices) : Number(firstProp.price) || 0;
+
+    const totalListingsCount = units.reduce(
+      (acc, u) => acc + Math.max(u.coListings.length, 1),
+      0
+    );
+
+    const hasMyListing = units.some((u) => u.isMine);
+
+    buildingGroups.push({
+      id: `bgroup_${bId}`,
+      isBuildingGroup: true,
+      isDevelopment: false,
+      buildingId: bId,
+      name: b.name || 'Edifício',
+      normalizedName: b.normalizedName,
+      alternativeNames: b.alternativeNames,
+      address: b.address || firstProp.address,
+      neighborhood: b.neighborhood || firstProp.neighborhood,
+      city: b.city || firstProp.city || 'Criciúma',
+      latitude: b.latitude,
+      longitude: b.longitude,
+      coverImageUrl: b.coverImageUrl || null,
+      boundary: b.boundary || null,
+      boundaryArea: b.boundaryArea || null,
+      totalUnitsCount: units.length,
+      totalListingsCount,
+      minPrice,
+      floors: sortedFloors,
+      units,
+      hasMyListing,
+      propertyType: 'Apartamento',
+      purpose: firstProp.purpose || 'Venda',
+      title: b.name || 'Edifício',
+      price: minPrice,
+    });
+  });
+
+  return {
+    buildingGroups,
+    standaloneItems,
+    allMapEntities: [...buildingGroups, ...standaloneItems],
+  };
+}
+
+

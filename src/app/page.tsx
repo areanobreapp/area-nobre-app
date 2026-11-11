@@ -57,6 +57,21 @@ export default async function HomePage({
             sharedPrice: true,
             activeListingsCount: true,
             primaryListingId: true,
+            unit: {
+              select: {
+                id: true,
+                unitNumber: true,
+                normalizedUnit: true,
+                tower: true,
+                floor: true,
+                bedrooms: true,
+                suites: true,
+                bathrooms: true,
+                parkingSpaces: true,
+                privateArea: true,
+                totalArea: true,
+              },
+            },
             building: {
               select: {
                 id: true,
@@ -68,6 +83,9 @@ export default async function HomePage({
                 city: true,
                 latitude: true,
                 longitude: true,
+                coverImageUrl: true,
+                boundary: true,
+                boundaryArea: true,
               },
             },
             listings: {
@@ -130,6 +148,9 @@ export default async function HomePage({
             city: true,
             latitude: true,
             longitude: true,
+            coverImageUrl: true,
+            boundary: true,
+            boundaryArea: true,
           },
         },
       },

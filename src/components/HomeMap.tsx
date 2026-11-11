@@ -44,6 +44,10 @@ import { parseGeoJsonToLatLngs, calculatePolygonCentroid } from '@/lib/geo/polyg
 import {
   consolidateProperties,
   consolidateMatches,
+  groupPropertiesForMap,
+  BuildingGroupItem,
+  BuildingFloorGroup,
+  BuildingUnitDetail,
   CoListingSummary,
 } from '@/lib/geo/property-grouping';
 import {
@@ -358,6 +362,7 @@ export default function HomeMap({
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItem, setSelectedItem] = useState<MapItem | null>(null);
+  const [selectedBuildingGroup, setSelectedBuildingGroup] = useState<BuildingGroupItem | null>(null);
   const [selectedMatchForModal, setSelectedMatchForModal] = useState<any>(null);
 
   // Filtro de Escopo: Todos os Imóveis | Meus Imóveis (Fase 5.4 — Ajuste Final)
@@ -365,12 +370,17 @@ export default function HomeMap({
 
   const handleScopeFilterChange = (scope: 'all' | 'mine') => {
     setScopeFilter(scope);
-    if (scope === 'mine' && selectedItem) {
-      const isMine =
-        (selectedItem.responsibleBrokerId && selectedItem.responsibleBrokerId === user?.id) ||
-        selectedItem.userId === user?.id;
-      if (!isMine) {
-        setSelectedItem(null);
+    if (scope === 'mine') {
+      if (selectedItem) {
+        const isMine =
+          (selectedItem.responsibleBrokerId && selectedItem.responsibleBrokerId === user?.id) ||
+          selectedItem.userId === user?.id;
+        if (!isMine) {
+          setSelectedItem(null);
+        }
+      }
+      if (selectedBuildingGroup && !selectedBuildingGroup.hasMyListing) {
+        setSelectedBuildingGroup(null);
       }
     }
   };
@@ -496,6 +506,23 @@ export default function HomeMap({
   }
 
   function handleCardClick(item: MapItem) {
+    if (!item.isDevelopment) {
+      const bId = item.buildingId || item.physicalProperty?.buildingId || item.building?.id;
+      if (bId) {
+        const bg = buildingGroups.find((g) => g.buildingId === bId);
+        if (bg) {
+          setSelectedBuildingGroup(bg);
+          setSelectedItem(null);
+          if (bg.latitude && bg.longitude) {
+            mapInstanceRef.current?.flyTo([bg.latitude, bg.longitude], 17, { animate: true, duration: 0.8 });
+          }
+          scrollToCard(item.id);
+          return;
+        }
+      }
+    }
+
+    setSelectedBuildingGroup(null);
     setSelectedItem(item);
     if (item.latitude !== null && item.latitude !== undefined && !isNaN(item.latitude)) {
       const map = mapInstanceRef.current;
@@ -756,6 +783,26 @@ export default function HomeMap({
     });
   }, [allItems, selectedCategory, searchQuery, filters, scopeFilter, user?.id, activeSearchContext]);
 
+  // Agrupamento de apartamentos por Edifício no Mapa (Etapa J.2.C.5)
+  const mapGroupResult = useMemo(() => {
+    return groupPropertiesForMap(filteredItems, user?.id);
+  }, [filteredItems, user?.id]);
+
+  const { buildingGroups, standaloneItems, allMapEntities } = mapGroupResult;
+
+  // Entidades consolidadas (Edifícios + Imóveis Individuais) com coordenadas válidas para os marcadores do mapa
+  const mappedEntities = useMemo(() => {
+    return allMapEntities.filter(
+      (item) =>
+        item.latitude !== null &&
+        item.latitude !== undefined &&
+        item.longitude !== null &&
+        item.longitude !== undefined &&
+        !isNaN(item.latitude) &&
+        !isNaN(item.longitude)
+    );
+  }, [allMapEntities]);
+
   // Itens que possuem coordenadas geográficas válidas
   const mappedItems = useMemo(() => {
     return filteredItems.filter(
@@ -920,7 +967,7 @@ export default function HomeMap({
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Seleção de sugestão de Edifício
+  // Seleção de sugestão de Edifício (Etapa J.2.B.2 e J.2.C.5)
   function handleSelectBuildingSuggestion(b: BuildingSuggestion) {
     setSearchQuery(b.name);
     setShowSuggestions(false);
@@ -931,9 +978,27 @@ export default function HomeMap({
       map.flyTo([b.latitude, b.longitude], 17, { animate: true, duration: 1.2 });
     }
 
-    if (b.primaryItemId) {
-      const match = allItems.find((i) => i.id === b.primaryItemId);
-      if (match) setSelectedItem(match);
+    if (!b.isDevelopment) {
+      // Localiza o grupo do edifício para abrir diretamente a gaveta com andares e unidades
+      const groupMatch = buildingGroups.find(
+        (bg) => bg.buildingId === b.id || bg.name.toLowerCase() === b.name.toLowerCase()
+      );
+      if (groupMatch) {
+        setSelectedBuildingGroup(groupMatch);
+        setSelectedItem(null);
+      } else if (b.primaryItemId) {
+        const match = allItems.find((i) => i.id === b.primaryItemId);
+        if (match) {
+          setSelectedItem(match);
+          setSelectedBuildingGroup(null);
+        }
+      }
+    } else {
+      setSelectedBuildingGroup(null);
+      if (b.primaryItemId) {
+        const match = allItems.find((i) => i.id === b.primaryItemId);
+        if (match) setSelectedItem(match);
+      }
     }
 
     setGeocodeFeedback({
@@ -1162,7 +1227,7 @@ export default function HomeMap({
     setStoredBaseMapPreference(activeBaseMap);
   }, [activeBaseMap]);
 
-  // 2. Atualização dos Marcadores quando a lista filtrada ou seleção mudar
+  // 2. Atualização dos Marcadores quando a lista filtrada ou seleção mudar (Etapa J.2.C.5)
   useEffect(() => {
     const map = mapInstanceRef.current;
     const markersLayer = markersLayerRef.current;
@@ -1170,7 +1235,110 @@ export default function HomeMap({
 
     markersLayer.clearLayers();
 
-    mappedItems.forEach((item) => {
+    mappedEntities.forEach((item: any) => {
+      // Caso 1: Marcador Consolidado de Edifício (Etapa J.2.C.5)
+      if (item.isBuildingGroup) {
+        const bg = item as BuildingGroupItem;
+        const isSelected = selectedBuildingGroup?.buildingId === bg.buildingId;
+        const scoreColor = '#1E4620';
+        const priceLabel = formatPriceShort(bg.minPrice);
+
+        const markerHtml = `
+          <div class="custom-map-pin ${isSelected ? 'active' : ''}" style="width: 36px; height: 44px; position: relative; cursor: pointer;">
+            <!-- Badge superior com quantidade de unidades físicas distintas e preço a partir de -->
+            <div class="pin-price-tag" style="position: absolute; bottom: 46px; left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none; margin: 0; z-index: 10; ${isSelected ? 'border: 2px solid #1E4620; font-weight: 800; background: #FFFFFF;' : ''}">
+              ${bg.totalUnitsCount > 1 ? `<span style="font-weight: 800; color: #1E4620;">${bg.totalUnitsCount} un</span> • A partir de ` : ''}${priceLabel}
+            </div>
+
+            ${bg.totalUnitsCount > 1 ? `
+              <div style="position: absolute; top: -4px; right: -4px; background: #1E4620; color: white; border: 2px solid white; border-radius: 9999px; font-size: 10px; font-weight: 800; min-width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 12;">
+                ${bg.totalUnitsCount}
+              </div>
+            ` : ''}
+
+            <!-- Pin Teardrop Vetorial Exato -->
+            <svg width="36" height="44" viewBox="0 0 36 44" style="position: absolute; top: 0; left: 0; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.28)); pointer-events: none;">
+              <path d="M18,44 C16.5,41 2,27 2,18 A16,16 0 1,1 34,18 C34,27 19.5,41 18,44 Z" fill="${scoreColor}" stroke="#FFFFFF" stroke-width="${isSelected ? '3' : '2'}"/>
+            </svg>
+
+            <!-- Ícone de Edifício centrado no pin -->
+            <div style="position: absolute; top: 0; left: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: white; pointer-events: none;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/>
+                <path d="M6 12H4a2 2 0 0 0-2 2v8"/>
+                <path d="M18 9h2a2 2 0 0 1 2 2v11"/>
+                <path d="M10 6h4"/>
+                <path d="M10 10h4"/>
+                <path d="M10 14h4"/>
+                <path d="M10 18h4"/>
+              </svg>
+            </div>
+          </div>
+        `;
+
+        const customIcon = L.divIcon({
+          html: markerHtml,
+          className: 'leaflet-custom-marker',
+          iconSize: [36, 44],
+          iconAnchor: [18, 44],
+          popupAnchor: [0, -44],
+        });
+
+        const marker = L.marker([bg.latitude, bg.longitude], { icon: customIcon });
+
+        const navLinks = getNavigationLinks(bg.latitude, bg.longitude);
+        const navButtonsHtml = navLinks
+          ? `<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #E5E7EB; display: flex; gap: 6px;">
+               <a href="${navLinks.googleMapsUrl}" target="_blank" rel="noopener noreferrer" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1E4620; background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px; text-decoration: none;">
+                 <span>Google Maps</span>
+               </a>
+               <a href="${navLinks.wazeUrl}" target="_blank" rel="noopener noreferrer" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1D4ED8; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; text-decoration: none;">
+                 <span>Waze</span>
+               </a>
+             </div>`
+          : '';
+
+        marker.bindPopup(`
+          <div style="font-family: inherit; font-size: 13px; min-width: 200px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+              <span style="background: #E8F5E9; color: #1E4620; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Edifício</span>
+              <span style="font-size: 11px; font-weight: 700; color: #15803D;">${bg.totalUnitsCount} ${bg.totalUnitsCount === 1 ? 'unidade' : 'unidades'}</span>
+            </div>
+            <strong style="color: #111827; font-size: 14px;">${bg.name}</strong><br/>
+            <span style="color: #4B5563; font-size: 12px;">${bg.address || ''}</span>
+            <div style="font-weight: 800; color: #1E4620; font-size: 13px; margin-top: 5px;">
+              A partir de R$ ${bg.minPrice.toLocaleString('pt-BR')}
+            </div>
+            <div style="margin-top: 6px; font-size: 11px; color: #374151;">
+              Total de anúncios: <strong>${bg.totalListingsCount}</strong>
+            </div>
+            ${navButtonsHtml}
+          </div>
+        `);
+
+        marker.on('click', (e) => {
+          if (isRouteModeRef.current) {
+            L.DomEvent.stopPropagation(e);
+            const lat = Number(bg.latitude.toFixed(6));
+            const lng = Number(bg.longitude.toFixed(6));
+            if (!routeOriginRef.current) {
+              setRouteOrigin({ lat, lng });
+            } else if (!routeDestinationRef.current) {
+              setRouteDestination({ lat, lng });
+            }
+            return;
+          }
+
+          setSelectedItem(null);
+          setSelectedBuildingGroup(bg);
+          map.panTo([bg.latitude, bg.longitude], { animate: true, duration: 0.35 });
+        });
+
+        markersLayer.addLayer(marker);
+        return;
+      }
+
+      // Caso 2: Marcador Individual (Casas, Terrenos, Empreendimentos ou Imóveis Avulsos)
       const cat = getCategoryForItem(item);
       const catColor = getCategoryColor(cat);
       const isSelected = selectedItem?.id === item.id;
@@ -1181,7 +1349,7 @@ export default function HomeMap({
 
       const priceVal = item.isDevelopment
         ? (item.typologies && item.typologies.length > 0
-            ? Math.min(...item.typologies.map((t) => t.price).filter((p) => p > 0))
+            ? Math.min(...item.typologies.map((t: any) => t.price).filter((p: number) => p > 0))
             : 0)
         : item.price;
 
@@ -1237,7 +1405,7 @@ export default function HomeMap({
       const coListingsHtml = (item.coListings && item.coListings.length > 1)
         ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; flex-direction: column; gap: 4px;">
              <span style="font-size: 10px; font-weight: 800; color: #3730A3; text-transform: uppercase;">${item.brokerCount} Corretores Anunciantes:</span>
-             ${item.coListings.map((cl) => {
+             ${item.coListings.map((cl: any) => {
                const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || cl.user?.profile?.commercialName || cl.user?.name || 'Corretor';
                return `
                  <a href="/imoveis/${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 4px; text-decoration: none; color: #1F2937; font-size: 11px;">
@@ -1307,6 +1475,7 @@ export default function HomeMap({
           return;
         }
 
+        setSelectedBuildingGroup(null);
         setSelectedItem(item);
         // Centraliza no ponto do imóvel
         map.panTo([item.latitude!, item.longitude!], { animate: true, duration: 0.35 });
@@ -1317,15 +1486,15 @@ export default function HomeMap({
     });
 
     // Enquadra a visão (FitBounds) quando existirem itens mapeados e não houver local navegado específico
-    if (mappedItems.length > 0 && !navigatedLocation) {
-      const bounds = L.latLngBounds(mappedItems.map((m) => [m.latitude!, m.longitude!]));
+    if (mappedEntities.length > 0 && !navigatedLocation) {
+      const bounds = L.latLngBounds(mappedEntities.map((m: any) => [m.latitude!, m.longitude!]));
       map.fitBounds(bounds, {
         padding: [60, 60],
         maxZoom: 15,
         animate: true,
       });
     }
-  }, [mappedItems, selectedItem, navigatedLocation]);
+  }, [mappedEntities, selectedItem, selectedBuildingGroup, navigatedLocation]);
 
   // 3. Renderização da Camada de Território Oficial do IBGE (Fase 4.2)
   useEffect(() => {
@@ -1459,6 +1628,45 @@ export default function HomeMap({
     const currentZ = map.getZoom();
     const isSat = activeBaseMap === 'satellite';
 
+    // 4.1. Polígonos de Terrenos Coletivos de Edifícios (Etapa J.2.C e J.2.C.5)
+    buildingGroups.forEach((bg) => {
+      if (!bg.boundary) return;
+      const isSelected = selectedBuildingGroup?.buildingId === bg.buildingId;
+      if (currentZ < 13 && !isSelected) return;
+
+      const latLngs = parseGeoJsonToLatLngs(bg.boundary);
+      if (!latLngs || latLngs.length < 3) return;
+
+      const polygonColor = isSelected ? (isSat ? '#22C55E' : '#1E4620') : (isSat ? '#10B981' : '#1E4620');
+      const polygon = L.polygon(
+        latLngs.map((pt) => [pt.lat, pt.lng]),
+        {
+          color: polygonColor,
+          weight: isSelected ? 3.5 : 2,
+          dashArray: isSelected ? undefined : '4, 4',
+          fillColor: isSelected ? '#22C55E' : (isSat ? '#10B981' : '#1E4620'),
+          fillOpacity: isSelected ? 0.30 : (isSat ? 0.14 : 0.12),
+        }
+      );
+
+      polygon.bindTooltip(
+        `<div style="font-family: inherit; font-size: 12px; font-weight: 700; color: #1E4620;">
+           ${bg.name}<br/>
+           <span style="font-weight: 500; color: #4B5563;">Terreno Coletivo do Edifício (${bg.boundaryArea ? Math.round(bg.boundaryArea) + ' m²' : ''})</span>
+         </div>`,
+        { sticky: true }
+      );
+
+      polygon.on('click', (e) => {
+        if (isRouteModeRef.current) return;
+        setSelectedItem(null);
+        setSelectedBuildingGroup(bg);
+        map.panTo([bg.latitude, bg.longitude], { animate: true, duration: 0.35 });
+      });
+
+      parcelsLayer.addLayer(polygon);
+    });
+
     mappedItems.forEach((item) => {
       if (item.isDevelopment || !item.boundary) return;
 
@@ -1509,6 +1717,7 @@ export default function HomeMap({
           return;
         }
 
+        setSelectedBuildingGroup(null);
         setSelectedItem(item);
         map.panTo([item.latitude!, item.longitude!], { animate: true, duration: 0.35 });
         scrollToCard(item.id);
@@ -1516,7 +1725,7 @@ export default function HomeMap({
 
       parcelsLayer.addLayer(polygon);
     });
-  }, [mappedItems, selectedItem, mapZoom, activeBaseMap]);
+  }, [mappedItems, buildingGroups, selectedItem, selectedBuildingGroup, mapZoom, activeBaseMap]);
 
   // Marcador de Navegação Territorial (quando busca endereço/bairro pelo GeoProvider)
   useEffect(() => {
@@ -3587,6 +3796,489 @@ export default function HomeMap({
               <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? (selectedItem.userId === user?.id || selectedItem.responsibleBrokerId === user?.id ? 'Ver meu anúncio' : 'Abrir anúncio principal') : 'Ver imóvel')}</span>
               <ArrowRight size={14} />
             </Link>
+          </div>
+        )}
+
+        {/* 4.4.B. GAVETA MOBILE-FIRST DE DETALHES DO EDIFÍCIO (Etapa J.2.C.5) */}
+        {selectedBuildingGroup && (
+          <div
+            className="map-overlay-card"
+            style={{
+              bottom: '20px',
+              left: '20px',
+              width: '100%',
+              maxWidth: '430px',
+              maxHeight: '82vh',
+              backgroundColor: 'white',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--border-light)',
+              boxShadow: '0 12px 36px rgba(0, 0, 0, 0.22)',
+              zIndex: 560,
+              overflowY: 'auto',
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+          >
+            {/* Topo do Edifício: Fachada e Fechar */}
+            <div style={{ position: 'relative' }}>
+              {selectedBuildingGroup.coverImageUrl ? (
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '140px',
+                    borderRadius: 'var(--radius-md)',
+                    overflow: 'hidden',
+                    backgroundColor: '#1E293B',
+                    marginBottom: '10px',
+                  }}
+                >
+                  <img
+                    src={selectedBuildingGroup.coverImageUrl}
+                    alt={selectedBuildingGroup.name}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '8px',
+                      left: '8px',
+                      background: 'rgba(30, 70, 32, 0.90)',
+                      color: 'white',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      backdropFilter: 'blur(4px)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span>🏢 Fachada do Edifício</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Botão Fechar no Topo Direito */}
+              <button
+                type="button"
+                onClick={() => setSelectedBuildingGroup(null)}
+                style={{
+                  position: 'absolute',
+                  top: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
+                  right: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
+                  background: selectedBuildingGroup.coverImageUrl ? 'rgba(0,0,0,0.6)' : '#F3F4F6',
+                  color: selectedBuildingGroup.coverImageUrl ? 'white' : '#4B5563',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  zIndex: 20,
+                }}
+                title="Fechar detalhes do edifício"
+              >
+                <X size={16} />
+              </button>
+
+              {/* Identificação Principal do Edifício */}
+              <div style={{ paddingRight: selectedBuildingGroup.coverImageUrl ? '0px' : '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <span
+                    className="badge badge-primary"
+                    style={{
+                      fontSize: '0.70rem',
+                      padding: '2px 8px',
+                      background: '#E8F5E9',
+                      color: '#1E4620',
+                      fontWeight: 800,
+                      border: '1px solid #C8E6C9',
+                    }}
+                  >
+                    EDIFÍCIO
+                  </span>
+                  {selectedBuildingGroup.boundaryArea && (
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        color: '#15803D',
+                        fontWeight: 700,
+                        background: '#F0FDF4',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        border: '1px solid #BBF7D0',
+                      }}
+                    >
+                      Terreno {Math.round(selectedBuildingGroup.boundaryArea)} m²
+                    </span>
+                  )}
+                </div>
+
+                <h3
+                  style={{
+                    fontSize: '1.15rem',
+                    fontWeight: 800,
+                    color: '#111827',
+                    margin: '2px 0 4px 0',
+                    lineHeight: '1.25',
+                  }}
+                >
+                  {selectedBuildingGroup.name}
+                </h3>
+
+                <p
+                  style={{
+                    fontSize: '0.80rem',
+                    color: '#4B5563',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <MapPin size={13} style={{ flexShrink: 0, color: '#1E4620' }} />
+                  <span>
+                    {selectedBuildingGroup.address ? `${selectedBuildingGroup.address}, ` : ''}
+                    {selectedBuildingGroup.neighborhood ? `${selectedBuildingGroup.neighborhood}, ` : ''}
+                    {selectedBuildingGroup.city || 'Criciúma'}
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            {/* Placas Resumo do Edifício */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '8px',
+                backgroundColor: '#F8FAFC',
+                padding: '10px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid #E2E8F0',
+                textAlign: 'center',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                  Unidades
+                </span>
+                <strong style={{ fontSize: '1.05rem', color: '#1E4620', fontWeight: 800 }}>
+                  {selectedBuildingGroup.totalUnitsCount}
+                </strong>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                  Anúncios
+                </span>
+                <strong style={{ fontSize: '1.05rem', color: '#1D4ED8', fontWeight: 800 }}>
+                  {selectedBuildingGroup.totalListingsCount}
+                </strong>
+              </div>
+
+              <div>
+                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                  A partir de
+                </span>
+                <strong style={{ fontSize: '0.86rem', color: '#1E4620', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                  {formatPriceShort(selectedBuildingGroup.minPrice)}
+                </strong>
+              </div>
+            </div>
+
+            {/* Botões de Ação Rápida e Rotas */}
+            {isValidCoordinate(selectedBuildingGroup.latitude, selectedBuildingGroup.longitude) && (
+              <NavigationActionButtons
+                latitude={selectedBuildingGroup.latitude}
+                longitude={selectedBuildingGroup.longitude}
+                fullWidth
+                size="sm"
+              />
+            )}
+
+            {/* Divisor */}
+            <div style={{ height: '1px', backgroundColor: '#E5E7EB', margin: '2px 0' }} />
+
+            {/* Listagem de Unidades Agrupadas por Andar */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Apartamentos por Andar
+                </span>
+                <span style={{ fontSize: '0.74rem', color: '#6B7280' }}>
+                  {selectedBuildingGroup.floors.length} {selectedBuildingGroup.floors.length === 1 ? 'andar' : 'andares'}
+                </span>
+              </div>
+
+              {selectedBuildingGroup.floors.map((floorGroup, fIdx) => (
+                <div
+                  key={`floor_${floorGroup.floor ?? 'unk'}_${fIdx}`}
+                  style={{
+                    backgroundColor: '#FFFFFF',
+                    border: '1px solid #E5E7EB',
+                    borderRadius: 'var(--radius-md)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {/* Cabeçalho do Andar */}
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: '#F3F4F6',
+                      borderBottom: '1px solid #E5E7EB',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Layers size={14} style={{ color: '#1E4620' }} />
+                      <strong style={{ fontSize: '0.82rem', color: '#1F2937' }}>
+                        {floorGroup.floorLabel}
+                      </strong>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        color: '#4B5563',
+                        background: '#E5E7EB',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      {floorGroup.units.length} {floorGroup.units.length === 1 ? 'unidade' : 'unidades'}
+                    </span>
+                  </div>
+
+                  {/* Unidades neste Andar */}
+                  <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {floorGroup.units.map((unit) => {
+                      const isUnitMine = unit.isMine;
+                      const hasMultipleBrokers = unit.coListings && unit.coListings.length > 1;
+
+                      return (
+                        <div
+                          key={unit.physicalPropertyId}
+                          style={{
+                            padding: '10px',
+                            backgroundColor: isUnitMine ? '#F0FDF4' : '#FAFAFA',
+                            border: isUnitMine ? '1.5px solid #86EFAC' : '1px solid #E5E7EB',
+                            borderRadius: '6px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px',
+                          }}
+                        >
+                          {/* Topo da Unidade: Título, Preço e Badge */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <strong style={{ fontSize: '0.88rem', color: '#111827' }}>
+                                  {unit.unitNumber ? `Apartamento ${unit.unitNumber}` : unit.title}
+                                </strong>
+                                {isUnitMine && (
+                                  <span
+                                    style={{
+                                      fontSize: '0.64rem',
+                                      fontWeight: 800,
+                                      color: '#1E4620',
+                                      background: '#DCFCE7',
+                                      padding: '1px 5px',
+                                      borderRadius: '4px',
+                                    }}
+                                  >
+                                    Seu Imóvel
+                                  </span>
+                                )}
+                              </div>
+                              {unit.unitNumber && unit.title && unit.title.toLowerCase() !== `apartamento ${unit.unitNumber}`.toLowerCase() && (
+                                <span style={{ fontSize: '0.72rem', color: '#6B7280', display: 'block' }}>
+                                  {unit.title}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <span style={{ fontSize: '0.90rem', fontWeight: 800, color: '#1E4620' }}>
+                                R$ {unit.price.toLocaleString('pt-BR')}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Atributos da Unidade */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.72rem', color: '#4B5563', margin: '2px 0' }}>
+                            {unit.privateArea && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Maximize2 size={11} style={{ color: '#1E4620' }} />
+                                {unit.privateArea} m² privativos
+                              </span>
+                            )}
+                            {unit.bedrooms > 0 && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Bed size={11} style={{ color: '#1E4620' }} />
+                                {unit.bedrooms} {unit.bedrooms === 1 ? 'quarto' : 'quartos'} {unit.suites > 0 ? `(${unit.suites} suíte)` : ''}
+                              </span>
+                            )}
+                            {unit.bathrooms > 0 && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Bath size={11} style={{ color: '#1E4620' }} />
+                                {unit.bathrooms} banheiros
+                              </span>
+                            )}
+                            {unit.parkingSpaces > 0 && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <Car size={11} style={{ color: '#1E4620' }} />
+                                {unit.parkingSpaces} {unit.parkingSpaces === 1 ? 'vaga' : 'vagas'}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Seção de Corretores (Bloco 05) */}
+                          <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px dashed #E5E7EB' }}>
+                            {hasMultipleBrokers ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#3730A3', textTransform: 'uppercase' }}>
+                                  {unit.coListings.length} corretores parceiros anunciando esta unidade:
+                                </span>
+                                {unit.coListings.map((cl: any) => {
+                                  const isMyCoListing =
+                                    user?.id &&
+                                    (cl.responsibleBroker?.id === user.id ||
+                                      cl.user?.id === user.id ||
+                                      cl.responsibleBrokerId === user.id ||
+                                      cl.userId === user.id);
+                                  const brokerName =
+                                    cl.responsibleBroker?.profile?.commercialName ||
+                                    cl.responsibleBroker?.name ||
+                                    cl.user?.profile?.commercialName ||
+                                    cl.user?.name ||
+                                    'Corretor Parceiro';
+                                  const brokerImg =
+                                    cl.responsibleBroker?.profile?.avatarUrl ||
+                                    cl.responsibleBroker?.profile?.logoUrl ||
+                                    cl.user?.profile?.avatarUrl;
+
+                                  return (
+                                    <div
+                                      key={cl.id}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '4px 6px',
+                                        backgroundColor: isMyCoListing ? '#EEF2FF' : '#FFFFFF',
+                                        border: isMyCoListing ? '1px solid #C7D2FE' : '1px solid #E2E8F0',
+                                        borderRadius: '4px',
+                                      }}
+                                    >
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                        {brokerImg ? (
+                                          <img
+                                            src={brokerImg}
+                                            alt={brokerName}
+                                            style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }}
+                                          />
+                                        ) : (
+                                          <div
+                                            style={{
+                                              width: '18px',
+                                              height: '18px',
+                                              borderRadius: '50%',
+                                              background: '#4F46E5',
+                                              color: 'white',
+                                              fontSize: '9px',
+                                              fontWeight: 800,
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                            }}
+                                          >
+                                            {brokerName.charAt(0).toUpperCase()}
+                                          </div>
+                                        )}
+                                        <span style={{ fontSize: '0.74rem', color: '#1F2937', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                          {brokerName}
+                                          {cl.isPrimaryListing && (
+                                            <span style={{ color: '#059669', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
+                                              (Principal)
+                                            </span>
+                                          )}
+                                          {isMyCoListing && (
+                                            <span style={{ color: '#4F46E5', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
+                                              (Você)
+                                            </span>
+                                          )}
+                                        </span>
+                                      </div>
+
+                                      <Link
+                                        href={`/imoveis/${cl.id}`}
+                                        style={{
+                                          fontSize: '0.72rem',
+                                          fontWeight: 700,
+                                          color: '#4F46E5',
+                                          textDecoration: 'none',
+                                          whiteSpace: 'nowrap',
+                                          padding: '2px 6px',
+                                          borderRadius: '3px',
+                                          background: '#EEF2FF',
+                                        }}
+                                      >
+                                        Ver anúncio &rarr;
+                                      </Link>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <Users size={12} style={{ color: '#4B5563' }} />
+                                  <span style={{ fontSize: '0.72rem', color: '#4B5563' }}>
+                                    {unit.coListings[0]?.responsibleBroker?.profile?.commercialName ||
+                                      unit.coListings[0]?.responsibleBroker?.name ||
+                                      unit.coListings[0]?.user?.profile?.commercialName ||
+                                      unit.coListings[0]?.user?.name ||
+                                      'Corretor responsável'}
+                                  </span>
+                                </div>
+                                <Link
+                                  href={`/imoveis/${unit.id}`}
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    color: '#1E4620',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '2px',
+                                  }}
+                                >
+                                  <span>Ver anúncio</span>
+                                  <ArrowRight size={11} />
+                                </Link>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
         </div>
