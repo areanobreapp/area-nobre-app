@@ -414,6 +414,12 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
   const [unitNumber, setUnitNumber] = useState<string>(initialData?.physicalProperty?.unit?.unitNumber || '');
   const [tower, setTower] = useState<string>(initialData?.physicalProperty?.unit?.tower || '');
 
+  // Delimitação do terreno (Fase 4.2 & J.2.C.1)
+  const [boundary, setBoundary] = useState<string | null>(initialData?.boundary || null);
+  const [boundaryArea, setBoundaryArea] = useState<number | null>(initialData?.boundaryArea || null);
+  const [isBuildingSharedBoundary, setIsBuildingSharedBoundary] = useState<boolean>(Boolean(initialData?.building?.boundary));
+  const [showBoundaryModal, setShowBoundaryModal] = useState<boolean>(false);
+
   function handleSelectBuilding(building: BuildingData | null) {
     if (building) {
       setBuildingId(building.id);
@@ -426,6 +432,15 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
       setLatitude(String(building.latitude));
       setLongitude(String(building.longitude));
 
+      // Herança da delimitação de terreno do condomínio (J.2.C.1)
+      if (building.boundary) {
+        setBoundary(building.boundary);
+        setBoundaryArea(building.boundaryArea ?? null);
+        setIsBuildingSharedBoundary(true);
+      } else {
+        setIsBuildingSharedBoundary(false);
+      }
+
       // Herda comodidades prediais compartilhadas do condomínio se estiverem presentes no edifício
       if (building.hasElevator !== null && building.hasElevator !== undefined) setHasElevator(Boolean(building.hasElevator));
       if (building.hasGym !== null && building.hasGym !== undefined) setHasGym(Boolean(building.hasGym));
@@ -437,13 +452,9 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
       // coletivos sejam divulgados incorretamente como privativos da unidade.
     } else {
       setBuildingId(null);
+      setIsBuildingSharedBoundary(false);
     }
   }
-
-  // Delimitação do terreno (Fase 4.2)
-  const [boundary, setBoundary] = useState<string | null>(initialData?.boundary || null);
-  const [boundaryArea, setBoundaryArea] = useState<number | null>(initialData?.boundaryArea || null);
-  const [showBoundaryModal, setShowBoundaryModal] = useState<boolean>(false);
 
   // Fotos: Modelo estruturado com estado por foto (H.11.5)
   interface PropertyPhotoItem {
@@ -3092,11 +3103,11 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
                           fontWeight: 700,
                           padding: '2px 8px',
                           borderRadius: '999px',
-                          backgroundColor: '#BBF7D0',
-                          color: '#166534',
+                          backgroundColor: isBuildingSharedBoundary ? '#E0E7FF' : '#BBF7D0',
+                          color: isBuildingSharedBoundary ? '#3730A3' : '#166534',
                         }}
                       >
-                        Perímetro Delimitado
+                        {isBuildingSharedBoundary ? '⬟ Terreno Coletivo do Edifício (Compartilhado)' : 'Perímetro Delimitado'}
                       </span>
                     ) : (
                       <span
@@ -3143,26 +3154,32 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
                       style={{ padding: '8px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '6px' }}
                     >
                       <Pentagon size={15} />
-                      <span>Editar delimitação</span>
+                      <span>{isBuildingSharedBoundary ? 'Visualizar terreno coletivo' : 'Editar delimitação'}</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBoundary(null);
-                        setBoundaryArea(null);
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'var(--color-danger)',
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        padding: '4px 8px',
-                      }}
-                    >
-                      Remover
-                    </button>
+                    {!isBuildingSharedBoundary ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBoundary(null);
+                          setBoundaryArea(null);
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--color-danger)',
+                          fontSize: '0.8rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: '4px 8px',
+                        }}
+                      >
+                        Remover
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '0.74rem', color: '#6B7280', fontStyle: 'italic', padding: '4px 8px' }}>
+                        Compartilhado
+                      </span>
+                    )}
                   </>
                 ) : (
                   <button
@@ -3187,7 +3204,7 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
           </div>
         ) : null}
 
-        {/* Modal de Delimitação do Terreno no Mapa (Fase 4.2) */}
+        {/* Modal de Delimitação do Terreno no Mapa (Fase 4.2 & J.2.C.1) */}
         {showBoundaryModal && latitude && longitude && (
           <ParcelBoundaryModal
             isOpen={showBoundaryModal}
@@ -3195,12 +3212,15 @@ export default function PropertyForm({ initialData, isEditing = false, currentUs
             centerLat={parseFloat(latitude)}
             centerLng={parseFloat(longitude)}
             informedArea={totalArea ? parseFloat(totalArea) : (privateArea ? parseFloat(privateArea) : null)}
+            readOnly={isBuildingSharedBoundary}
+            title={isBuildingSharedBoundary ? 'Terreno Coletivo do Condomínio' : 'Delimitação do Terreno no Mapa'}
+            subtitle={isBuildingSharedBoundary ? 'Perímetro compartilhado por todas as unidades deste edifício.' : undefined}
             onConfirm={(geoJson, areaM2) => {
               setBoundary(geoJson);
               setBoundaryArea(areaM2);
               setShowBoundaryModal(false);
             }}
-            onRemove={() => {
+            onRemove={isBuildingSharedBoundary ? undefined : () => {
               setBoundary(null);
               setBoundaryArea(null);
               setShowBoundaryModal(false);

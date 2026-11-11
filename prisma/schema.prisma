@@ -40,6 +40,13 @@ model User {
   locationContributions   BuildingLocationContribution[] @relation("BrokerLocationContributions")
   decidedLocationContributions BuildingLocationContribution[] @relation("DecidedLocationContributions")
   decidedBuildingGeos     Building[]                     @relation("BuildingGeoAdminDecider")
+  createdBuildingBoundaries    Building[]                     @relation("BuildingBoundaryCreatedBy")
+  uploadedBuildingCoverImages  Building[]                     @relation("BuildingCoverImageUploadedBy")
+  boundaryContributions        BuildingBoundaryContribution[] @relation("BrokerBoundaryContributions")
+  decidedBoundaryContributions BuildingBoundaryContribution[] @relation("DecidedBoundaryContributions")
+  imageContributions           BuildingImageContribution[]    @relation("BrokerImageContributions")
+  decidedImageContributions    BuildingImageContribution[]    @relation("DecidedImageContributions")
+  createdLandParcels           LandParcel[]                   @relation("LandParcelCreatedBy")
 }
 
 model BrokerProfile {
@@ -558,6 +565,29 @@ model Building {
   geoAdminDecidedById  String?
   geoAdminDecidedBy    User?             @relation("BuildingGeoAdminDecider", fields: [geoAdminDecidedById], references: [id], onDelete: SetNull)
 
+  // Delimitação Coletiva do Terreno (Etapa J.2.C)
+  boundary                    String?            // GeoJSON do polígono coletivo do terreno do edifício (cache)
+  boundaryArea                Float?             // Área calculada em m² do terreno coletivo
+  boundaryValidationStatus    String             @default("UNVERIFIED") // UNVERIFIED | SINGLE_BROKER_CONFIRMED | MULTI_BROKER_CONFIRMED | ADMIN_VALIDATED | DIVERGENT
+  boundaryConfidence          Float?             // Índice de confiança (0.0 a 1.0)
+  boundaryContributorsCount   Int                @default(0)
+  boundaryLastConfirmedAt     DateTime?
+  boundaryCreatedById         String?
+  boundaryCreatedBy           User?              @relation("BuildingBoundaryCreatedBy", fields: [boundaryCreatedById], references: [id], onDelete: SetNull)
+  boundarySource              String             @default("BROKER_DRAWN") // BROKER_DRAWN | PREFEITURA_CADASTRE | ADMIN_OVERRIDE
+
+  // Vinculação a Lote Cadastral Independente (Etapa J.2.C.2)
+  landParcelId                String?
+  landParcel                  LandParcel?        @relation("BuildingPrimaryParcel", fields: [landParcelId], references: [id], onDelete: SetNull)
+  landParcels                 BuildingLandParcel[]
+
+  // Fotografia Principal da Fachada (Etapa J.2.C)
+  coverImageValidationStatus  String             @default("UNVERIFIED") // UNVERIFIED | BROKER_UPLOADED | ADMIN_VALIDATED | DISPUTED
+  coverImageUploadedById      String?
+  coverImageUploadedBy        User?              @relation("BuildingCoverImageUploadedBy", fields: [coverImageUploadedById], references: [id], onDelete: SetNull)
+  coverImageSource            String             @default("BROKER_UPLOAD") // BROKER_UPLOAD | ADMIN_UPLOAD | EXTERNAL_IMPORT
+  coverImageUpdatedAt         DateTime?
+
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -565,6 +595,8 @@ model Building {
   physicalProperties  PhysicalProperty[]
   properties          Property[]
   locationContributions BuildingLocationContribution[]
+  boundaryContributions BuildingBoundaryContribution[]
+  imageContributions    BuildingImageContribution[]
 
   @@unique([city, source, externalId], name: "city_source_external_unique")
   @@index([city, neighborhood])
@@ -606,6 +638,153 @@ model BuildingLocationContribution {
   // Estrutura preparada para pontuação futura (Gamificação dormente)
   pointsAwarded        Int       @default(0)
   pointsEligible       Boolean   @default(true)
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([buildingId, status])
+  @@index([brokerId, createdAt])
+  @@index([status])
+}
+
+// ==============================================================================
+// Contribuições e Propostas de Delimitação do Terreno do Edifício (Etapa J.2.C)
+// ==============================================================================
+model BuildingBoundaryContribution {
+  id                   String    @id @default(cuid())
+  buildingId           String
+  building             Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  brokerId             String
+  broker               User      @relation("BrokerBoundaryContributions", fields: [brokerId], references: [id], onDelete: Cascade)
+  
+  boundary             String    // GeoJSON do polígono proposto
+  boundaryArea         Float?    // Área calculada em m²
+  
+  // "INITIAL_DELIMITATION" | "CONFIRMED_EXISTING" | "PROPOSED_REVISION"
+  contributionType     String
+  
+  // "PENDING" | "ACCEPTED" | "SUPERSEDED" | "REJECTED" | "FLAGGED_DIVERGENT"
+  status               String    @default("PENDING")
+  
+  source               String    @default("BROKER_DRAWN")
+  justification        String?   // Justificativa caso seja proposta de alteração
+  decisionNotes        String?   @db.Text
+  decidedById          String?
+  decidedBy            User?     @relation("DecidedBoundaryContributions", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt            DateTime?
+
+  // Lote cadastral associado à contribuição (Etapa J.2.C.2)
+  landParcelId         String?
+  landParcel           LandParcel? @relation(fields: [landParcelId], references: [id], onDelete: SetNull)
+  
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([buildingId, status])
+  @@index([brokerId, createdAt])
+  @@index([landParcelId])
+  @@index([status])
+}
+
+// ==============================================================================
+// Lotes e Terrenos Cadastrais (Etapa J.2.C.2 - Base Territorial Independente)
+// ==============================================================================
+model LandParcel {
+  id                   String                 @id @default(cuid())
+  code                 String?                // Inscrição municipal / Código cadastral oficial (IPTU / SQL)
+  externalId           String?                // Identificador em base cadastral externa (SIG / GeoCriciúma)
+  source               String                 @default("BROKER_DRAWN") // MUNICIPAL_CADASTRE | BROKER_DRAWN | ADMIN_VALIDATED | GEO_IMPORT
+  originType           String                 @default("MANUAL_DRAW") // MANUAL_DRAW | CADASTRE_IMPORT | SATELLITE_SURVEY | TOPOGRAPHIC
+
+  // Geometria Interoperável GeoJSON (Polygon / MultiPolygon)
+  boundary             String                 @db.Text
+  boundaryArea         Float                  // Área calculada em m²
+
+  // Coordenadas do Centróide e Caixa Delimitadora (Bounding Box) para Busca Espacial
+  centroidLat          Float?
+  centroidLng          Float?
+  bboxMinLat           Float?
+  bboxMaxLat           Float?
+  bboxMinLng           Float?
+  bboxMaxLng           Float?
+
+  // Endereço e Referência Cadastral
+  address              String?
+  number               String?
+  neighborhood         String?
+  city                 String                 @default("Criciúma")
+  state                String                 @default("SC")
+  zipcode              String?
+
+  // Governança e Validação
+  validationStatus     String                 @default("UNVERIFIED") // UNVERIFIED | SINGLE_BROKER_CONFIRMED | MULTI_BROKER_CONFIRMED | ADMIN_VALIDATED | OFFICIAL_CADASTRE | DIVERGENT
+  confidence           Float                  @default(0.0)
+  contributorsCount    Int                    @default(0)
+  lastConfirmedAt      DateTime?
+
+  createdById          String?
+  createdBy            User?                  @relation("LandParcelCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  // Relacionamentos
+  buildings            BuildingLandParcel[]
+  primaryForBuildings  Building[]             @relation("BuildingPrimaryParcel")
+  boundaryContributions BuildingBoundaryContribution[]
+
+  @@index([city, neighborhood])
+  @@index([code])
+  @@index([source, externalId])
+  @@index([validationStatus])
+  @@index([bboxMinLat, bboxMaxLat, bboxMinLng, bboxMaxLng])
+}
+
+// ==============================================================================
+// Associação N:M entre Edifícios e Lotes Cadastrais
+// ==============================================================================
+model BuildingLandParcel {
+  id                   String                 @id @default(cuid())
+  buildingId           String
+  building             Building               @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  landParcelId         String
+  landParcel           LandParcel             @relation(fields: [landParcelId], references: [id], onDelete: Cascade)
+
+  isPrimary            Boolean                @default(true)
+  notes                String?
+
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@unique([buildingId, landParcelId])
+  @@index([buildingId])
+  @@index([landParcelId])
+}
+
+// ==============================================================================
+// Contribuições e Propostas de Imagem da Fachada do Edifício (Etapa J.2.C)
+// ==============================================================================
+model BuildingImageContribution {
+  id                   String    @id @default(cuid())
+  buildingId           String
+  building             Building  @relation(fields: [buildingId], references: [id], onDelete: Cascade)
+  brokerId             String
+  broker               User      @relation("BrokerImageContributions", fields: [brokerId], references: [id], onDelete: Cascade)
+  
+  imageUrl             String
+  
+  // "INITIAL_COVER" | "PROPOSED_SUBSTITUTION"
+  contributionType     String
+  
+  // "PENDING" | "ACCEPTED" | "SUPERSEDED" | "REJECTED"
+  status               String    @default("PENDING")
+  
+  source               String    @default("BROKER_UPLOAD")
+  justification        String?   // Justificativa caso seja proposta de substituição
+  decisionNotes        String?   @db.Text
+  decidedById          String?
+  decidedBy            User?     @relation("DecidedImageContributions", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt            DateTime?
   
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt

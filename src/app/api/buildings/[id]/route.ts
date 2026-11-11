@@ -60,7 +60,28 @@ export async function GET(
       return NextResponse.json({ error: 'Edifício não encontrado.' }, { status: 404 });
     }
 
-    return NextResponse.json({ building });
+    // Busca dados complementares de terreno coletivo e auditoria de fachada (Etapa J.2.C)
+    let boundaryData: any = {};
+    try {
+      const extra: any = await prisma.$queryRawUnsafe(`
+        SELECT "boundary", "boundaryArea", "boundaryValidationStatus", "coverImageValidationStatus"
+        FROM "Building"
+        WHERE "id" = $1
+      `, id);
+      if (extra && extra[0]) {
+        boundaryData = extra[0];
+      }
+    } catch {}
+
+    const enrichedBuilding = {
+      ...building,
+      boundary: (building as any).boundary ?? boundaryData.boundary ?? null,
+      boundaryArea: (building as any).boundaryArea ?? boundaryData.boundaryArea ?? null,
+      boundaryValidationStatus: (building as any).boundaryValidationStatus ?? boundaryData.boundaryValidationStatus ?? 'UNVERIFIED',
+      coverImageValidationStatus: (building as any).coverImageValidationStatus ?? boundaryData.coverImageValidationStatus ?? 'UNVERIFIED',
+    };
+
+    return NextResponse.json({ building: enrichedBuilding });
   } catch (error) {
     console.error('Erro ao buscar edifício:', error);
     return NextResponse.json({ error: 'Falha ao buscar dados do edifício.' }, { status: 500 });

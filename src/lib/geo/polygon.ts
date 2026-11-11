@@ -134,3 +134,188 @@ export function parseGeoJsonToLatLngs(boundary: string | object | null | undefin
     return null;
   }
 }
+
+/**
+ * Determina se um ponto geográfico { lat, lng } está contido no interior de um polígono
+ * utilizando o algoritmo de Ray-Casting (cruzamento de semirretas).
+ * Interoperável, rápido (sub-milissegundo) e independente de extensões de banco (PostGIS).
+ */
+export function isPointInPolygon(
+  point: { lat: number; lng: number },
+  polygonLatLngs: { lat: number; lng: number }[]
+): boolean {
+  if (!polygonLatLngs || polygonLatLngs.length < 3) return false;
+
+  let inside = false;
+  const x = point.lng;
+  const y = point.lat;
+
+  for (let i = 0, j = polygonLatLngs.length - 1; i < polygonLatLngs.length; j = i++) {
+    const xi = polygonLatLngs[i].lng;
+    const yi = polygonLatLngs[i].lat;
+    const xj = polygonLatLngs[j].lng;
+    const yj = polygonLatLngs[j].lat;
+
+    const intersect =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+/**
+ * Calcula a caixa delimitadora (Axis-Aligned Bounding Box - AABB) de um polígono.
+ * Usado para indexação e filtragem espacial preliminar ultrarrápida no banco de dados.
+ */
+export function calculatePolygonBoundingBox(latLngs: { lat: number; lng: number }[]): {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+} | null {
+  if (!latLngs || latLngs.length === 0) return null;
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  for (const pt of latLngs) {
+    if (pt.lat < minLat) minLat = pt.lat;
+    if (pt.lat > maxLat) maxLat = pt.lat;
+    if (pt.lng < minLng) minLng = pt.lng;
+    if (pt.lng > maxLng) maxLng = pt.lng;
+  }
+
+  return {
+    minLat: Number(minLat.toFixed(6)),
+    maxLat: Number(maxLat.toFixed(6)),
+    minLng: Number(minLng.toFixed(6)),
+    maxLng: Number(maxLng.toFixed(6)),
+  };
+}
+
+/**
+ * Converte um anel GeoJSON [lng, lat][] para { lat, lng }[]
+ */
+function ringCoordsToLatLngs(ring: [number, number][]): { lat: number; lng: number }[] {
+  return ring.map((pt) => ({ lat: pt[1], lng: pt[0] }));
+}
+
+/**
+ * Determina se um ponto [lat, lng] está contido em um polígono composto com anéis (exterior e furos)
+ */
+function isPointInSinglePolygon(
+  point: { lat: number; lng: number },
+  rings: [number, number][][]
+): boolean {
+  if (!rings || rings.length === 0) return false;
+
+  // Anel 0 é o anel exterior obrigatório
+  const exteriorLatLngs = ringCoordsToLatLngs(rings[0]);
+  if (!isPointInPolygon(point, exteriorLatLngs)) {
+    return false;
+  }
+
+  // Anéis 1..n são furos (interior rings / enclaves). Se cair dentro de um furo, o ponto está FORA do lote!
+  for (let i = 1; i < rings.length; i++) {
+    const holeLatLngs = ringCoordsToLatLngs(rings[i]);
+    if (isPointInPolygon(point, holeLatLngs)) {
+      return false; // Está no furo, logo fora da área construível/privativa
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Determina se um ponto geográfico { lat, lng } está contido em uma geometria GeoJSON arbitrária.
+ * Suporta:
+ * 1. Polígonos simples (convexos e côncavos).
+ * 2. Polígonos com furos (interior rings).
+ * 3. MultiPolygons (múltiplas glebas).
+ * 4. Validação rigorosa de coordenadas (rejeita NaN e valores fora do globo [-90, 90] / [-180, 180]).
+ * 5. Padrão RFC 7946 (ordem estrita de coordenadas [longitude, latitude]).
+ */
+export function isPointInGeoJson(
+  point: { lat: number; lng: number },
+  geoJson: string | object | null | undefined
+): boolean {
+  if (!geoJson || point.lat === null || point.lng === null || isNaN(point.lat) || isNaN(point.lng)) {
+    return false;
+  }
+
+  // Rejeita coordenadas inválidas fora dos limites terrestres
+  if (point.lat < -90 || point.lat > 90 || point.lng < -180 || point.lng > 180) {
+    return false;
+  }
+
+  try {
+    const geo = typeof geoJson === 'string' ? JSON.parse(geoJson) : geoJson;
+    const geometry = geo.type === 'Feature' ? geo.geometry : geo;
+    if (!geometry || !geometry.type || !geometry.coordinates) return false;
+
+    if (geometry.type === 'Polygon') {
+      return isPointInSinglePolygon(point, geometry.coordinates);
+    }
+
+    if (geometry.type === 'MultiPolygon') {
+      for (const polyCoords of geometry.coordinates) {
+        if (isPointInSinglePolygon(point, polyCoords)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Combina múltiplos limites GeoJSON (Polygon ou MultiPolygon) em uma geometria GeoJSON unificada (MultiPolygon).
+ * Utilizado para calcular o cache unificado de delimitação coletiva quando um edifício está assentado em múltiplos lotes.
+ */
+export function combineGeoJsonBoundaries(boundaries: string[]): string | null {
+  if (!boundaries || boundaries.length === 0) return null;
+  const validBoundaries = boundaries.filter((b) => b && typeof b === 'string' && b.trim().length > 0);
+  if (validBoundaries.length === 0) return null;
+  if (validBoundaries.length === 1) return validBoundaries[0];
+
+  const allPolygons: [number, number][][][] = [];
+
+  for (const b of validBoundaries) {
+    try {
+      const geo = typeof b === 'string' ? JSON.parse(b) : b;
+      const geom = geo.type === 'Feature' ? geo.geometry : geo;
+      if (!geom || !geom.coordinates) continue;
+
+      if (geom.type === 'Polygon') {
+        allPolygons.push(geom.coordinates);
+      } else if (geom.type === 'MultiPolygon') {
+        for (const poly of geom.coordinates) {
+          allPolygons.push(poly);
+        }
+      }
+    } catch {
+      // Ignora polígono inválido
+    }
+  }
+
+  if (allPolygons.length === 0) return null;
+  if (allPolygons.length === 1) {
+    return JSON.stringify({
+      type: 'Polygon',
+      coordinates: allPolygons[0],
+    });
+  }
+
+  return JSON.stringify({
+    type: 'MultiPolygon',
+    coordinates: allPolygons,
+  });
+}
+

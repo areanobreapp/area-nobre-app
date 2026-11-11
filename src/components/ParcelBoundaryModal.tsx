@@ -38,6 +38,9 @@ export interface ParcelBoundaryModalProps {
   onRemove?: () => void;
   onCancel: () => void;
   title?: string;
+  subtitle?: string;
+  readOnly?: boolean;
+  confirmLabel?: string;
 }
 
 export default function ParcelBoundaryModal({
@@ -50,6 +53,9 @@ export default function ParcelBoundaryModal({
   onRemove,
   onCancel,
   title = 'Delimitação do Terreno no Mapa',
+  subtitle,
+  readOnly = false,
+  confirmLabel = 'Confirmar Delimitação',
 }: ParcelBoundaryModalProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -175,10 +181,10 @@ export default function ParcelBoundaryModal({
   // Handler de clique no mapa para adicionar novos vértices
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    if (!map || readOnly) return;
 
     function handleMapClick(e: L.LeafletMouseEvent) {
-      if (isClosed) return; // Se já fechou, edita apenas arrastando vértices
+      if (readOnly || isClosed) return; // Se em leitura ou já fechou, ignora
 
       const newPoint = {
         lat: Number(e.latlng.lat.toFixed(6)),
@@ -192,7 +198,7 @@ export default function ParcelBoundaryModal({
     return () => {
       map.off('click', handleMapClick);
     };
-  }, [isClosed]);
+  }, [isClosed, readOnly]);
 
   // Atualiza geometria (linhas, polígono e marcadores de vértice) quando vertices ou isClosed mudarem
   useEffect(() => {
@@ -281,12 +287,12 @@ export default function ParcelBoundaryModal({
 
       const marker = L.marker([vertex.lat, vertex.lng], {
         icon: vertexIcon,
-        draggable: true,
-        autoPan: true,
+        draggable: !readOnly,
+        autoPan: !readOnly,
       }).addTo(map);
 
       // Permite fechar clicando no 1º vértice quando houver pelo menos 3 pontos
-      if (isFirst && !isClosed && vertices.length >= 3) {
+      if (!readOnly && isFirst && !isClosed && vertices.length >= 3) {
         marker.bindTooltip('Clique para fechar o polígono', {
           permanent: true,
           direction: 'top',
@@ -299,23 +305,25 @@ export default function ParcelBoundaryModal({
       }
 
       // Evento de arrasto para ajustar posições de vértices
-      marker.on('drag', (e: any) => {
-        const newLatLng = e.target.getLatLng();
-        setVertices((prev) => {
-          const updated = [...prev];
-          updated[index] = {
-            lat: Number(newLatLng.lat.toFixed(6)),
-            lng: Number(newLatLng.lng.toFixed(6)),
-          };
-          return updated;
+      if (!readOnly) {
+        marker.on('drag', (e: any) => {
+          const newLatLng = e.target.getLatLng();
+          setVertices((prev) => {
+            const updated = [...prev];
+            updated[index] = {
+              lat: Number(newLatLng.lat.toFixed(6)),
+              lng: Number(newLatLng.lng.toFixed(6)),
+            };
+            return updated;
+          });
         });
-      });
+      }
 
       return marker;
     });
 
     vertexMarkersRef.current = markers;
-  }, [vertices, isClosed, activeBaseMap]);
+  }, [vertices, isClosed, activeBaseMap, readOnly]);
 
   // Ações da Toolbar
   function handleClosePolygon() {
@@ -421,7 +429,7 @@ export default function ParcelBoundaryModal({
                 {title}
               </h2>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Perímetro delimitado no mapa • Desenho manual aproximado
+                {subtitle || 'Perímetro delimitado no mapa • Desenho manual aproximado'}
               </div>
             </div>
           </div>
@@ -493,7 +501,14 @@ export default function ParcelBoundaryModal({
                   lineHeight: 1.45,
                 }}
               >
-                {!isClosed ? (
+                {readOnly ? (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <Info size={16} color={activeBaseMap === 'satellite' ? '#60A5FA' : '#1D4ED8'} style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span>
+                      <strong>Visualização de Perímetro Coletivo:</strong> Este terreno foi delimitado de forma colaborativa e é compartilhado por todas as unidades deste condomínio.
+                    </span>
+                  </div>
+                ) : !isClosed ? (
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                     <MousePointerClick size={16} color={activeBaseMap === 'satellite' ? '#4ADE80' : '#1E4620'} style={{ flexShrink: 0, marginTop: 2 }} />
                     <span>
@@ -513,78 +528,80 @@ export default function ParcelBoundaryModal({
               </div>
 
               {/* Ferramentas de Desenho em Painel Dedicado */}
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {vertices.length >= 3 && !isClosed && (
+              {!readOnly && (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {vertices.length >= 3 && !isClosed && (
+                    <button
+                      type="button"
+                      id="btn-close-polygon"
+                      onClick={handleClosePolygon}
+                      title="Conclui o traçado fechando o polígono entre o último e o primeiro ponto"
+                      style={{
+                        padding: '8px 14px',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        backgroundColor: '#1E4620',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Check size={15} />
+                      <span>Concluir polígono</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
-                    id="btn-close-polygon"
-                    onClick={handleClosePolygon}
-                    title="Conclui o traçado fechando o polígono entre o último e o primeiro ponto"
+                    onClick={handleUndo}
+                    disabled={vertices.length === 0}
+                    title="Remove o último ponto adicionado na demarcação"
                     style={{
                       padding: '8px 14px',
                       fontSize: '0.82rem',
-                      fontWeight: 700,
-                      backgroundColor: '#1E4620',
-                      color: '#FFFFFF',
-                      border: 'none',
+                      fontWeight: 600,
+                      backgroundColor: '#FFFFFF',
+                      color: vertices.length === 0 ? '#9CA3AF' : '#374151',
+                      border: '1px solid var(--border-light)',
                       borderRadius: 'var(--radius-sm)',
-                      cursor: 'pointer',
+                      cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
                     }}
                   >
-                    <Check size={15} />
-                    <span>Concluir polígono</span>
+                    <Undo2 size={15} />
+                    <span>Desfazer último ponto</span>
                   </button>
-                )}
 
-                <button
-                  type="button"
-                  onClick={handleUndo}
-                  disabled={vertices.length === 0}
-                  title="Remove o último ponto adicionado na demarcação"
-                  style={{
-                    padding: '8px 14px',
-                    fontSize: '0.82rem',
-                    fontWeight: 600,
-                    backgroundColor: '#FFFFFF',
-                    color: vertices.length === 0 ? '#9CA3AF' : '#374151',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <Undo2 size={15} />
-                  <span>Desfazer último ponto</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  disabled={vertices.length === 0}
-                  title="Limpa todos os pontos e reinicia a demarcação (solicita confirmação)"
-                  style={{
-                    padding: '8px 14px',
-                    fontSize: '0.82rem',
-                    fontWeight: 600,
-                    backgroundColor: '#FFFFFF',
-                    color: vertices.length === 0 ? '#9CA3AF' : '#DC2626',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <Trash2 size={15} />
-                  <span>Limpar demarcação</span>
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    disabled={vertices.length === 0}
+                    title="Limpa todos os pontos e reinicia a demarcação (solicita confirmação)"
+                    style={{
+                      padding: '8px 14px',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      backgroundColor: '#FFFFFF',
+                      color: vertices.length === 0 ? '#9CA3AF' : '#DC2626',
+                      border: '1px solid var(--border-light)',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: vertices.length === 0 ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <Trash2 size={15} />
+                    <span>Limpar demarcação</span>
+                  </button>
+                </div>
+              )}
 
               {/* Informações de Área Delimitada */}
               <div style={{ padding: '14px', backgroundColor: '#FAFBFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -630,7 +647,11 @@ export default function ParcelBoundaryModal({
           }}
         >
           <div style={{ fontSize: '0.80rem', color: 'var(--text-muted)' }}>
-            {isClosed ? (
+            {readOnly ? (
+              <span style={{ color: '#1E40AF', fontWeight: 700 }}>
+                ℹ Visualização de perímetro coletivo ({vertices.length} vértices • {calculatedArea > 0 ? `${calculatedArea.toLocaleString('pt-BR')} m²` : ''})
+              </span>
+            ) : isClosed ? (
               <span style={{ color: '#166534', fontWeight: 700 }}>
                 ✓ Delimitação fechada ({vertices.length} vértices • {calculatedArea > 0 ? `${calculatedArea.toLocaleString('pt-BR')} m²` : ''})
               </span>
@@ -641,53 +662,66 @@ export default function ParcelBoundaryModal({
 
           {/* Botões de Ação */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {onRemove && initialBoundary && (
+            {readOnly ? (
               <button
                 type="button"
-                onClick={onRemove}
-                style={{
-                  padding: '9px 14px',
-                  fontSize: '0.84rem',
-                  fontWeight: 600,
-                  backgroundColor: '#FEE2E2',
-                  color: '#DC2626',
-                  border: '1px solid #FCA5A5',
-                  borderRadius: 'var(--radius-md)',
-                  cursor: 'pointer',
-                }}
+                className="btn-primary"
+                onClick={onCancel}
+                style={{ padding: '9px 24px', fontSize: '0.84rem', fontWeight: 700 }}
               >
-                Excluir Delimitação
+                Concluir Leitura
               </button>
+            ) : (
+              <>
+                {onRemove && initialBoundary && (
+                  <button
+                    type="button"
+                    onClick={onRemove}
+                    style={{
+                      padding: '9px 14px',
+                      fontSize: '0.84rem',
+                      fontWeight: 600,
+                      backgroundColor: '#FEE2E2',
+                      color: '#DC2626',
+                      border: '1px solid #FCA5A5',
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Excluir Delimitação
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onCancel}
+                  style={{ padding: '9px 16px', fontSize: '0.84rem' }}
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleSave}
+                  disabled={vertices.length < 3 || !isClosed}
+                  style={{
+                    padding: '9px 20px',
+                    fontSize: '0.84rem',
+                    fontWeight: 700,
+                    opacity: vertices.length < 3 || !isClosed ? 0.5 : 1,
+                    cursor: vertices.length < 3 || !isClosed ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <Check size={16} />
+                  <span>{confirmLabel}</span>
+                </button>
+              </>
             )}
-
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={onCancel}
-              style={{ padding: '9px 16px', fontSize: '0.84rem' }}
-            >
-              Cancelar
-            </button>
-
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={handleSave}
-              disabled={vertices.length < 3 || !isClosed}
-              style={{
-                padding: '9px 20px',
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                opacity: vertices.length < 3 || !isClosed ? 0.5 : 1,
-                cursor: vertices.length < 3 || !isClosed ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <Check size={16} />
-              <span>Confirmar Delimitação</span>
-            </button>
           </div>
         </div>
       </div>

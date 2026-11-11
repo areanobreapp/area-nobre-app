@@ -19,10 +19,13 @@ import {
   Users,
   Lock,
   AlertTriangle,
+  Pentagon,
+  Camera,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
+const ParcelBoundaryModal = dynamic(() => import('@/components/ParcelBoundaryModal'), { ssr: false });
 
 export interface SlotInfoData {
   unitExists: boolean;
@@ -69,6 +72,12 @@ export interface BuildingData {
   hasElevator?: boolean | null;
   hasPetSpace?: boolean | null;
   hasBarbecue?: boolean | null;
+  coverImageUrl?: string | null;
+  coverImageValidationStatus?: string | null;
+  boundary?: string | null;
+  boundaryArea?: number | null;
+  boundaryValidationStatus?: string | null;
+  boundaryContributorsCount?: number | null;
   verifiedByAdmin?: boolean;
   externalId?: string | null;
   source?: string | null;
@@ -183,6 +192,16 @@ export default function BuildingSelector({
   const [geoFeedback, setGeoFeedback] = useState<{ type: 'success' | 'warning' | 'error' | 'info'; text: string } | null>(null);
   const [geoSkipped, setGeoSkipped] = useState(false);
 
+  // Estados de Terreno Coletivo e Fotografia da Fachada (J.2.C.1)
+  const [showBoundaryViewModal, setShowBoundaryViewModal] = useState(false);
+  const [showBoundarySuggestModal, setShowBoundarySuggestModal] = useState(false);
+  const [boundarySubmitting, setBoundarySubmitting] = useState(false);
+  const [boundaryFeedback, setBoundaryFeedback] = useState<{ type: 'success' | 'warning' | 'error' | 'info'; text: string } | null>(null);
+
+  const [facadeUploading, setFacadeUploading] = useState(false);
+  const [facadeFeedback, setFacadeFeedback] = useState<{ type: 'success' | 'warning' | 'error' | 'info'; text: string } | null>(null);
+  const facadeInputRef = useRef<HTMLInputElement>(null);
+
   // Fecha dropdown ao clicar fora
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -224,16 +243,46 @@ export default function BuildingSelector({
   useEffect(() => {
     if (initialBuilding) {
       setSelectedBuilding(initialBuilding);
+      if (initialBuilding.id && (initialBuilding.boundary === undefined || initialBuilding.coverImageUrl === undefined)) {
+        fetch(`/api/buildings/${initialBuilding.id}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => {
+            if (d?.building) {
+              setSelectedBuilding((prev) => (prev ? { ...prev, ...d.building } : d.building));
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [initialBuilding]);
 
-  function handlePickBuilding(b: BuildingData) {
+  async function handlePickBuilding(b: BuildingData) {
     setSelectedBuilding(b);
     onSelectBuilding(b);
     setShowDropdown(false);
     setSearchQuery('');
     setGeoFeedback(null);
     setGeoSkipped(false);
+    setBoundaryFeedback(null);
+    setFacadeFeedback(null);
+
+    // Carrega dados completos (boundary e fachada) do edifício selecionado
+    try {
+      const res = await fetch(`/api/buildings/${b.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.building) {
+          const enriched: BuildingData = {
+            ...b,
+            ...data.building,
+          };
+          setSelectedBuilding(enriched);
+          onSelectBuilding(enriched);
+        }
+      }
+    } catch {
+      // Usa dados preliminares em caso de falha de rede
+    }
   }
 
   function handleClearBuilding() {
@@ -241,6 +290,8 @@ export default function BuildingSelector({
     onSelectBuilding(null);
     setGeoFeedback(null);
     setGeoSkipped(false);
+    setBoundaryFeedback(null);
+    setFacadeFeedback(null);
   }
 
   async function handleOneClickConfirm() {
@@ -368,6 +419,126 @@ export default function BuildingSelector({
       });
     } catch {
       // Ignora erro no skip
+    }
+  }
+
+  async function handleSaveBoundaryContribution(geoJsonString: string, approximateAreaM2: number, isRevision: boolean) {
+    if (!selectedBuilding) return;
+    setBoundarySubmitting(true);
+    setBoundaryFeedback(null);
+    try {
+      const res = await fetch(`/api/buildings/${selectedBuilding.id}/boundary-contributions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boundaryGeoJson: geoJsonString,
+          approximateAreaM2,
+          contributionType: isRevision ? 'PROPOSED_REVISION' : 'PROPOSED_NEW',
+          source: 'BROKER_FORM_MAP',
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setBoundaryFeedback({
+          type: data.isProposedRevision ? 'info' : 'success',
+          text: data.message || 'Delimitação registrada com sucesso!',
+        });
+        if (data.building) {
+          const updated: BuildingData = {
+            ...selectedBuilding,
+            boundary: data.building.boundary,
+            boundaryArea: data.building.boundaryArea,
+            boundaryValidationStatus: data.building.boundaryValidationStatus,
+            boundaryContributorsCount: data.building.boundaryContributorsCount,
+          };
+          setSelectedBuilding(updated);
+          onSelectBuilding(updated);
+        }
+      } else {
+        setBoundaryFeedback({
+          type: 'error',
+          text: data.error || 'Erro ao registrar delimitação coletiva.',
+        });
+      }
+    } catch (err: any) {
+      setBoundaryFeedback({
+        type: 'error',
+        text: err.message || 'Erro de conexão ao registrar delimitação.',
+      });
+    } finally {
+      setBoundarySubmitting(false);
+      setShowBoundarySuggestModal(false);
+    }
+  }
+
+  async function handleFacadeFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBuilding) return;
+
+    setFacadeUploading(true);
+    setFacadeFeedback(null);
+    try {
+      const formData = new FormData();
+      formData.append('entityType', 'building');
+      formData.append('entityId', selectedBuilding.id);
+      formData.append('files', file);
+
+      const upRes = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const upData = await upRes.json();
+      if (!upRes.ok) {
+        throw new Error(upData.error || 'Falha ao enviar fotografia da fachada.');
+      }
+
+      const imageUrl = Array.isArray(upData.urls) ? upData.urls[0] : (upData.url || upData.files?.[0]?.url);
+      if (!imageUrl) {
+        throw new Error('Servidor não retornou URL da imagem enviada.');
+      }
+
+      const isSubstitution = Boolean(selectedBuilding.coverImageUrl);
+      const contribRes = await fetch(`/api/buildings/${selectedBuilding.id}/image-contributions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl,
+          contributionType: isSubstitution ? 'PROPOSED_SUBSTITUTION' : 'PROPOSED_INITIAL',
+          source: 'BROKER_UPLOAD',
+        }),
+      });
+
+      const contribData = await contribRes.json();
+      if (contribRes.ok) {
+        setFacadeFeedback({
+          type: contribData.isProposedSubstitution ? 'info' : 'success',
+          text: contribData.message || 'Fotografia da fachada enviada com sucesso!',
+        });
+        if (contribData.building) {
+          const updated: BuildingData = {
+            ...selectedBuilding,
+            coverImageUrl: contribData.building.coverImageUrl,
+            coverImageValidationStatus: contribData.building.coverImageValidationStatus,
+          };
+          setSelectedBuilding(updated);
+          onSelectBuilding(updated);
+        }
+      } else {
+        setFacadeFeedback({
+          type: 'error',
+          text: contribData.error || 'Erro ao registrar contribuição de fachada.',
+        });
+      }
+    } catch (err: any) {
+      setFacadeFeedback({
+        type: 'error',
+        text: err.message || 'Falha ao processar fotografia da fachada.',
+      });
+    } finally {
+      setFacadeUploading(false);
+      if (e.target) e.target.value = '';
     }
   }
 
@@ -858,6 +1029,338 @@ export default function BuildingSelector({
                     </button>
                   </>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* Bloco de Informações Físicas Coletivas do Edifício (J.2.C.1) */}
+          <div
+            style={{
+              marginTop: '12px',
+              paddingTop: '12px',
+              borderTop: '1px solid #E5E7EB',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#111827', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Layers size={14} color="#1E4620" />
+                <span>Informações Físicas Compartilhadas do Edifício</span>
+              </span>
+              <span style={{ fontSize: '0.70rem', color: '#6B7280' }}>
+                Compartilhado entre todos os corretores
+              </span>
+            </div>
+
+            {/* Sub-bloco A: Delimitação Coletiva do Terreno */}
+            <div
+              style={{
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '8px',
+                    backgroundColor: selectedBuilding.boundary ? '#DCFCE7' : '#F3F4F6',
+                    color: selectedBuilding.boundary ? '#166534' : '#6B7280',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Pentagon size={18} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1F2937' }}>
+                      Terreno Coletivo do Condomínio
+                    </span>
+                    {selectedBuilding.boundary ? (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '1px 7px',
+                          borderRadius: '999px',
+                          backgroundColor: '#DCFCE7',
+                          color: '#166534',
+                        }}
+                      >
+                        ⬟ Delimitado {selectedBuilding.boundaryArea ? `(${Math.round(selectedBuilding.boundaryArea)} m²)` : ''}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 600,
+                          padding: '1px 7px',
+                          borderRadius: '999px',
+                          backgroundColor: '#F3F4F6',
+                          color: '#6B7280',
+                        }}
+                      >
+                        ⚪ Não Delimitado
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#6B7280', marginTop: '2px' }}>
+                    {selectedBuilding.boundary
+                      ? `Perímetro compartilhado por todas as unidades deste edifício (${selectedBuilding.boundaryValidationStatus || 'Válido'}).`
+                      : 'Demarque o contorno do terreno no mapa para que todas as unidades utilizem a mesma divisa.'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {selectedBuilding.boundary ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowBoundaryViewModal(true)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: '#FFFFFF',
+                        color: '#374151',
+                        border: '1px solid #D1D5DB',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <Pentagon size={12} />
+                      <span>Visualizar Terreno</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBoundarySuggestModal(true)}
+                      style={{
+                        padding: '5px 10px',
+                        borderRadius: '6px',
+                        backgroundColor: '#FFFFFF',
+                        color: '#92400E',
+                        border: '1px solid #FCD34D',
+                        fontSize: '0.74rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                      }}
+                    >
+                      <span>Sugerir Revisão</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowBoundarySuggestModal(true)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      backgroundColor: '#1E4620',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                    }}
+                  >
+                    <Pentagon size={12} />
+                    <span>Delimitar Terreno Coletivo</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Feedback de Delimitação */}
+            {boundaryFeedback && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  fontSize: '0.74rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: boundaryFeedback.type === 'success' ? '#F0FDF4' : boundaryFeedback.type === 'info' ? '#EFF6FF' : '#FEF2F2',
+                  color: boundaryFeedback.type === 'success' ? '#166534' : boundaryFeedback.type === 'info' ? '#1E40AF' : '#991B1B',
+                  border: `1px solid ${boundaryFeedback.type === 'success' ? '#BBF7D0' : boundaryFeedback.type === 'info' ? '#BFDBFE' : '#FECACA'}`,
+                }}
+              >
+                {boundaryFeedback.type === 'success' ? <CheckCircle2 size={13} /> : <Info size={13} />}
+                <span>{boundaryFeedback.text}</span>
+              </div>
+            )}
+
+            {/* Sub-bloco B: Fotografia Principal da Fachada */}
+            <div
+              style={{
+                backgroundColor: '#FFFFFF',
+                border: '1px solid #E5E7EB',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {selectedBuilding.coverImageUrl ? (
+                  <img
+                    src={selectedBuilding.coverImageUrl}
+                    alt={selectedBuilding.name}
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '8px',
+                      objectFit: 'cover',
+                      border: '1px solid #D1D5DB',
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '46px',
+                      height: '46px',
+                      borderRadius: '8px',
+                      backgroundColor: '#F3F4F6',
+                      color: '#6B7280',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: '1px dashed #D1D5DB',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Camera size={20} />
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1F2937' }}>
+                      Fotografia da Fachada
+                    </span>
+                    {selectedBuilding.coverImageUrl ? (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '1px 7px',
+                          borderRadius: '999px',
+                          backgroundColor: '#DCFCE7',
+                          color: '#166534',
+                        }}
+                      >
+                        ✓ Fachada Compartilhada
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 600,
+                          padding: '1px 7px',
+                          borderRadius: '999px',
+                          backgroundColor: '#F3F4F6',
+                          color: '#6B7280',
+                        }}
+                      >
+                        ⚪ Pendente
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#6B7280', marginTop: '2px' }}>
+                    {selectedBuilding.coverImageUrl
+                      ? 'Imagem principal da fachada, compartilhada entre os anúncios do condomínio.'
+                      : 'Adicione uma foto da fachada externa do condomínio para apresentação nas unidades.'}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="file"
+                  ref={facadeInputRef}
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={handleFacadeFileSelected}
+                />
+
+                <button
+                  type="button"
+                  disabled={facadeUploading}
+                  onClick={() => facadeInputRef.current?.click()}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    backgroundColor: selectedBuilding.coverImageUrl ? '#FFFFFF' : '#1E4620',
+                    color: selectedBuilding.coverImageUrl ? '#374151' : '#FFFFFF',
+                    border: selectedBuilding.coverImageUrl ? '1px solid #D1D5DB' : 'none',
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    cursor: facadeUploading ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  {facadeUploading ? (
+                    <Loader2 size={12} className="spin" />
+                  ) : (
+                    <Camera size={12} />
+                  )}
+                  <span>
+                    {facadeUploading
+                      ? 'Enviando...'
+                      : selectedBuilding.coverImageUrl
+                      ? 'Sugerir Nova Foto'
+                      : 'Adicionar Foto da Fachada'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Feedback de Fachada */}
+            {facadeFeedback && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  fontSize: '0.74rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  backgroundColor: facadeFeedback.type === 'success' ? '#F0FDF4' : facadeFeedback.type === 'info' ? '#EFF6FF' : '#FEF2F2',
+                  color: facadeFeedback.type === 'success' ? '#166534' : facadeFeedback.type === 'info' ? '#1E40AF' : '#991B1B',
+                  border: `1px solid ${facadeFeedback.type === 'success' ? '#BBF7D0' : facadeFeedback.type === 'info' ? '#BFDBFE' : '#FECACA'}`,
+                }}
+              >
+                {facadeFeedback.type === 'success' ? <CheckCircle2 size={13} /> : <Info size={13} />}
+                <span>{facadeFeedback.text}</span>
               </div>
             )}
           </div>
@@ -1578,6 +2081,39 @@ export default function BuildingSelector({
           addressToGeocode={`${selectedBuilding.address || ''}${selectedBuilding.number ? `, ${selectedBuilding.number}` : ''}, ${selectedBuilding.neighborhood || ''}, ${selectedBuilding.city || 'Criciúma'}, ${selectedBuilding.state || 'SC'}`}
           onConfirm={(lat, lng) => handleConfirmGeoPin(lat, lng)}
           onCancel={() => setShowGeoModal(false)}
+        />
+      )}
+
+      {/* Modal de Visualização da Delimitação do Edifício (Somente Leitura - J.2.C.1) */}
+      {showBoundaryViewModal && selectedBuilding?.boundary && (
+        <ParcelBoundaryModal
+          isOpen={showBoundaryViewModal}
+          initialBoundary={selectedBuilding.boundary}
+          centerLat={selectedBuilding.latitude ?? -28.6775}
+          centerLng={selectedBuilding.longitude ?? -49.3700}
+          informedArea={selectedBuilding.boundaryArea}
+          readOnly={true}
+          title={`Terreno Coletivo: ${selectedBuilding.name}`}
+          subtitle="Delimitação física compartilhada entre todas as unidades deste condomínio."
+          onConfirm={() => setShowBoundaryViewModal(false)}
+          onCancel={() => setShowBoundaryViewModal(false)}
+        />
+      )}
+
+      {/* Modal de Sugestão/Demarcação da Delimitação do Edifício (J.2.C.1) */}
+      {showBoundarySuggestModal && selectedBuilding && (
+        <ParcelBoundaryModal
+          isOpen={showBoundarySuggestModal}
+          initialBoundary={selectedBuilding.boundary}
+          centerLat={selectedBuilding.latitude ?? -28.6775}
+          centerLng={selectedBuilding.longitude ?? -49.3700}
+          informedArea={selectedBuilding.boundaryArea}
+          readOnly={false}
+          title={selectedBuilding.boundary ? `Sugerir Revisão de Terreno: ${selectedBuilding.name}` : `Delimitar Terreno Coletivo: ${selectedBuilding.name}`}
+          subtitle={selectedBuilding.boundary ? 'O perímetro vigente continuará ativo até revisão colaborativa.' : 'Ao salvar, este perímetro será compartilhado por todas as unidades deste edifício.'}
+          confirmLabel={selectedBuilding.boundary ? 'Enviar Proposta de Revisão' : 'Confirmar Terreno Coletivo'}
+          onConfirm={(geoJson, areaM2) => handleSaveBoundaryContribution(geoJson, areaM2, Boolean(selectedBuilding.boundary))}
+          onCancel={() => setShowBoundarySuggestModal(false)}
         />
       )}
     </div>

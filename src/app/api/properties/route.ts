@@ -8,6 +8,7 @@ import { recordPropertyAuthorization, assertUserAcceptedTerms } from '@/lib/lega
 import { isLand } from '@/lib/property-display';
 import { linkPropertyToBuildingAndUnit, normalizeBuildingName } from '@/lib/building-service';
 import { ListingSlotService, SlotClaimResult } from '@/lib/listing-slot-service';
+import { processBoundaryContribution } from '@/lib/building-boundary-service';
 
 class ListingSlotError extends Error {
   claimResult: SlotClaimResult;
@@ -636,6 +637,21 @@ export async function POST(req: NextRequest) {
         propertyId: property.id,
         brokerId: user.id,
       });
+    }
+
+    // Se o imóvel é apartamento vinculado a edifício e possui delimitação, registra contribuição coletiva (J.2.C.1)
+    if (resolvedBuildingId && boundary && typeof boundary === 'string') {
+      try {
+        await processBoundaryContribution({
+          buildingId: resolvedBuildingId,
+          brokerId: user.id,
+          boundary,
+          boundaryArea: boundaryArea !== null && boundaryArea !== undefined ? Number(boundaryArea) : null,
+          isRevisionProposal: false,
+        });
+      } catch (contribErr) {
+        console.warn('[PropertyCreate] Falha ao registrar contribuição de delimitação coletiva:', contribErr);
+      }
     }
 
     // Recalcula matches imediatamente para a carteira
