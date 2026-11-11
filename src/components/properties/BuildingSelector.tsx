@@ -1176,10 +1176,10 @@ export default function BuildingSelector({
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
                     <AlertTriangle size={18} color="#D97706" />
-                    <span>Limite de 3 corretores atingido (Vagas esgotadas)</span>
+                    <span>3 de 3 vagas ocupadas</span>
                   </div>
-                  <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 700 }}>
-                    3 de 3 vagas preenchidas
+                  <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 700, border: '1px solid #FCD34D' }}>
+                    Nenhuma vaga disponível
                   </span>
                 </div>
                 <p style={{ margin: 0, fontSize: '0.84rem', color: '#B45309', lineHeight: 1.45 }}>
@@ -1215,16 +1215,22 @@ export default function BuildingSelector({
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.90rem' }}>
                     <Users size={18} color="#2563EB" />
-                    <span>Imóvel Compartilhado — Vaga {slotInfo.activeListingsCount + 1} de 3</span>
+                    <span>{slotInfo.activeListingsCount === 2 ? '2 de 3 vagas ocupadas' : '1 de 3 vagas ocupadas'}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#DBEAFE', color: '#1E40AF', fontWeight: 700 }}>
-                      {slotInfo.activeListingsCount} de 3 vagas preenchidas
+                  {slotInfo.activeListingsCount === 2 ? (
+                    <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#EFF6FF', color: '#1D4ED8', fontWeight: 700, border: '1px solid #BFDBFE' }}>
+                      Você está solicitando a última vaga disponível.
                     </span>
-                    <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#EFF6FF', color: '#2563EB', fontWeight: 600, border: '1px solid #BFDBFE' }}>
-                      {slotInfo.availableSlots} {slotInfo.availableSlots === 1 ? 'vaga restante' : 'vagas restantes'}
-                    </span>
-                  </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#EFF6FF', color: '#2563EB', fontWeight: 600, border: '1px solid #BFDBFE' }}>
+                        2 vagas disponíveis
+                      </span>
+                      <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#DBEAFE', color: '#1E40AF', fontWeight: 700 }}>
+                        Você está solicitando a vaga 2 de 3.
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
                   <span style={{ fontSize: '0.82rem', color: '#1E3A8A' }}>Preço único compartilhado:</span>

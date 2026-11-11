@@ -43,9 +43,10 @@ import { isLand } from '@/lib/property-display';
 interface PropertyFormProps {
   initialData?: any;
   isEditing?: boolean;
+  currentUserId?: string;
 }
 
-export default function PropertyForm({ initialData, isEditing = false }: PropertyFormProps) {
+export default function PropertyForm({ initialData, isEditing = false, currentUserId }: PropertyFormProps) {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,102 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
-  // Proteção contra perda de dados acidental (beforeunload)
+  // Controle de navegação e rascunhos persistentes (Etapa J.1.2)
+  const isDirtyRef = React.useRef(false);
+  const hasPushedGuardRef = React.useRef(false);
+  React.useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  const [showExitModal, setShowExitModal] = useState(false);
+  const showExitModalRef = React.useRef(false);
+  React.useEffect(() => {
+    showExitModalRef.current = showExitModal;
+  }, [showExitModal]);
+
+  const [pendingNavigationUrl, setPendingNavigationUrl] = useState<string | null>(null);
+  const [existingDraft, setExistingDraft] = useState<any | null>(null);
+  const [draftRestoredBanner, setDraftRestoredBanner] = useState<string | null>(null);
+
+  const draftKey = `areanobre_draft_property_${currentUserId || initialData?.userId || 'me'}`;
+
+  // Carrega rascunho persistente do usuário se existir no dispositivo (apenas em novo cadastro)
+  React.useEffect(() => {
+    if (!isEditing && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(draftKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.savedAt) {
+            setExistingDraft(parsed);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar rascunho de imóvel:', err);
+      }
+    }
+  }, [draftKey, isEditing]);
+
+  // Interceptação de popstate / botão Voltar do Android e navegador (Etapa J.1.4)
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isDirty && !hasPushedGuardRef.current) {
+      window.history.pushState({ formGuarded: true }, '', window.location.href);
+      hasPushedGuardRef.current = true;
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (isDirtyRef.current) {
+        // Se o modal de confirmação já estiver aberto, o botão Voltar deve fechar o modal,
+        // manter o usuário no formulário com todos os dados preenchidos e rascunho intacto,
+        // sem provocar navegação para fora da página.
+        if (showExitModalRef.current) {
+          setShowExitModal(false);
+          showExitModalRef.current = false;
+          // Re-arma a guarda para proteger nova tentativa de saída
+          window.history.pushState({ formGuarded: true }, '', window.location.href);
+          hasPushedGuardRef.current = true;
+          return;
+        }
+
+        // Primeiro acionamento de "Voltar": abre o modal de confirmação
+        setShowExitModal(true);
+        showExitModalRef.current = true;
+        // Empurra entrada de histórico para que um próximo clique em Voltar seja consumido para fechar o modal
+        window.history.pushState({ modalOpen: true }, '', window.location.href);
+        hasPushedGuardRef.current = true;
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isDirty]);
+
+  // Interceptação de cliques em links internos enquanto houver dados não salvos
+  React.useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (!isDirtyRef.current) return;
+      const target = (e.target as HTMLElement).closest('a');
+      if (target && target.href) {
+        try {
+          const url = new URL(target.href, window.location.origin);
+          if (url.origin === window.location.origin && url.pathname !== window.location.pathname) {
+            e.preventDefault();
+            e.stopPropagation();
+            setPendingNavigationUrl(target.href);
+            setShowExitModal(true);
+          }
+        } catch {}
+      }
+    };
+    document.addEventListener('click', handleDocumentClick, true);
+    return () => document.removeEventListener('click', handleDocumentClick, true);
+  }, []);
+
+  // Proteção contra fechamento de aba / reload (beforeunload)
   React.useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
       if (isDirty && !loading) {
@@ -868,6 +964,10 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       }
 
       setIsDirty(false);
+      isDirtyRef.current = false;
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
       const matchQuery = data.matchCount ? `?newMatches=${data.matchCount}` : '';
       router.push(`/imoveis/${data.property.id}${matchQuery}`);
       router.refresh();
@@ -876,6 +976,192 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       setLoading(false);
     }
   }
+
+  // Ações do Modal de Proteção de Navegação (Etapa J.1.2)
+  const handleSaveDraft = () => {
+    try {
+      const draftPayload = {
+        userId: currentUserId || initialData?.userId || 'me',
+        savedAt: new Date().toISOString(),
+        title: title || '',
+        propertyType,
+        purpose,
+        price,
+        privateArea,
+        totalArea,
+        landArea,
+        builtArea,
+        suites,
+        otherBedrooms,
+        socialBathrooms,
+        lavabos,
+        coveredParkingSpaces,
+        uncoveredParkingSpaces,
+        description,
+        internalNotes,
+        address,
+        number,
+        complement,
+        neighborhood,
+        city,
+        state,
+        zipcode,
+        latitude,
+        longitude,
+        buildingId,
+        initialBuildingData,
+        unitNumber,
+        tower,
+        floor,
+        boundary,
+        boundaryArea,
+        acceptsExchange,
+        exchangeNotes,
+        registryNumber,
+        isRegistered,
+        hasPool,
+        hasGym,
+        furniture,
+        hasBarbecue,
+        hasPartyHall,
+        hasElevator,
+        isPenthouse,
+        hasPetSpace,
+        isCorner,
+        inGatedCommunity,
+        inAllotment,
+        streetPaving,
+        commercialType,
+        photos: photos
+          .filter((p) => p.status === 'success' && (p.remoteUrl || p.previewUrl))
+          .map((p) => p.remoteUrl || p.previewUrl),
+      };
+
+      localStorage.setItem(draftKey, JSON.stringify(draftPayload));
+      setIsDirty(false);
+      isDirtyRef.current = false;
+      hasPushedGuardRef.current = false;
+      setShowExitModal(false);
+      showExitModalRef.current = false;
+
+      if (pendingNavigationUrl) {
+        window.location.href = pendingNavigationUrl;
+      } else {
+        const targetUrl = isEditing && initialData?.id ? `/imoveis/${initialData.id}` : '/imoveis';
+        router.push(targetUrl);
+      }
+    } catch (err) {
+      console.error('Erro ao salvar rascunho:', err);
+      alert('Não foi possível salvar o rascunho no dispositivo.');
+    }
+  };
+
+  const handleStay = () => {
+    setShowExitModal(false);
+    showExitModalRef.current = false;
+    setPendingNavigationUrl(null);
+    if (!hasPushedGuardRef.current && typeof window !== 'undefined') {
+      window.history.pushState({ formGuarded: true }, '', window.location.href);
+      hasPushedGuardRef.current = true;
+    }
+  };
+
+  const handleDiscardAndLeave = () => {
+    setIsDirty(false);
+    isDirtyRef.current = false;
+    hasPushedGuardRef.current = false;
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    setShowExitModal(false);
+    showExitModalRef.current = false;
+    if (pendingNavigationUrl) {
+      window.location.href = pendingNavigationUrl;
+    } else {
+      const targetUrl = isEditing && initialData?.id ? `/imoveis/${initialData.id}` : '/imoveis';
+      router.push(targetUrl);
+    }
+  };
+
+  const handleRestoreDraft = () => {
+    if (!existingDraft) return;
+    try {
+      if (existingDraft.title !== undefined) setTitle(existingDraft.title);
+      if (existingDraft.propertyType !== undefined) setPropertyType(existingDraft.propertyType);
+      if (existingDraft.purpose !== undefined) setPurpose(existingDraft.purpose);
+      if (existingDraft.price !== undefined) setPrice(existingDraft.price);
+      if (existingDraft.privateArea !== undefined) setPrivateArea(existingDraft.privateArea);
+      if (existingDraft.totalArea !== undefined) setTotalArea(existingDraft.totalArea);
+      if (existingDraft.landArea !== undefined) setLandArea(existingDraft.landArea);
+      if (existingDraft.builtArea !== undefined) setBuiltArea(existingDraft.builtArea);
+      if (existingDraft.suites !== undefined) setSuites(existingDraft.suites);
+      if (existingDraft.otherBedrooms !== undefined) setOtherBedrooms(existingDraft.otherBedrooms);
+      if (existingDraft.socialBathrooms !== undefined) setSocialBathrooms(existingDraft.socialBathrooms);
+      if (existingDraft.lavabos !== undefined) setLavabos(existingDraft.lavabos);
+      if (existingDraft.coveredParkingSpaces !== undefined) setCoveredParkingSpaces(existingDraft.coveredParkingSpaces);
+      if (existingDraft.uncoveredParkingSpaces !== undefined) setUncoveredParkingSpaces(existingDraft.uncoveredParkingSpaces);
+      if (existingDraft.description !== undefined) setDescription(existingDraft.description);
+      if (existingDraft.internalNotes !== undefined) setInternalNotes(existingDraft.internalNotes);
+      if (existingDraft.address !== undefined) setAddress(existingDraft.address);
+      if (existingDraft.number !== undefined) setNumber(existingDraft.number);
+      if (existingDraft.complement !== undefined) setComplement(existingDraft.complement);
+      if (existingDraft.neighborhood !== undefined) setNeighborhood(existingDraft.neighborhood);
+      if (existingDraft.city !== undefined) setCity(existingDraft.city);
+      if (existingDraft.state !== undefined) setState(existingDraft.state);
+      if (existingDraft.zipcode !== undefined) setZipcode(existingDraft.zipcode);
+      if (existingDraft.latitude !== undefined) setLatitude(existingDraft.latitude);
+      if (existingDraft.longitude !== undefined) setLongitude(existingDraft.longitude);
+      if (existingDraft.buildingId !== undefined) setBuildingId(existingDraft.buildingId);
+      if (existingDraft.initialBuildingData !== undefined) setInitialBuildingData(existingDraft.initialBuildingData);
+      if (existingDraft.unitNumber !== undefined) setUnitNumber(existingDraft.unitNumber);
+      if (existingDraft.tower !== undefined) setTower(existingDraft.tower);
+      if (existingDraft.floor !== undefined) setFloor(existingDraft.floor);
+      if (existingDraft.boundary !== undefined) setBoundary(existingDraft.boundary);
+      if (existingDraft.boundaryArea !== undefined) setBoundaryArea(existingDraft.boundaryArea);
+      if (existingDraft.acceptsExchange !== undefined) setAcceptsExchange(existingDraft.acceptsExchange);
+      if (existingDraft.exchangeNotes !== undefined) setExchangeNotes(existingDraft.exchangeNotes);
+      if (existingDraft.registryNumber !== undefined) setRegistryNumber(existingDraft.registryNumber);
+      if (existingDraft.isRegistered !== undefined) setIsRegistered(existingDraft.isRegistered);
+      if (existingDraft.hasPool !== undefined) setHasPool(existingDraft.hasPool);
+      if (existingDraft.hasGym !== undefined) setHasGym(existingDraft.hasGym);
+      if (existingDraft.furniture !== undefined) setFurniture(existingDraft.furniture);
+      if (existingDraft.hasBarbecue !== undefined) setHasBarbecue(existingDraft.hasBarbecue);
+      if (existingDraft.hasPartyHall !== undefined) setHasPartyHall(existingDraft.hasPartyHall);
+      if (existingDraft.hasElevator !== undefined) setHasElevator(existingDraft.hasElevator);
+      if (existingDraft.isPenthouse !== undefined) setIsPenthouse(existingDraft.isPenthouse);
+      if (existingDraft.hasPetSpace !== undefined) setHasPetSpace(existingDraft.hasPetSpace);
+      if (existingDraft.isCorner !== undefined) setIsCorner(existingDraft.isCorner);
+      if (existingDraft.inGatedCommunity !== undefined) setInGatedCommunity(existingDraft.inGatedCommunity);
+      if (existingDraft.inAllotment !== undefined) setInAllotment(existingDraft.inAllotment);
+      if (existingDraft.streetPaving !== undefined) setStreetPaving(existingDraft.streetPaving);
+      if (existingDraft.commercialType !== undefined) setCommercialType(existingDraft.commercialType);
+
+      if (Array.isArray(existingDraft.photos) && existingDraft.photos.length > 0) {
+        setPhotos(
+          existingDraft.photos.map((url: string, idx: number) => ({
+            id: `draft-photo-${idx}-${url}`,
+            previewUrl: url,
+            remoteUrl: url,
+            status: 'success' as const,
+          }))
+        );
+      }
+
+      setDraftRestoredBanner(`Rascunho de ${new Date(existingDraft.savedAt).toLocaleString('pt-BR')} restaurado com sucesso!`);
+      setExistingDraft(null);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+    } catch (err) {
+      console.error('Erro ao restaurar rascunho:', err);
+    }
+  };
+
+  const handleDiscardDraftBanner = () => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    setExistingDraft(null);
+  };
 
   async function handleJoinWaitlist() {
     setError(null);
@@ -1002,11 +1288,14 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
       {/* Voltar */}
       <button
         type="button"
+        id="btn-form-back"
         onClick={() => {
-          if (isDirty && !window.confirm('Você possui alterações não salvas no cadastro do imóvel. Deseja realmente voltar e descartar os dados?')) {
-            return;
+          if (isDirty) {
+            setPendingNavigationUrl(null);
+            setShowExitModal(true);
+          } else {
+            router.back();
           }
-          router.back();
         }}
         style={{
           display: 'inline-flex',
@@ -1035,6 +1324,110 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           </p>
         </div>
       </div>
+
+      {/* Banner de Feedback de Restauração de Rascunho */}
+      {draftRestoredBanner && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '10px',
+            backgroundColor: '#ECFDF5',
+            border: '1px solid #A7F3D0',
+            color: '#065F46',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 size={18} color="#059669" />
+            <span>{draftRestoredBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraftRestoredBanner(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065F46' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Banner de Rascunho Persistente Encontrado (Etapa J.1.2) */}
+      {!isEditing && existingDraft && (
+        <div
+          id="banner-draft-recovery"
+          style={{
+            padding: '16px 20px',
+            borderRadius: '12px',
+            backgroundColor: '#EFF6FF',
+            border: '1.5px solid #93C5FD',
+            color: '#1E40AF',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            boxShadow: '0 2px 4px rgba(37, 99, 235, 0.06)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Clock size={18} color="#2563EB" />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.94rem' }}>
+                Rascunho anterior recuperável
+              </div>
+              <div style={{ fontSize: '0.80rem', color: '#3B82F6', marginTop: '2px' }}>
+                Salvo no seu dispositivo em {new Date(existingDraft.savedAt).toLocaleString('pt-BR')}{existingDraft.title ? ` • "${existingDraft.title}"` : ''}
+              </div>
+            </div>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '0.86rem', color: '#1E3A8A', lineHeight: 1.45 }}>
+            Você possui um cadastro não concluído anteriormente. Deseja restaurar essas informações para continuar de onde parou?
+          </p>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              id="btn-restore-draft"
+              onClick={handleRestoreDraft}
+              className="btn-primary"
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.84rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Check size={15} />
+              <span>Restaurar rascunho</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-discard-draft-banner"
+              onClick={handleDiscardDraftBanner}
+              className="btn-secondary"
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.84rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#6B7280',
+              }}
+            >
+              <X size={15} />
+              <span>Descartar rascunho</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div
@@ -3823,9 +4216,14 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
             gap: '10px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.92rem' }}>
-            <AlertTriangle size={18} color="#D97706" />
-            <span>Limite de 3 corretores atingido (Vagas esgotadas)</span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 800, fontSize: '0.92rem' }}>
+              <AlertTriangle size={18} color="#D97706" />
+              <span>3 de 3 vagas ocupadas</span>
+            </div>
+            <span style={{ fontSize: '0.74rem', padding: '3px 10px', borderRadius: '12px', backgroundColor: '#FEF3C7', color: '#B45309', fontWeight: 700, border: '1px solid #FCD34D' }}>
+              Nenhuma vaga disponível
+            </span>
           </div>
 
           <p style={{ margin: 0, fontSize: '0.86rem', lineHeight: 1.45, color: '#B45309' }}>
@@ -3907,6 +4305,206 @@ export default function PropertyForm({ initialData, isEditing = false }: Propert
           <span>{loading ? 'Salvando...' : (uploading || photos.some((p) => p.status === 'uploading')) ? 'Enviando fotos...' : isEditing ? 'Salvar Alterações' : 'Publicar Imóvel'}</span>
         </button>
       </div>
+
+      {/* Modal de Proteção de Navegação — 3 Alternativas Requisitadas (Etapa J.1.2) */}
+      {showExitModal && (
+        <div
+          id="modal-navigation-guard"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            backdropFilter: 'blur(3px)',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* Cabeçalho */}
+            <div
+              style={{
+                padding: '20px 24px',
+                borderBottom: '1px solid #E5E7EB',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                backgroundColor: '#FFFBEB',
+              }}
+            >
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  backgroundColor: '#FEF3C7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#D97706',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#92400E' }}>
+                  Atenção: alterações não salvas
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.82rem', color: '#B45309' }}>
+                  Você possui informações preenchidas no cadastro deste imóvel.
+                </p>
+              </div>
+            </div>
+
+            {/* Conteúdo */}
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <p style={{ margin: 0, fontSize: '0.90rem', color: '#374151', lineHeight: 1.5 }}>
+                Como deseja prosseguir antes de sair da página?
+              </p>
+
+              {/* As 3 Alternativas Requisitadas */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+                {/* 1. Salvar como rascunho */}
+                <button
+                  type="button"
+                  id="btn-nav-save-draft"
+                  onClick={handleSaveDraft}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #2563EB',
+                    backgroundColor: '#EFF6FF',
+                    color: '#1E40AF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#DBEAFE',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CheckCircle2 size={18} color="#2563EB" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Salvar como rascunho</div>
+                    <div style={{ fontSize: '0.78rem', color: '#3B82F6', marginTop: '2px' }}>
+                      Salva os dados no seu dispositivo para continuar depois e sai da página.
+                    </div>
+                  </div>
+                </button>
+
+                {/* 2. Continuar cadastrando */}
+                <button
+                  type="button"
+                  id="btn-nav-continue"
+                  onClick={handleStay}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #059669',
+                    backgroundColor: '#ECFDF5',
+                    color: '#065F46',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#D1FAE5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Sliders size={18} color="#059669" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Continuar cadastrando</div>
+                    <div style={{ fontSize: '0.78rem', color: '#10B981', marginTop: '2px' }}>
+                      Cancela a navegação e permanece no formulário com tudo preservado.
+                    </div>
+                  </div>
+                </button>
+
+                {/* 3. Sair sem salvar */}
+                <button
+                  type="button"
+                  id="btn-nav-discard"
+                  onClick={handleDiscardAndLeave}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid #E5E7EB',
+                    backgroundColor: '#FFFFFF',
+                    color: '#DC2626',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#FEE2E2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <RotateCcw size={18} color="#DC2626" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Sair sem salvar</div>
+                    <div style={{ fontSize: '0.78rem', color: '#6B7280', marginTop: '2px' }}>
+                      Descarta o progresso não salvo e permite sair.
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

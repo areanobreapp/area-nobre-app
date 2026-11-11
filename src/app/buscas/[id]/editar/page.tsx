@@ -24,5 +24,5 @@ export default async function EditarBuscaPage({
     redirect('/buscas');
   }
 
-  return <SearchForm initialData={search} isEditing={true} />;
+  return <SearchForm initialData={search} isEditing={true} currentUserId={user.id} />;
 }

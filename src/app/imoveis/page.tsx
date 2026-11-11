@@ -49,7 +49,11 @@ export default function ImoveisPage() {
         const queryParams = new URLSearchParams();
         if (search) queryParams.set('search', search);
         if (statusFilter !== 'Todos') queryParams.set('status', statusFilter);
-        if (scope === 'shared') queryParams.set('scope', 'shared');
+        if (scope === 'shared') {
+          queryParams.set('scope', 'shared');
+        } else if (scope === 'mine') {
+          queryParams.set('scope', 'mine');
+        }
 
         const res = await fetch(`/api/properties?${queryParams.toString()}`);
         const data = await res.json();

@@ -40,44 +40,52 @@ export async function GET(req: NextRequest) {
     const viewAll = searchParams.get('all') === 'true';
     const scope = searchParams.get('scope'); // 'shared' | 'mine'
 
-    const where: any = {};
+    const andConditions: any[] = [];
     const isSharedQuery = scope === 'shared' || (user.role === 'ADMIN' && viewAll);
 
     if (user.role === 'ADMIN' && brokerId) {
-      where.responsibleBrokerId = brokerId;
+      andConditions.push({ responsibleBrokerId: brokerId });
     } else if (isSharedQuery) {
-      where.OR = [
-        { responsibleBroker: { status: 'ACTIVE' } },
-        { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
-      ];
+      andConditions.push({
+        OR: [
+          { responsibleBroker: { status: 'ACTIVE' } },
+          { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
+        ],
+      });
     } else {
-      where.OR = [
-        { userId: user.id },
-        { responsibleBrokerId: user.id },
-      ];
+      andConditions.push({
+        OR: [
+          { userId: user.id },
+          { responsibleBrokerId: user.id },
+        ],
+      });
     }
 
     if (status && status !== 'Todos') {
-      where.status = status;
+      andConditions.push({ status });
     }
 
     if (propertyType && propertyType !== 'Todos') {
-      where.propertyType = propertyType;
+      andConditions.push({ propertyType });
     }
 
     if (purpose && purpose !== 'Todos') {
-      where.purpose = purpose;
+      andConditions.push({ purpose });
     }
 
     if (search) {
-      where.OR = [
-        { title: { contains: search } },
-        { internalCode: { contains: search } },
-        { neighborhood: { contains: search } },
-        { city: { contains: search } },
-        { address: { contains: search } },
-      ];
+      andConditions.push({
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { internalCode: { contains: search, mode: 'insensitive' } },
+          { neighborhood: { contains: search, mode: 'insensitive' } },
+          { city: { contains: search, mode: 'insensitive' } },
+          { address: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    const where: any = andConditions.length > 0 ? { AND: andConditions } : {};
 
     const properties = await prisma.property.findMany({
       where,

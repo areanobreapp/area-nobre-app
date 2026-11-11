@@ -6,5 +6,5 @@ export default async function NovoImovelPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  return <PropertyForm />;
+  return <PropertyForm currentUserId={user.id} />;
 }

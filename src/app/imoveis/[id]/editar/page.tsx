@@ -26,5 +26,5 @@ export default async function EditarImovelPage({
     redirect('/imoveis');
   }
 
-  return <PropertyForm initialData={property} isEditing={true} />;
+  return <PropertyForm initialData={property} isEditing={true} currentUserId={user.id} />;
 }

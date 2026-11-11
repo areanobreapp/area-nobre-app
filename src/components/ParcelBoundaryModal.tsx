@@ -517,7 +517,9 @@ export default function ParcelBoundaryModal({
                 {vertices.length >= 3 && !isClosed && (
                   <button
                     type="button"
+                    id="btn-close-polygon"
                     onClick={handleClosePolygon}
+                    title="Conclui o traçado fechando o polígono entre o último e o primeiro ponto"
                     style={{
                       padding: '8px 14px',
                       fontSize: '0.82rem',
@@ -533,7 +535,7 @@ export default function ParcelBoundaryModal({
                     }}
                   >
                     <Check size={15} />
-                    <span>Fechar Polígono</span>
+                    <span>Concluir polígono</span>
                   </button>
                 )}
 

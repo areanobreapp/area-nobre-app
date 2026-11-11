@@ -6,5 +6,5 @@ export default async function NovaBuscaPage() {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  return <SearchForm />;
+  return <SearchForm currentUserId={user.id} />;
 }

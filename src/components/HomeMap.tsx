@@ -328,6 +328,18 @@ export default function HomeMap({
   // Filtro de Escopo: Todos os Imóveis | Meus Imóveis (Fase 5.4 — Ajuste Final)
   const [scopeFilter, setScopeFilter] = useState<'all' | 'mine'>('all');
 
+  const handleScopeFilterChange = (scope: 'all' | 'mine') => {
+    setScopeFilter(scope);
+    if (scope === 'mine' && selectedItem) {
+      const isMine =
+        (selectedItem.responsibleBrokerId && selectedItem.responsibleBrokerId === user?.id) ||
+        selectedItem.userId === user?.id;
+      if (!isMine) {
+        setSelectedItem(null);
+      }
+    }
+  };
+
   // Navegação geográfica do mapa (busca de local / endereço / bairro / cidade)
   const [isGeocodingLocation, setIsGeocodingLocation] = useState(false);
   const [navigatedLocation, setNavigatedLocation] = useState<{ lat: number; lng: number; label: string } | null>(null);
@@ -653,7 +665,7 @@ export default function HomeMap({
 
       return true;
     });
-  }, [allItems, selectedCategory, searchQuery, filters]);
+  }, [allItems, selectedCategory, searchQuery, filters, scopeFilter, user?.id, activeSearchContext]);
 
   // Itens que possuem coordenadas geográficas válidas
   const mappedItems = useMemo(() => {
@@ -1777,7 +1789,7 @@ export default function HomeMap({
               <button
                 type="button"
                 id="btn-scope-all"
-                onClick={() => setScopeFilter('all')}
+                onClick={() => handleScopeFilterChange('all')}
                 style={{
                   padding: '5px 12px',
                   borderRadius: 'var(--radius-full)',
@@ -1813,7 +1825,7 @@ export default function HomeMap({
               <button
                 type="button"
                 id="btn-scope-mine"
-                onClick={() => setScopeFilter('mine')}
+                onClick={() => handleScopeFilterChange('mine')}
                 style={{
                   padding: '5px 12px',
                   borderRadius: 'var(--radius-full)',

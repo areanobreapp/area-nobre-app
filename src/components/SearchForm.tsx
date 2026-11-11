@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import {
@@ -21,6 +21,10 @@ import {
   ChevronUp,
   Sparkles,
   ShieldCheck,
+  CheckCircle2,
+  Clock,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import FieldHelper from './FieldHelper';
 
@@ -30,6 +34,7 @@ const RadiusLocationPickerModal = dynamic(() => import('./RadiusLocationPickerMo
 interface SearchFormProps {
   initialData?: any;
   isEditing?: boolean;
+  currentUserId?: string;
 }
 
 const PROPERTY_TYPES = [
@@ -115,11 +120,115 @@ function TriStateSelector({ label, value, onChange, description }: TriStateSelec
   );
 }
 
-export default function SearchForm({ initialData, isEditing = false }: SearchFormProps) {
+export default function SearchForm({ initialData, isEditing = false, currentUserId }: SearchFormProps) {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Proteção de navegação e rascunhos persistentes (Etapa J.1.2)
+  const isDirtyRef = useRef(false);
+  const hasPushedGuardRef = useRef(false);
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  const [showExitModal, setShowExitModal] = useState(false);
+  const showExitModalRef = useRef(false);
+  useEffect(() => {
+    showExitModalRef.current = showExitModal;
+  }, [showExitModal]);
+
+  const [pendingNavigationUrl, setPendingNavigationUrl] = useState<string | null>(null);
+  const [existingDraft, setExistingDraft] = useState<any | null>(null);
+  const [draftRestoredBanner, setDraftRestoredBanner] = useState<string | null>(null);
+
+  const draftKey = `areanobre_draft_search_${currentUserId || initialData?.userId || 'me'}`;
+
+  // Carrega rascunho persistente de busca se existir
+  useEffect(() => {
+    if (!isEditing && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(draftKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.savedAt) {
+            setExistingDraft(parsed);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar rascunho de busca:', err);
+      }
+    }
+  }, [draftKey, isEditing]);
+
+  // Intercepta Android Back / popstate (Etapa J.1.4)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isDirty && !hasPushedGuardRef.current) {
+      window.history.pushState({ searchFormGuarded: true }, '', window.location.href);
+      hasPushedGuardRef.current = true;
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      if (isDirtyRef.current) {
+        // Se o modal de confirmação já estiver aberto, o botão Voltar fecha o modal,
+        // mantendo o usuário no formulário com todos os dados preenchidos e rascunho intacto
+        if (showExitModalRef.current) {
+          setShowExitModal(false);
+          showExitModalRef.current = false;
+          window.history.pushState({ searchFormGuarded: true }, '', window.location.href);
+          hasPushedGuardRef.current = true;
+          return;
+        }
+
+        // Primeiro acionamento de "Voltar": abre o modal de confirmação
+        setShowExitModal(true);
+        showExitModalRef.current = true;
+        window.history.pushState({ modalOpen: true }, '', window.location.href);
+        hasPushedGuardRef.current = true;
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDirty]);
+
+  // Intercepta links internos durante preenchimento
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      if (!isDirtyRef.current) return;
+      const target = (e.target as HTMLElement).closest('a');
+      if (target && target.href) {
+        try {
+          const url = new URL(target.href, window.location.origin);
+          if (url.origin === window.location.origin && url.pathname !== window.location.pathname) {
+            e.preventDefault();
+            e.stopPropagation();
+            setPendingNavigationUrl(target.href);
+            setShowExitModal(true);
+          }
+        } catch {}
+      }
+    };
+    document.addEventListener('click', handleDocumentClick, true);
+    return () => document.removeEventListener('click', handleDocumentClick, true);
+  }, []);
+
+  // BeforeUnload
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (isDirty && !loading) {
+        e.preventDefault();
+        e.returnValue = 'Você possui alterações não salvas nesta busca. Deseja realmente sair?';
+        return e.returnValue;
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty, loading]);
 
   // Cliente
   const [clientName, setClientName] = useState(initialData?.client?.name || '');
@@ -382,6 +491,12 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
         throw new Error(data.error || 'Erro ao salvar busca.');
       }
 
+      setIsDirty(false);
+      isDirtyRef.current = false;
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {}
+
       const matchQuery = data.matchCount ? `?newMatches=${data.matchCount}` : '';
       router.push(`/buscas/${data.search.id}${matchQuery}`);
       router.refresh();
@@ -391,11 +506,143 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
     }
   }
 
+  // Ações do Modal de Proteção e Rascunho de Busca (Etapa J.1.2)
+  const handleSaveDraft = () => {
+    try {
+      const draftPayload = {
+        userId: currentUserId || initialData?.userId || 'me',
+        savedAt: new Date().toISOString(),
+        clientName,
+        clientPhone,
+        searchName,
+        purpose,
+        selectedTypes,
+        cities,
+        neighborhoods,
+        minPrice,
+        maxPrice,
+        minBedrooms,
+        minSuites,
+        minOtherBedrooms,
+        minSocialBathrooms,
+        minLavabos,
+        minParkingSpaces,
+        minCoveredParkingSpaces,
+        minUncoveredParkingSpaces,
+        minArea,
+        notes,
+        locationStrategy,
+        searchRadiusMeters,
+        searchLatitude,
+        searchLongitude,
+      };
+
+      localStorage.setItem(draftKey, JSON.stringify(draftPayload));
+      setIsDirty(false);
+      isDirtyRef.current = false;
+      hasPushedGuardRef.current = false;
+      setShowExitModal(false);
+      showExitModalRef.current = false;
+
+      if (pendingNavigationUrl) {
+        window.location.href = pendingNavigationUrl;
+      } else {
+        const targetUrl = isEditing && initialData?.id ? `/buscas/${initialData.id}` : '/buscas';
+        router.push(targetUrl);
+      }
+    } catch (err) {
+      console.error('Erro ao salvar rascunho de busca:', err);
+      alert('Não foi possível salvar o rascunho da busca.');
+    }
+  };
+
+  const handleStay = () => {
+    setShowExitModal(false);
+    showExitModalRef.current = false;
+    setPendingNavigationUrl(null);
+    if (!hasPushedGuardRef.current && typeof window !== 'undefined') {
+      window.history.pushState({ searchFormGuarded: true }, '', window.location.href);
+      hasPushedGuardRef.current = true;
+    }
+  };
+
+  const handleDiscardAndLeave = () => {
+    setIsDirty(false);
+    isDirtyRef.current = false;
+    hasPushedGuardRef.current = false;
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    setShowExitModal(false);
+    showExitModalRef.current = false;
+    if (pendingNavigationUrl) {
+      window.location.href = pendingNavigationUrl;
+    } else {
+      const targetUrl = isEditing && initialData?.id ? `/buscas/${initialData.id}` : '/buscas';
+      router.push(targetUrl);
+    }
+  };
+
+  const handleRestoreDraft = () => {
+    if (!existingDraft) return;
+    try {
+      if (existingDraft.clientName !== undefined) setClientName(existingDraft.clientName);
+      if (existingDraft.clientPhone !== undefined) setClientPhone(existingDraft.clientPhone);
+      if (existingDraft.searchName !== undefined) setSearchName(existingDraft.searchName);
+      if (existingDraft.purpose !== undefined) setPurpose(existingDraft.purpose);
+      if (Array.isArray(existingDraft.selectedTypes)) setSelectedTypes(existingDraft.selectedTypes);
+      if (existingDraft.cities !== undefined) setCities(existingDraft.cities);
+      if (existingDraft.neighborhoods !== undefined) setNeighborhoods(existingDraft.neighborhoods);
+      if (existingDraft.minPrice !== undefined) setMinPrice(existingDraft.minPrice);
+      if (existingDraft.maxPrice !== undefined) setMaxPrice(existingDraft.maxPrice);
+      if (existingDraft.minBedrooms !== undefined) setMinBedrooms(existingDraft.minBedrooms);
+      if (existingDraft.minSuites !== undefined) setMinSuites(existingDraft.minSuites);
+      if (existingDraft.minOtherBedrooms !== undefined) setMinOtherBedrooms(existingDraft.minOtherBedrooms);
+      if (existingDraft.minSocialBathrooms !== undefined) setMinSocialBathrooms(existingDraft.minSocialBathrooms);
+      if (existingDraft.minLavabos !== undefined) setMinLavabos(existingDraft.minLavabos);
+      if (existingDraft.minParkingSpaces !== undefined) setMinParkingSpaces(existingDraft.minParkingSpaces);
+      if (existingDraft.minCoveredParkingSpaces !== undefined) setMinCoveredParkingSpaces(existingDraft.minCoveredParkingSpaces);
+      if (existingDraft.minUncoveredParkingSpaces !== undefined) setMinUncoveredParkingSpaces(existingDraft.minUncoveredParkingSpaces);
+      if (existingDraft.minArea !== undefined) setMinArea(existingDraft.minArea);
+      if (existingDraft.notes !== undefined) setNotes(existingDraft.notes);
+      if (existingDraft.locationStrategy !== undefined) setLocationStrategy(existingDraft.locationStrategy);
+      if (existingDraft.searchRadiusMeters !== undefined) setSearchRadiusMeters(existingDraft.searchRadiusMeters);
+      if (existingDraft.searchLatitude !== undefined) setSearchLatitude(existingDraft.searchLatitude);
+      if (existingDraft.searchLongitude !== undefined) setSearchLongitude(existingDraft.searchLongitude);
+
+      setDraftRestoredBanner(`Rascunho de busca de ${new Date(existingDraft.savedAt).toLocaleString('pt-BR')} restaurado com sucesso!`);
+      setExistingDraft(null);
+      setIsDirty(true);
+      isDirtyRef.current = true;
+    } catch (err) {
+      console.error('Erro ao restaurar rascunho de busca:', err);
+    }
+  };
+
+  const handleDiscardDraftBanner = () => {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    setExistingDraft(null);
+  };
+
   return (
-    <form onSubmit={handleSubmit} style={{ maxWidth: '820px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+    <form
+      onSubmit={handleSubmit}
+      onChangeCapture={() => !isDirty && setIsDirty(true)}
+      style={{ maxWidth: '820px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}
+    >
       <button
         type="button"
-        onClick={() => router.back()}
+        id="btn-search-back"
+        onClick={() => {
+          if (isDirty) {
+            setPendingNavigationUrl(null);
+            setShowExitModal(true);
+          } else {
+            router.back();
+          }
+        }}
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -420,6 +667,110 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
           Cadastre os critérios essenciais da necessidade do seu cliente. Critérios avançados são opcionais e adaptados ao tipo de imóvel.
         </p>
       </div>
+
+      {/* Banner de Feedback de Restauração de Rascunho */}
+      {draftRestoredBanner && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '10px',
+            backgroundColor: '#ECFDF5',
+            border: '1px solid #A7F3D0',
+            color: '#065F46',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            fontSize: '0.88rem',
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <CheckCircle2 size={18} color="#059669" />
+            <span>{draftRestoredBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraftRestoredBanner(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065F46' }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Banner de Rascunho de Busca Encontrado */}
+      {!isEditing && existingDraft && (
+        <div
+          id="banner-search-draft-recovery"
+          style={{
+            padding: '16px 20px',
+            borderRadius: '12px',
+            backgroundColor: '#EFF6FF',
+            border: '1.5px solid #93C5FD',
+            color: '#1E40AF',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px',
+            boxShadow: '0 2px 4px rgba(37, 99, 235, 0.06)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Clock size={18} color="#2563EB" />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.94rem' }}>
+                Rascunho de busca recuperável
+              </div>
+              <div style={{ fontSize: '0.80rem', color: '#3B82F6', marginTop: '2px' }}>
+                Salvo no seu dispositivo em {new Date(existingDraft.savedAt).toLocaleString('pt-BR')}{existingDraft.clientName ? ` • Cliente: ${existingDraft.clientName}` : ''}
+              </div>
+            </div>
+          </div>
+
+          <p style={{ margin: 0, fontSize: '0.86rem', color: '#1E3A8A', lineHeight: 1.45 }}>
+            Você possui uma busca não concluída salva no dispositivo. Deseja restaurar essas informações?
+          </p>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              id="btn-restore-search-draft"
+              onClick={handleRestoreDraft}
+              className="btn-primary"
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.84rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <Check size={15} />
+              <span>Restaurar rascunho</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-discard-search-draft-banner"
+              onClick={handleDiscardDraftBanner}
+              className="btn-secondary"
+              style={{
+                padding: '8px 16px',
+                fontSize: '0.84rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#6B7280',
+              }}
+            >
+              <X size={15} />
+              <span>Descartar rascunho</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div
@@ -1799,6 +2150,206 @@ export default function SearchForm({ initialData, isEditing = false }: SearchFor
           <span>{loading ? 'Salvando...' : isEditing ? 'Salvar Alterações' : 'Salvar Busca de Cliente'}</span>
         </button>
       </div>
+
+      {/* Modal de Proteção de Navegação — 3 Alternativas Requisitadas (Etapa J.1.2) */}
+      {showExitModal && (
+        <div
+          id="modal-search-navigation-guard"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            backdropFilter: 'blur(3px)',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            {/* Cabeçalho */}
+            <div
+              style={{
+                padding: '20px 24px',
+                borderBottom: '1px solid #E5E7EB',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                backgroundColor: '#FFFBEB',
+              }}
+            >
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '50%',
+                  backgroundColor: '#FEF3C7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#D97706',
+                  flexShrink: 0,
+                }}
+              >
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#92400E' }}>
+                  Atenção: alterações não salvas
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '0.82rem', color: '#B45309' }}>
+                  Você possui critérios preenchidos nesta busca de cliente.
+                </p>
+              </div>
+            </div>
+
+            {/* Conteúdo */}
+            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <p style={{ margin: 0, fontSize: '0.90rem', color: '#374151', lineHeight: 1.5 }}>
+                Como você deseja prosseguir antes de sair da página?
+              </p>
+
+              {/* As 3 Alternativas Requisitadas */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
+                {/* 1. Salvar como rascunho */}
+                <button
+                  type="button"
+                  id="btn-search-nav-save-draft"
+                  onClick={handleSaveDraft}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #2563EB',
+                    backgroundColor: '#EFF6FF',
+                    color: '#1E40AF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#DBEAFE',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CheckCircle2 size={18} color="#2563EB" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Salvar como rascunho</div>
+                    <div style={{ fontSize: '0.78rem', color: '#3B82F6', marginTop: '2px' }}>
+                      Salva os critérios no dispositivo para continuar depois e sai da página.
+                    </div>
+                  </div>
+                </button>
+
+                {/* 2. Continuar cadastrando */}
+                <button
+                  type="button"
+                  id="btn-search-nav-continue"
+                  onClick={handleStay}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #059669',
+                    backgroundColor: '#ECFDF5',
+                    color: '#065F46',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#D1FAE5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Sliders size={18} color="#059669" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Continuar cadastrando</div>
+                    <div style={{ fontSize: '0.78rem', color: '#10B981', marginTop: '2px' }}>
+                      Permanece no formulário mantendo todos os critérios intactos.
+                    </div>
+                  </div>
+                </button>
+
+                {/* 3. Sair sem salvar */}
+                <button
+                  type="button"
+                  id="btn-search-nav-discard"
+                  onClick={handleDiscardAndLeave}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid #E5E7EB',
+                    backgroundColor: '#FFFFFF',
+                    color: '#DC2626',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      backgroundColor: '#FEE2E2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <RotateCcw size={18} color="#DC2626" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.90rem' }}>Sair sem salvar</div>
+                    <div style={{ fontSize: '0.78rem', color: '#6B7280', marginTop: '2px' }}>
+                      Descarta o preenchimento não salvo e permite sair.
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }
