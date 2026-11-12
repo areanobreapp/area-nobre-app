@@ -47,6 +47,7 @@ model User {
   imageContributions           BuildingImageContribution[]    @relation("BrokerImageContributions")
   decidedImageContributions    BuildingImageContribution[]    @relation("DecidedImageContributions")
   createdLandParcels           LandParcel[]                   @relation("LandParcelCreatedBy")
+  createdCompanies             Company[]                      @relation("CreatedCompanies")
 }
 
 model BrokerProfile {
@@ -308,23 +309,37 @@ model Development {
   responsibleBrokerId   String?
   responsibleBroker     User?               @relation("ResponsibleDevelopments", fields: [responsibleBrokerId], references: [id], onDelete: SetNull)
   name                  String              // Nome do empreendimento
-  developer     String              // Construtora (informação do empreendimento, não usuário)
-  stage         String              // Lançamento, Na planta, Em construção, Próximo da entrega
-  deliveryDate  String?             // Previsão de entrega (ex: Março/2028)
-  status        String              @default("Ativo") // Ativo, Inativo
-  description   String?             // Descrição curta
-  internalNotes String?             // Observações internas do corretor
+  developer             String              // Construtora (texto legado mantido para retrocompatibilidade)
+  
+  // Vínculo Institucional com a Construtora (Bloco 6 / 6A)
+  companyId             String?
+  company               Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  
+  // Tipologia e Escala do Projeto (Bloco 6 / 6A)
+  projectType           String?             @default("VERTICAL") // "VERTICAL" | "HORIZONTAL" | "MISTO" | "LOTEAMENTO"
+  totalTowers           Int?                // Quantidade total de torres/quadras
+  totalUnits            Int?                // Quantidade total de unidades autônomas
+  
+  stage                 String              // Lançamento, Na planta, Em construção, Próximo da entrega
+  deliveryDate          String?             // Previsão de entrega (ex: Março/2028)
+  deliveryYear          Int?                // Ano de entrega para filtros numéricos
+  deliveryMonth         Int?                // Mês de entrega (1-12)
+  indexCorrection       String?             // Correção monetária (ex: "CUB/SC", "INCC-M", "IGP-M")
+  
+  status                String              @default("Ativo") // Ativo, Inativo
+  description           String?             // Descrição curta
+  internalNotes         String?             // Observações internas do corretor/admin
 
   // Localização
-  address       String?
-  number        String?
-  complement    String?
-  neighborhood  String?
-  city          String?
-  state         String?
-  zipcode       String?
-  latitude      Float?
-  longitude     Float?
+  address               String?
+  number                String?
+  complement            String?
+  neighborhood          String?
+  city                  String?
+  state                 String?
+  zipcode               String?
+  latitude              Float?
+  longitude             Float?
 
   // Características compartilhadas do condomínio / empreendimento (Fase 5.0.1)
   hasPool               Boolean?      // Piscina compartilhada
@@ -334,11 +349,154 @@ model Development {
   hasElevator           Boolean?      // Elevadores nas torres
   hasDirectInstallments Boolean?      // Parcelamento próprio com a construtora
 
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  // Convergência com Cadastro Predial Físico (Bloco 6 / Ponto 24)
+  buildingId            String?
+  building              Building?           @relation("BuildingDevelopment", fields: [buildingId], references: [id], onDelete: SetNull)
 
-  images        DevelopmentImage[]
-  typologies    Typology[]
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  images                DevelopmentImage[]
+  typologies            Typology[]
+  contacts              DevelopmentContact[]
+  blocks                DevelopmentBlock[]
+
+  @@index([companyId])
+  @@index([buildingId])
+  @@index([status])
+  @@index([stage])
+  @@index([projectType])
+}
+
+// ==============================================================================
+// Construtoras e Incorporadoras (Bloco 6 / Ponto 3)
+// Cadastro administrativo centralizado de empresas do mercado primário
+// ==============================================================================
+model Company {
+  id                String           @id @default(cuid())
+  name              String           // Razão social (ex: "Construtora Fontana Ltda")
+  tradeName         String           // Nome fantasia (ex: "Fontana")
+  cnpj              String?          @unique // CNPJ único quando informado
+  stateRegistration String?          // Inscrição Estadual (IE)
+  
+  // Localização e Endereço Corporativo
+  address           String?
+  number            String?
+  complement        String?
+  neighborhood      String?
+  city              String           @default("Criciúma")
+  state             String           @default("SC")
+  zipcode           String?
+  
+  // Contato Comercial Geral da Empresa
+  phone             String?
+  whatsapp          String?
+  email             String?
+  website           String?
+  
+  // Identidade Visual e Apresentação
+  logoUrl           String?
+  bannerUrl         String?
+  description       String?          @db.Text
+  
+  // Governança Administrativa
+  status            String           @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  displayOrder      Int              @default(0)        // Ordem no carrossel de marcas
+  internalNotes     String?          @db.Text           // Anotações administrativas exclusivas
+  
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  
+  createdById       String?
+  createdBy         User?            @relation("CreatedCompanies", fields: [createdById], references: [id], onDelete: SetNull)
+
+  developments      Development[]
+  contacts          CompanyContact[]
+
+  @@index([status])
+  @@index([city, state])
+  @@index([tradeName])
+  @@index([displayOrder])
+}
+
+// ==============================================================================
+// Contatos e Gerentes da Construtora (Bloco 6 / Pontos 4 e 5)
+// Equipe comercial com níveis de visibilidade (Público, Corretores ou Admin)
+// ==============================================================================
+model CompanyContact {
+  id             String               @id @default(cuid())
+  companyId      String
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  name           String               // Nome do profissional
+  role           String               // Cargo: "Gerente Geral de Vendas", "Coordenador de Parcerias", etc.
+  phone          String?
+  whatsapp       String?              // Telefone formatado para link direto wa.me
+  email          String?
+  photoUrl       String?
+  internalNotes  String?              @db.Text // Observações restritas ao ADMIN
+  
+  // Governança e Visibilidade Granular (Regras 4 e 5)
+  // "PUBLIC": visível a visitantes e clientes finais
+  // "BROKERS_ONLY": exclusivo para corretores autenticados
+  // "ADMIN_ONLY": exclusivo para administradores
+  visibility     String               @default("BROKERS_ONLY")
+  status         String               @default("ACTIVE") // "ACTIVE" | "INACTIVE"
+  displayOrder   Int                  @default(0)
+  
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  developments   DevelopmentContact[]
+
+  @@index([companyId, status])
+  @@index([visibility])
+  @@index([displayOrder])
+}
+
+// ==============================================================================
+// Associação N:M entre Empreendimentos e Contatos da Construtora (Bloco 6 / Ponto 4)
+// Permite que um gerente atenda múltiplos empreendimentos da mesma construtora
+// ==============================================================================
+model DevelopmentContact {
+  id            String         @id @default(cuid())
+  developmentId String
+  development   Development    @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       CompanyContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  
+  isPrimary     Boolean        @default(false) // Gerente de referência prioritário do empreendimento
+  customRole    String?        // Sobrescrita contextual opcional do cargo para esta obra
+  
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([developmentId, contactId])
+  @@index([developmentId])
+  @@index([contactId])
+}
+
+// ==============================================================================
+// Torres, Blocos e Quadras de Empreendimentos (Bloco 6 / Ponto 4)
+// Estrutura organizacional para empreendimentos verticais e horizontais
+// ==============================================================================
+model DevelopmentBlock {
+  id            String       @id @default(cuid())
+  developmentId String
+  development   Development  @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+  
+  name          String       // ex: "Torre A - Cristal", "Torre Sul", "Quadra 04"
+  blockType     String       @default("TOWER") // "TOWER" | "QUADRA" | "BLOCO"
+  totalFloors   Int?         // Quantidade de pavimentos (se vertical)
+  unitsPerFloor Int?         // Unidades por pavimento (se vertical)
+  displayOrder  Int          @default(0)
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([developmentId, name])
+  @@index([developmentId])
+  @@index([displayOrder])
 }
 
 model DevelopmentImage {
@@ -597,6 +755,7 @@ model Building {
   locationContributions BuildingLocationContribution[]
   boundaryContributions BuildingBoundaryContribution[]
   imageContributions    BuildingImageContribution[]
+  developments          Development[]                  @relation("BuildingDevelopment")
 
   @@unique([city, source, externalId], name: "city_source_external_unique")
   @@index([city, neighborhood])
@@ -604,6 +763,7 @@ model Building {
   @@index([normalizedName])
   @@index([source, dataValidationStatus])
   @@index([sourceBatch])
+  @@index([landParcelId])
 }
 
 // ==============================================================================

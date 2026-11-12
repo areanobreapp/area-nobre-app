@@ -118,9 +118,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
+    if (user.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Apenas administradores podem cadastrar novos empreendimentos de construtoras.' },
+        { status: 403 }
+      );
     }
 
     const termsCheck = await assertUserAcceptedTerms(user);

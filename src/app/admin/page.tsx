@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ShieldAlert,
   Users,
@@ -21,6 +22,7 @@ import {
   FileText,
   Scale,
   Clock,
+  Briefcase,
 } from 'lucide-react';
 import LegalDocumentsManager from '@/components/admin/LegalDocumentsManager';
 import LegalAuditViewer from '@/components/admin/LegalAuditViewer';
@@ -306,6 +308,30 @@ export default function AdminPage() {
           <Users size={18} />
           <span>Usuários e Plataforma</span>
         </button>
+
+        <Link
+          href="/admin/construtoras"
+          id="btn-tab-companies"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: '3px solid transparent',
+            color: '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+            textDecoration: 'none',
+          }}
+        >
+          <Briefcase size={18} />
+          <span>Construtoras e Empreendimentos</span>
+        </Link>
 
         <button
           type="button"
