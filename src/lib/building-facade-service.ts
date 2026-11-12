@@ -149,3 +149,124 @@ export async function processFacadeContribution(
   };
 }
 
+export interface DecideFacadeContributionParams {
+  contributionId: string;
+  adminId: string;
+  decision: 'APPROVE' | 'REJECT';
+  decisionNotes?: string;
+  prismaClient?: any;
+}
+
+export interface DecideFacadeResult {
+  contribution: any;
+  building: any;
+  message: string;
+}
+
+/**
+ * Decisão administrativa sobre proposta de substituição da fotografia da fachada.
+ * 
+ * Regras estritas:
+ * 1. Transação atômica completa ($transaction).
+ * 2. Proteção contra concorrência e decisões duplicadas (status deve ser PENDING).
+ * 3. Ao aprovar:
+ *    - Atualiza Building.coverImageUrl com a nova foto aprovada.
+ *    - Marca coverImageValidationStatus = 'ADMIN_VALIDATED'.
+ *    - Atualiza coverImageUploadedById e coverImageUpdatedAt.
+ *    - Marca a contribuição como ACCEPTED e propostas concorrentes como SUPERSEDED.
+ *    - NÃO altera as fotos particulares de anúncios (PropertyImage).
+ * 4. Ao rejeitar:
+ *    - Marca contribuição como REJECTED com justificativa.
+ *    - Preserva integralmente a imagem oficial vigente.
+ */
+export async function decideFacadeContribution(
+  params: DecideFacadeContributionParams
+): Promise<DecideFacadeResult> {
+  const { contributionId, adminId, decision, decisionNotes, prismaClient } = params;
+  const prisma = prismaClient || defaultPrisma;
+  const runInTx = typeof prisma.$transaction === 'function' ? prisma.$transaction.bind(prisma) : async (fn: any) => fn(prisma);
+
+  return await runInTx(async (tx: any) => {
+    const contribution = await tx.buildingImageContribution.findUnique({
+      where: { id: contributionId },
+      include: { building: true },
+    });
+
+    if (!contribution) {
+      throw new Error('Contribuição de fotografia não encontrada.');
+    }
+
+    // Proteção contra concorrência e decisões duplicadas
+    if (contribution.decidedById || ['REJECTED', 'SUPERSEDED'].includes(contribution.status)) {
+      throw new Error(
+        `Esta proposta de fotografia já foi decidida anteriormente (status atual: ${contribution.status}). Operação duplicada rejeitada.`
+      );
+    }
+
+    const buildingId = contribution.buildingId;
+    const now = new Date();
+
+    if (decision === 'APPROVE') {
+      // Atualiza o Building com a nova fotografia oficial e validação administrativa
+      const updatedBuilding = await tx.building.update({
+        where: { id: buildingId },
+        data: {
+          coverImageUrl: contribution.imageUrl,
+          coverImageValidationStatus: 'ADMIN_VALIDATED',
+          coverImageUpdatedAt: now,
+          coverImageUploadedById: contribution.brokerId,
+          coverImageSource: 'ADMIN_UPLOAD',
+        },
+      });
+
+      // Atualiza a contribuição para ACCEPTED
+      const updatedContribution = await tx.buildingImageContribution.update({
+        where: { id: contribution.id },
+        data: {
+          status: 'ACCEPTED',
+          decidedById: adminId,
+          decidedAt: now,
+          decisionNotes: decisionNotes || 'Aprovado pelo administrador.',
+        },
+      });
+
+      // Marca outras propostas de imagem pendentes do mesmo edifício como SUPERSEDED (histórico imutável)
+      await tx.buildingImageContribution.updateMany({
+        where: {
+          buildingId,
+          id: { not: contribution.id },
+          status: 'PENDING',
+        },
+        data: { status: 'SUPERSEDED' },
+      });
+
+      return {
+        contribution: updatedContribution,
+        building: updatedBuilding,
+        message: 'Fotografia da fachada aprovada e promovida como oficial pela administração.',
+      };
+    }
+
+    // Decisão: REJECT
+    const updatedContribution = await tx.buildingImageContribution.update({
+      where: { id: contribution.id },
+      data: {
+        status: 'REJECTED',
+        decidedById: adminId,
+        decidedAt: now,
+        decisionNotes: decisionNotes || 'Proposta de fotografia rejeitada pelo administrador.',
+      },
+    });
+
+    const updatedBuilding = await tx.building.findUnique({
+      where: { id: buildingId },
+    });
+
+    return {
+      contribution: updatedContribution,
+      building: updatedBuilding,
+      message: 'Proposta de fotografia rejeitada pelo administrador. Imagem vigente preservada.',
+    };
+  });
+}
+

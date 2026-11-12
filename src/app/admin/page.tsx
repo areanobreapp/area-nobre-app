@@ -27,6 +27,7 @@ import LegalAuditViewer from '@/components/admin/LegalAuditViewer';
 import BuildingManager from '@/components/admin/BuildingManager';
 import DisputesManager from '@/components/admin/DisputesManager';
 import AdminWaitlistManager from '@/components/admin/AdminWaitlistManager';
+import ModerationManager from '@/components/admin/ModerationManager';
 
 interface AdminUser {
   id: string;
@@ -58,7 +59,8 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState('Todos');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [adminTab, setAdminTab] = useState<'users' | 'buildings' | 'legal' | 'audit' | 'disputes' | 'waitlist'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'buildings' | 'legal' | 'audit' | 'disputes' | 'waitlist' | 'moderation'>('users');
+  const [pendingModerationCount, setPendingModerationCount] = useState<number>(0);
 
   // Configurações da Plataforma (Ponto 13)
   const [supportPhone, setSupportPhone] = useState('5548999273694');
@@ -83,6 +85,13 @@ export default function AdminPage() {
           setFormattedSupportPhone(data.formattedPhone || data.phone);
           setInputPhone(data.formattedPhone || data.phone);
         }
+      }
+
+      // Consulta resumo de moderação para badge
+      const modRes = await fetch('/api/admin/moderation/summary');
+      if (modRes.ok) {
+        const modData = await modRes.json();
+        setPendingModerationCount(modData.totalPending || 0);
       }
     } catch (err) {
       console.error('Falha ao carregar configurações administrativas:', err);
@@ -319,6 +328,44 @@ export default function AdminPage() {
         >
           <Building size={18} />
           <span>Edifícios e Condomínios</span>
+        </button>
+
+        <button
+          type="button"
+          id="btn-tab-moderation"
+          onClick={() => setAdminTab('moderation')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: adminTab === 'moderation' ? '3px solid #1E4620' : '3px solid transparent',
+            color: adminTab === 'moderation' ? '#1E4620' : '#6B7280',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            marginBottom: '-2px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <ShieldAlert size={18} />
+          <span>Central de Moderação</span>
+          {pendingModerationCount > 0 && (
+            <span
+              style={{
+                backgroundColor: '#D97706',
+                color: '#FFFFFF',
+                borderRadius: '999px',
+                padding: '2px 7px',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+              }}
+            >
+              {pendingModerationCount}
+            </span>
+          )}
         </button>
 
         <button
@@ -898,6 +945,9 @@ export default function AdminPage() {
 
       {/* Aba 2: Gestão de Edifícios Residenciais (Fase 2 / Ponto 25) */}
       {adminTab === 'buildings' && <BuildingManager />}
+
+      {/* Aba de Central de Moderação Administrativa (Etapa J.2.D.3) */}
+      {adminTab === 'moderation' && <ModerationManager />}
 
       {/* Aba 3: Gestão de Documentos Jurídicos (Ponto 20 / Etapa 1.5) */}
       {adminTab === 'legal' && <LegalDocumentsManager />}

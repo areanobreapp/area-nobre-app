@@ -352,146 +352,171 @@ export async function decideLocationContribution(params: DecideContributionParam
   const { contributionId, adminId, decision, manualCoordinates, decisionNotes, prismaClient } =
     params;
   const prisma = prismaClient || defaultPrisma;
+  const runInTx = typeof prisma.$transaction === 'function' ? prisma.$transaction.bind(prisma) : async (fn: any) => fn(prisma);
 
-  const contribution = await prisma.buildingLocationContribution.findUnique({
-    where: { id: contributionId },
-    include: { building: true },
-  });
-
-  if (!contribution) {
-    throw new Error('Contribuição não encontrada.');
-  }
-
-  const buildingId = contribution.buildingId;
-  const now = new Date();
-
-  if (decision === 'APPROVE') {
-    // Aprova a contribuição e valida o edifício
-    const updatedContribution = await prisma.buildingLocationContribution.update({
-      where: { id: contribution.id },
-      data: {
-        status: 'ACCEPTED',
-        decidedById: adminId,
-        decidedAt: now,
-        decisionNotes: decisionNotes || 'Aprovado pelo administrador.',
-      },
+  return await runInTx(async (tx: any) => {
+    const contribution = await tx.buildingLocationContribution.findUnique({
+      where: { id: contributionId },
+      include: { building: true },
     });
 
-    // Marca outras propostas pendentes/divergentes deste edifício como SUPERSEDED
-    await prisma.buildingLocationContribution.updateMany({
-      where: {
-        buildingId,
-        id: { not: contribution.id },
-        status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
-      },
-      data: { status: 'SUPERSEDED' },
-    });
-
-    const updatedBuilding = await prisma.building.update({
-      where: { id: buildingId },
-      data: {
-        latitude: contribution.latitude,
-        longitude: contribution.longitude,
-        geoValidationStatus: 'ADMIN_VALIDATED',
-        geoConfidence: 1.0,
-        geoAdminDecidedAt: now,
-        geoAdminDecidedById: adminId,
-      },
-    });
-
-    return {
-      contribution: updatedContribution,
-      building: updatedBuilding,
-      message: 'Contribuição aprovada e localização do edifício validada como oficial pela administração.',
-    };
-  }
-
-  if (decision === 'MANUAL_OVERRIDE') {
-    if (!manualCoordinates || typeof manualCoordinates.latitude !== 'number' || typeof manualCoordinates.longitude !== 'number') {
-      throw new Error('Coordenadas manuais são obrigatórias para sobrescrita manual.');
+    if (!contribution) {
+      throw new Error('Contribuição de localização não encontrada.');
     }
 
-    const updatedContribution = await prisma.buildingLocationContribution.update({
+    // Proteção contra concorrência e decisões duplicadas
+    if (contribution.decidedById || ['REJECTED', 'SUPERSEDED'].includes(contribution.status)) {
+      throw new Error(
+        `Esta proposta já foi decidida anteriormente (status atual: ${contribution.status}). Operação duplicada rejeitada.`
+      );
+    }
+
+    const buildingId = contribution.buildingId;
+    const now = new Date();
+
+    if (decision === 'APPROVE') {
+      // Aprova a contribuição e valida o edifício como oficial
+      const updatedContribution = await tx.buildingLocationContribution.update({
+        where: { id: contribution.id },
+        data: {
+          status: 'ACCEPTED',
+          decidedById: adminId,
+          decidedAt: now,
+          decisionNotes: decisionNotes || 'Aprovado pelo administrador.',
+        },
+      });
+
+      // Marca outras propostas pendentes/divergentes deste edifício como SUPERSEDED (imutabilidade do histórico)
+      await tx.buildingLocationContribution.updateMany({
+        where: {
+          buildingId,
+          id: { not: contribution.id },
+          status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
+        },
+        data: { status: 'SUPERSEDED' },
+      });
+
+      const updatedBuilding = await tx.building.update({
+        where: { id: buildingId },
+        data: {
+          latitude: contribution.latitude,
+          longitude: contribution.longitude,
+          geoValidationStatus: 'ADMIN_VALIDATED',
+          geoConfidence: 1.0,
+          geoAdminDecidedAt: now,
+          geoAdminDecidedById: adminId,
+          verifiedByAdmin: true,
+        },
+      });
+
+      return {
+        contribution: updatedContribution,
+        building: updatedBuilding,
+        message: 'Contribuição aprovada e localização do edifício validada como oficial pela administração.',
+      };
+    }
+
+    if (decision === 'MANUAL_OVERRIDE') {
+      if (
+        !manualCoordinates ||
+        typeof manualCoordinates.latitude !== 'number' ||
+        typeof manualCoordinates.longitude !== 'number'
+      ) {
+        throw new Error('Coordenadas manuais válidas são obrigatórias para sobrescrita manual.');
+      }
+
+      const updatedContribution = await tx.buildingLocationContribution.update({
+        where: { id: contribution.id },
+        data: {
+          status: 'SUPERSEDED',
+          decidedById: adminId,
+          decidedAt: now,
+          decisionNotes: decisionNotes || 'Sobrescrito com coordenadas manuais pelo administrador.',
+        },
+      });
+
+      await tx.buildingLocationContribution.updateMany({
+        where: {
+          buildingId,
+          status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
+        },
+        data: { status: 'SUPERSEDED' },
+      });
+
+      const updatedBuilding = await tx.building.update({
+        where: { id: buildingId },
+        data: {
+          latitude: manualCoordinates.latitude,
+          longitude: manualCoordinates.longitude,
+          geoValidationStatus: 'ADMIN_VALIDATED',
+          geoConfidence: 1.0,
+          geoAdminDecidedAt: now,
+          geoAdminDecidedById: adminId,
+          verifiedByAdmin: true,
+        },
+      });
+
+      return {
+        contribution: updatedContribution,
+        building: updatedBuilding,
+        message: 'Coordenadas oficiais do edifício definidas manualmente pelo administrador.',
+      };
+    }
+
+    // Decisão: REJECT
+    const updatedContribution = await tx.buildingLocationContribution.update({
       where: { id: contribution.id },
       data: {
-        status: 'SUPERSEDED',
+        status: 'REJECTED',
         decidedById: adminId,
         decidedAt: now,
-        decisionNotes: decisionNotes || 'Sobrescrito com coordenadas manuais pelo administrador.',
+        decisionNotes: decisionNotes || 'Rejeitado pelo administrador.',
       },
     });
 
-    await prisma.buildingLocationContribution.updateMany({
+    // Se o edifício já estava validado administrativamente (ADMIN_VALIDATED), preserva integralmente!
+    if (contribution.building.geoValidationStatus === 'ADMIN_VALIDATED') {
+      return {
+        contribution: updatedContribution,
+        building: contribution.building,
+        message: 'Contribuição rejeitada pelo administrador. Localização oficial vigente preservada.',
+      };
+    }
+
+    // Reavalia o status do edifício apenas caso não fosse ADMIN_VALIDATED
+    const remainingAccepted = await tx.buildingLocationContribution.findMany({
       where: {
         buildingId,
-        status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
+        status: 'ACCEPTED',
       },
-      data: { status: 'SUPERSEDED' },
     });
 
-    const updatedBuilding = await prisma.building.update({
+    const remainingBrokers = new Set(remainingAccepted.map((c: any) => c.brokerId)).size;
+    let recomputedStatus: GeoValidationStatus = 'UNVERIFIED';
+    let recomputedConfidence = 0.0;
+
+    if (remainingBrokers >= 2) {
+      recomputedStatus = 'MULTI_BROKER_CONFIRMED';
+      recomputedConfidence = 0.9;
+    } else if (remainingBrokers === 1) {
+      recomputedStatus = 'SINGLE_BROKER_CONFIRMED';
+      recomputedConfidence = 0.5;
+    }
+
+    const updatedBuilding = await tx.building.update({
       where: { id: buildingId },
       data: {
-        latitude: manualCoordinates.latitude,
-        longitude: manualCoordinates.longitude,
-        geoValidationStatus: 'ADMIN_VALIDATED',
-        geoConfidence: 1.0,
-        geoAdminDecidedAt: now,
-        geoAdminDecidedById: adminId,
+        geoValidationStatus: recomputedStatus,
+        geoContributorsCount: remainingBrokers,
+        geoConfidence: recomputedConfidence,
       },
     });
 
     return {
       contribution: updatedContribution,
       building: updatedBuilding,
-      message: 'Coordenadas oficiais do edifício definidas manualmente pelo administrador.',
+      message: 'Contribuição rejeitada pelo administrador.',
     };
-  }
-
-  // Decisão: REJECT
-  const updatedContribution = await prisma.buildingLocationContribution.update({
-    where: { id: contribution.id },
-    data: {
-      status: 'REJECTED',
-      decidedById: adminId,
-      decidedAt: now,
-      decisionNotes: decisionNotes || 'Rejeitado pelo administrador.',
-    },
   });
-
-  // Reavalia o status do edifício após a rejeição
-  const remainingAccepted = await prisma.buildingLocationContribution.findMany({
-    where: {
-      buildingId,
-      status: 'ACCEPTED',
-    },
-  });
-
-  const remainingBrokers = new Set(remainingAccepted.map((c: any) => c.brokerId)).size;
-  let recomputedStatus: GeoValidationStatus = 'UNVERIFIED';
-  let recomputedConfidence = 0.0;
-
-  if (remainingBrokers >= 2) {
-    recomputedStatus = 'MULTI_BROKER_CONFIRMED';
-    recomputedConfidence = 0.9;
-  } else if (remainingBrokers === 1) {
-    recomputedStatus = 'SINGLE_BROKER_CONFIRMED';
-    recomputedConfidence = 0.5;
-  }
-
-  const updatedBuilding = await prisma.building.update({
-    where: { id: buildingId },
-    data: {
-      geoValidationStatus: recomputedStatus,
-      geoContributorsCount: remainingBrokers,
-      geoConfidence: recomputedConfidence,
-    },
-  });
-
-  return {
-    contribution: updatedContribution,
-    building: updatedBuilding,
-    message: 'Contribuição rejeitada pelo administrador.',
-  };
 }
 

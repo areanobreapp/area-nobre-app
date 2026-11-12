@@ -551,3 +551,292 @@ export async function syncBuildingBoundaryCache(
   }
 }
 
+export interface DecideBoundaryContributionParams {
+  contributionId: string;
+  adminId: string;
+  decision: 'APPROVE' | 'REJECT' | 'MANUAL_OVERRIDE';
+  manualBoundary?: string;
+  decisionNotes?: string;
+  prismaClient?: any;
+}
+
+export interface DecideBoundaryResult {
+  contribution: any;
+  building: any;
+  message: string;
+  landParcelId?: string;
+}
+
+/**
+ * Decisão administrativa sobre uma proposta ou revisão de terreno coletivo.
+ * 
+ * Regras estritas:
+ * 1. Transação atômica completa ($transaction).
+ * 2. Proteção contra concorrência e decisões duplicadas (status deve ser PENDING ou FLAGGED_DIVERGENT).
+ * 3. Ao aprovar:
+ *    - Valida a geometria GeoJSON.
+ *    - Atualiza ou cria o LandParcel correspondente como ADMIN_VALIDATED.
+ *    - Sincroniza o cache Building.boundary como ADMIN_VALIDATED.
+ *    - Marca a contribuição como ACCEPTED e propostas concorrentes como SUPERSEDED.
+ *    - NÃO altera os polígonos particulares de anúncios (Property.boundary).
+ * 4. Ao rejeitar:
+ *    - Marca contribuição como REJECTED com justificativa.
+ *    - Preserva integralmente o terreno coletivo vigente.
+ */
+export async function decideBoundaryContribution(
+  params: DecideBoundaryContributionParams
+): Promise<DecideBoundaryResult> {
+  const { contributionId, adminId, decision, manualBoundary, decisionNotes, prismaClient } = params;
+  const prisma = prismaClient || defaultPrisma;
+  const runInTx = typeof prisma.$transaction === 'function' ? prisma.$transaction.bind(prisma) : async (fn: any) => fn(prisma);
+
+  return await runInTx(async (tx: any) => {
+    const contribution = await tx.buildingBoundaryContribution.findUnique({
+      where: { id: contributionId },
+      include: { building: true, landParcel: true },
+    });
+
+    if (!contribution) {
+      throw new Error('Contribuição de terreno não encontrada.');
+    }
+
+    // Proteção contra concorrência e decisões duplicadas
+    if (contribution.decidedById || ['REJECTED', 'SUPERSEDED'].includes(contribution.status)) {
+      throw new Error(
+        `Esta proposta de terreno já foi decidida anteriormente (status atual: ${contribution.status}). Operação duplicada rejeitada.`
+      );
+    }
+
+    const buildingId = contribution.buildingId;
+    const now = new Date();
+
+    if (decision === 'APPROVE') {
+      const boundaryToApply = contribution.boundary;
+      const geomValidation = validateGeoJsonBoundary(boundaryToApply);
+      if (!geomValidation.valid) {
+        throw new Error(`Geometria da contribuição inválida: ${geomValidation.error}`);
+      }
+
+      const effectiveArea = geomValidation.areaM2;
+      const latLngs = parseGeoJsonToLatLngs(boundaryToApply) || [];
+      const bbox = calculatePolygonBoundingBox(latLngs);
+      const coords: [number, number][] = latLngs.map((pt) => [pt.lng, pt.lat]);
+      const centroid = calculatePolygonCentroid(coords);
+
+      let parcelId = contribution.landParcelId;
+
+      if (parcelId) {
+        // Atualiza LandParcel existente para validação administrativa
+        await tx.$executeRawUnsafe(`
+          UPDATE "LandParcel"
+          SET 
+            "boundary" = $1,
+            "boundaryArea" = $2,
+            "validationStatus" = 'ADMIN_VALIDATED',
+            "confidence" = 1.0,
+            "source" = 'ADMIN_VALIDATED',
+            "centroidLat" = $3,
+            "centroidLng" = $4,
+            "bboxMinLat" = $5,
+            "bboxMaxLat" = $6,
+            "bboxMinLng" = $7,
+            "bboxMaxLng" = $8,
+            "lastConfirmedAt" = NOW(),
+            "updatedAt" = NOW()
+          WHERE "id" = $9
+        `, boundaryToApply, effectiveArea,
+           centroid ? centroid[1] : null, centroid ? centroid[0] : null,
+           bbox ? bbox.minLat : null, bbox ? bbox.maxLat : null,
+           bbox ? bbox.minLng : null, bbox ? bbox.maxLng : null,
+           parcelId);
+      } else {
+        // Cria novo lote cadastral validado administrativamente
+        const lpRec: any = await tx.$queryRawUnsafe(`
+          INSERT INTO "LandParcel" (
+            "id", "boundary", "boundaryArea", "source", "originType",
+            "centroidLat", "centroidLng", "bboxMinLat", "bboxMaxLat", "bboxMinLng", "bboxMaxLng",
+            "validationStatus", "confidence", "contributorsCount", "lastConfirmedAt", "createdById",
+            "createdAt", "updatedAt"
+          ) VALUES (
+            'lp_' || gen_random_uuid(), $1, $2, 'ADMIN_VALIDATED', 'MANUAL_DRAW',
+            $3, $4, $5, $6, $7, $8,
+            'ADMIN_VALIDATED', 1.0, 1, NOW(), $9,
+            NOW(), NOW()
+          ) RETURNING "id"
+        `, boundaryToApply, effectiveArea,
+           centroid ? centroid[1] : null, centroid ? centroid[0] : null,
+           bbox ? bbox.minLat : null, bbox ? bbox.maxLat : null,
+           bbox ? bbox.minLng : null, bbox ? bbox.maxLng : null,
+           adminId);
+
+        if (lpRec && lpRec[0]) {
+          parcelId = lpRec[0].id;
+        }
+      }
+
+      // Garante associação N:M em BuildingLandParcel
+      if (parcelId) {
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "BuildingLandParcel" ("id", "buildingId", "landParcelId", "isPrimary", "createdAt", "updatedAt")
+          VALUES ('blp_' || gen_random_uuid(), $1, $2, true, NOW(), NOW())
+          ON CONFLICT ("buildingId", "landParcelId") DO UPDATE SET "isPrimary" = true, "updatedAt" = NOW()
+        `, buildingId, parcelId);
+      }
+
+      // Sincroniza o cache Building.boundary como ADMIN_VALIDATED
+      await syncBuildingBoundaryCache(buildingId, { prismaClient: tx });
+      await tx.$executeRawUnsafe(`
+        UPDATE "Building"
+        SET 
+          "boundaryValidationStatus" = 'ADMIN_VALIDATED',
+          "boundaryConfidence" = 1.0,
+          "boundarySource" = 'ADMIN_OVERRIDE',
+          "updatedAt" = NOW()
+        WHERE "id" = $1
+      `, buildingId);
+
+      // Atualiza a contribuição para ACCEPTED
+      const updatedContribution = await tx.buildingBoundaryContribution.update({
+        where: { id: contribution.id },
+        data: {
+          status: 'ACCEPTED',
+          decidedById: adminId,
+          decidedAt: now,
+          decisionNotes: decisionNotes || 'Aprovado pelo administrador.',
+          landParcelId: parcelId || undefined,
+        },
+      });
+
+      // Marca propostas concorrentes como SUPERSEDED (histórico imutável)
+      await tx.buildingBoundaryContribution.updateMany({
+        where: {
+          buildingId,
+          id: { not: contribution.id },
+          status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
+        },
+        data: { status: 'SUPERSEDED' },
+      });
+
+      const updatedBuilding = await tx.building.findUnique({
+        where: { id: buildingId },
+      });
+
+      return {
+        contribution: updatedContribution,
+        building: updatedBuilding,
+        landParcelId: parcelId,
+        message: 'Perímetro do terreno aprovado e validado como oficial pela administração.',
+      };
+    }
+
+    if (decision === 'MANUAL_OVERRIDE') {
+      if (!manualBoundary || typeof manualBoundary !== 'string') {
+        throw new Error('Geometria GeoJSON manual é obrigatória para substituição manual.');
+      }
+
+      const geomValidation = validateGeoJsonBoundary(manualBoundary);
+      if (!geomValidation.valid) {
+        throw new Error(`Geometria manual inválida: ${geomValidation.error}`);
+      }
+
+      const effectiveArea = geomValidation.areaM2;
+      const latLngs = parseGeoJsonToLatLngs(manualBoundary) || [];
+      const bbox = calculatePolygonBoundingBox(latLngs);
+      const coords: [number, number][] = latLngs.map((pt) => [pt.lng, pt.lat]);
+      const centroid = calculatePolygonCentroid(coords);
+
+      // Cria novo LandParcel homologado manualmente pelo admin
+      const lpRec: any = await tx.$queryRawUnsafe(`
+        INSERT INTO "LandParcel" (
+          "id", "boundary", "boundaryArea", "source", "originType",
+          "centroidLat", "centroidLng", "bboxMinLat", "bboxMaxLat", "bboxMinLng", "bboxMaxLng",
+          "validationStatus", "confidence", "contributorsCount", "lastConfirmedAt", "createdById",
+          "createdAt", "updatedAt"
+        ) VALUES (
+          'lp_' || gen_random_uuid(), $1, $2, 'ADMIN_VALIDATED', 'MANUAL_DRAW',
+          $3, $4, $5, $6, $7, $8,
+          'ADMIN_VALIDATED', 1.0, 1, NOW(), $9,
+          NOW(), NOW()
+        ) RETURNING "id"
+      `, manualBoundary, effectiveArea,
+         centroid ? centroid[1] : null, centroid ? centroid[0] : null,
+         bbox ? bbox.minLat : null, bbox ? bbox.maxLat : null,
+         bbox ? bbox.minLng : null, bbox ? bbox.maxLng : null,
+         adminId);
+
+      const parcelId = lpRec && lpRec[0] ? lpRec[0].id : null;
+
+      if (parcelId) {
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "BuildingLandParcel" ("id", "buildingId", "landParcelId", "isPrimary", "createdAt", "updatedAt")
+          VALUES ('blp_' || gen_random_uuid(), $1, $2, true, NOW(), NOW())
+          ON CONFLICT ("buildingId", "landParcelId") DO UPDATE SET "isPrimary" = true, "updatedAt" = NOW()
+        `, buildingId, parcelId);
+      }
+
+      await syncBuildingBoundaryCache(buildingId, { prismaClient: tx });
+      await tx.$executeRawUnsafe(`
+        UPDATE "Building"
+        SET 
+          "boundaryValidationStatus" = 'ADMIN_VALIDATED',
+          "boundaryConfidence" = 1.0,
+          "boundarySource" = 'ADMIN_OVERRIDE',
+          "updatedAt" = NOW()
+        WHERE "id" = $1
+      `, buildingId);
+
+      // Marca a contribuição como SUPERSEDED pela decisão manual
+      const updatedContribution = await tx.buildingBoundaryContribution.update({
+        where: { id: contribution.id },
+        data: {
+          status: 'SUPERSEDED',
+          decidedById: adminId,
+          decidedAt: now,
+          decisionNotes: decisionNotes || 'Sobrescrito com perímetro manual definido pelo administrador.',
+        },
+      });
+
+      await tx.buildingBoundaryContribution.updateMany({
+        where: {
+          buildingId,
+          id: { not: contribution.id },
+          status: { in: ['PENDING', 'FLAGGED_DIVERGENT'] },
+        },
+        data: { status: 'SUPERSEDED' },
+      });
+
+      const updatedBuilding = await tx.building.findUnique({
+        where: { id: buildingId },
+      });
+
+      return {
+        contribution: updatedContribution,
+        building: updatedBuilding,
+        landParcelId: parcelId || undefined,
+        message: 'Perímetro do terreno definido manualmente e homologado pelo administrador.',
+      };
+    }
+
+    // Decisão: REJECT
+    const updatedContribution = await tx.buildingBoundaryContribution.update({
+      where: { id: contribution.id },
+      data: {
+        status: 'REJECTED',
+        decidedById: adminId,
+        decidedAt: now,
+        decisionNotes: decisionNotes || 'Proposta de terreno rejeitada pelo administrador.',
+      },
+    });
+
+    const updatedBuilding = await tx.building.findUnique({
+      where: { id: buildingId },
+    });
+
+    return {
+      contribution: updatedContribution,
+      building: updatedBuilding,
+      message: 'Proposta de terreno rejeitada pelo administrador. Terreno coletivo vigente preservado.',
+    };
+  });
+}
+
