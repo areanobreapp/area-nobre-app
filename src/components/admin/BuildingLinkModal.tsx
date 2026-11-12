@@ -59,7 +59,10 @@ export default function BuildingLinkModal({
 
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
-    loadBuildings(search);
+    const form = e.currentTarget as HTMLFormElement;
+    const input = form?.querySelector('input') as HTMLInputElement | null;
+    const query = input && input.value !== undefined ? input.value : search;
+    loadBuildings(query);
   }
 
   async function handleConfirmLink() {
