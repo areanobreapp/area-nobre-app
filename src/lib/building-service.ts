@@ -2,6 +2,8 @@ import { prisma as defaultPrisma } from '@/lib/db';
 import type { PrismaClient } from '@prisma/client';
 
 export * from './building-location-service';
+export * from './building-public-service';
+export * from './public-building-dto';
 
 /**
  * Normaliza o nome do edifício para buscas e prevenção de duplicidades:

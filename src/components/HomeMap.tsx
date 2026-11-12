@@ -259,13 +259,13 @@ const CATEGORIES: {
   color: string;
   bgLight: string;
 }[] = [
-  { key: 'Todos', label: 'Todos', color: '#111827', bgLight: '#F3F4F6' },
-  { key: 'Casa', label: 'Casa', color: '#1E4620', bgLight: '#EBF4EC' },
-  { key: 'Apartamento', label: 'Apartamento', color: '#1D4ED8', bgLight: '#EFF6FF' },
-  { key: 'Terreno', label: 'Terreno', color: '#D97706', bgLight: '#FEF3C7' },
-  { key: 'Comércio', label: 'Comércio', color: '#0F766E', bgLight: '#CCFBF1' },
-  { key: 'Em construção', label: 'Em construção', color: '#7C3AED', bgLight: '#F3E8FF' },
-];
+    { key: 'Todos', label: 'Todos', color: '#111827', bgLight: '#F3F4F6' },
+    { key: 'Casa', label: 'Casa', color: '#1E4620', bgLight: '#EBF4EC' },
+    { key: 'Apartamento', label: 'Apartamento', color: '#1D4ED8', bgLight: '#EFF6FF' },
+    { key: 'Terreno', label: 'Terreno', color: '#D97706', bgLight: '#FEF3C7' },
+    { key: 'Comércio', label: 'Comércio', color: '#0F766E', bgLight: '#CCFBF1' },
+    { key: 'Em construção', label: 'Em construção', color: '#7C3AED', bgLight: '#F3E8FF' },
+  ];
 
 function getCategoryForItem(item: MapItem): CategoryKey {
   if (item.isDevelopment) return 'Em construção';
@@ -334,8 +334,8 @@ export default function HomeMap({
       const types = Array.isArray(activeSearchContext.propertyTypes)
         ? activeSearchContext.propertyTypes
         : typeof activeSearchContext.propertyTypes === 'string'
-        ? JSON.parse(activeSearchContext.propertyTypes || '[]')
-        : [];
+          ? JSON.parse(activeSearchContext.propertyTypes || '[]')
+          : [];
       if (types.length > 0) parts.push(types.join(', '));
     }
     if (activeSearchContext.maxPrice) {
@@ -350,8 +350,8 @@ export default function HomeMap({
       const neighs = Array.isArray(activeSearchContext.neighborhoods)
         ? activeSearchContext.neighborhoods
         : typeof activeSearchContext.neighborhoods === 'string'
-        ? JSON.parse(activeSearchContext.neighborhoods || '[]')
-        : [];
+          ? JSON.parse(activeSearchContext.neighborhoods || '[]')
+          : [];
       if (neighs.length > 0) parts.push(neighs.join(', '));
     }
     return parts.join(' • ');
@@ -466,6 +466,21 @@ export default function HomeMap({
   useEffect(() => {
     routeDestinationRef.current = routeDestination;
   }, [routeDestination]);
+
+  // Inicialização de filtros / busca a partir dos parâmetros de URL (ex: retorno de /edificios/[id])
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const searchParam = sp.get('search');
+      if (searchParam && searchParam.trim()) {
+        setSearchQuery(searchParam.trim());
+      }
+      if (sp.get('territory') === 'true') {
+        setShowTerritory(true);
+      }
+    } catch {}
+  }, []);
 
   const handleToggleRouteMode = () => {
     if (isRouteMode) {
@@ -1312,6 +1327,9 @@ export default function HomeMap({
             <div style="margin-top: 6px; font-size: 11px; color: #374151;">
               Total de anúncios: <strong>${bg.totalListingsCount}</strong>
             </div>
+            <a href="/edificios/${bg.buildingId}" style="display: block; margin-top: 8px; text-align: center; background: #1E4620; color: #FFFFFF; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
+              🏢 Ver Página do Edifício ↗
+            </a>
             ${navButtonsHtml}
           </div>
         `);
@@ -1349,8 +1367,8 @@ export default function HomeMap({
 
       const priceVal = item.isDevelopment
         ? (item.typologies && item.typologies.length > 0
-            ? Math.min(...item.typologies.map((t: any) => t.price).filter((p: number) => p > 0))
-            : 0)
+          ? Math.min(...item.typologies.map((t: any) => t.price).filter((p: number) => p > 0))
+          : 0)
         : item.price;
 
       const priceLabel = formatPriceShort(item.matchedTypologyPrice || priceVal);
@@ -1406,29 +1424,29 @@ export default function HomeMap({
         ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; display: flex; flex-direction: column; gap: 4px;">
              <span style="font-size: 10px; font-weight: 800; color: #3730A3; text-transform: uppercase;">${item.brokerCount} Corretores Anunciantes:</span>
              ${item.coListings.map((cl: any) => {
-               const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || cl.user?.profile?.commercialName || cl.user?.name || 'Corretor';
-               return `
+          const bName = cl.responsibleBroker?.profile?.commercialName || cl.responsibleBroker?.name || cl.user?.profile?.commercialName || cl.user?.name || 'Corretor';
+          return `
                  <a href="/imoveis/${cl.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; background: #EEF2FF; border: 1px solid #C7D2FE; border-radius: 4px; text-decoration: none; color: #1F2937; font-size: 11px;">
                    <span>${bName} ${cl.isPrimaryListing ? '<strong style=\"color:#059669; font-size:9px;\">(Principal)</strong>' : ''}</span>
                    <span style="color: #4F46E5; font-weight: 700; font-size: 10px;">Ver anúncio &rarr;</span>
                  </a>
                `;
-             }).join('')}
+        }).join('')}
            </div>`
         : '';
 
       const authorBadgeHtml = isSharedPhysical
         ? coListingsHtml
         : (isMine
-            ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #1E4620; display: flex; align-items: center; gap: 5px;">
+          ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #1E4620; display: flex; align-items: center; gap: 5px;">
                  <span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #1E4620; color: white; font-size: 8px; font-weight: 800;">✓</span>
                  <span>Seu imóvel</span>
                </div>`
-            : `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #4338CA; display: flex; align-items: center; gap: 5px;">
+          : `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #E5E7EB; font-size: 11px; font-weight: 700; color: #4338CA; display: flex; align-items: center; gap: 5px;">
                  ${brokerAvatar
-                   ? `<img src="${brokerAvatar}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />`
-                   : `<span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #4F46E5; color: white; font-size: 8px; font-weight: 800;">${brokerInitial}</span>`
-                 }
+            ? `<img src="${brokerAvatar}" style="width: 14px; height: 14px; border-radius: 50%; object-fit: cover;" />`
+            : `<span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: #4F46E5; color: white; font-size: 8px; font-weight: 800;">${brokerInitial}</span>`
+          }
                  <span>Imóvel de ${brokerDisplayName}</span>
                </div>`);
 
@@ -2895,1392 +2913,1418 @@ export default function HomeMap({
             </div>
           )}
 
-        {/* 4.1. CONTROLES FLUTUANTES DO MAPA */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            right: '20px',
-            zIndex: 510,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '8px',
-            alignItems: 'flex-end',
-          }}
-        >
-          {/* Botão Traçar Rota no Mapa (Etapa 3D.2 / Ponto 27) */}
-          <button
-            type="button"
-            onClick={handleToggleRouteMode}
-            title={isRouteMode ? 'Sair do modo de traçar rota' : 'Traçar rota entre dois pontos no mapa'}
-            style={{
-              backgroundColor: isRouteMode ? '#1E4620' : 'white',
-              color: isRouteMode ? 'white' : 'var(--text-primary)',
-              border: isRouteMode ? '1.5px solid #1E4620' : '1px solid var(--border-light)',
-              borderRadius: 'var(--radius-md)',
-              padding: '10px 14px',
-              boxShadow: 'var(--shadow-md)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              cursor: 'pointer',
-              fontSize: '0.80rem',
-              fontWeight: 700,
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Navigation size={15} color={isRouteMode ? '#86EFAC' : 'var(--color-primary)'} />
-            <span>{isRouteMode ? 'Cancelar rota' : 'Traçar rota'}</span>
-          </button>
-
-          {/* Botão Minha Localização (Etapa 3B / Ponto 8) */}
-          <button
-            type="button"
-            onClick={handleLocateUser}
-            disabled={isLocatingUser}
-            title="Ver minha localização atual no mapa"
-            style={{
-              backgroundColor: userCoords ? '#EFF6FF' : 'white',
-              color: userCoords ? '#1D4ED8' : 'var(--text-primary)',
-              border: userCoords ? '1.5px solid #3B82F6' : '1px solid var(--border-light)',
-              borderRadius: 'var(--radius-md)',
-              padding: '10px 14px',
-              boxShadow: 'var(--shadow-md)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              cursor: isLocatingUser ? 'wait' : 'pointer',
-              fontSize: '0.80rem',
-              fontWeight: 700,
-              transition: 'all 0.2s ease',
-            }}
-          >
-            {isLocatingUser ? (
-              <Loader2 size={15} className="animate-spin" color="#2563EB" />
-            ) : (
-              <LocateFixed size={15} color={userCoords ? '#2563EB' : 'var(--color-primary)'} />
-            )}
-            <span>{isLocatingUser ? 'Localizando...' : 'Minha localização'}</span>
-          </button>
-
-          {/* Botão de Controle de Território (Fase 4.2 - Requisito 3) */}
-          <button
-            type="button"
-            onClick={() => setShowTerritory(!showTerritory)}
-            title="Camada Territorial Oficial do IBGE (limite municipal e bairros)"
-            style={{
-              backgroundColor: showTerritory ? '#1E4620' : 'white',
-              color: showTerritory ? 'white' : 'var(--text-primary)',
-              border: showTerritory ? '1.5px solid #1E4620' : '1px solid var(--border-light)',
-              borderRadius: 'var(--radius-md)',
-              padding: '10px 14px',
-              boxShadow: 'var(--shadow-md)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              cursor: 'pointer',
-              fontSize: '0.80rem',
-              fontWeight: 700,
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Layers size={15} color={showTerritory ? '#86EFAC' : 'var(--color-primary)'} />
-            <span>Território {showTerritory ? 'ON' : 'OFF'}</span>
-          </button>
-
-          {/* Botão Enquadrar Imóveis */}
-          <button
-            type="button"
-            onClick={handleFitAll}
-            title="Enquadrar todos os imóveis no mapa"
-            style={{
-              backgroundColor: 'white',
-              border: '1px solid var(--border-light)',
-              borderRadius: 'var(--radius-md)',
-              padding: '10px 14px',
-              boxShadow: 'var(--shadow-md)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              cursor: 'pointer',
-              fontSize: '0.80rem',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-            }}
-          >
-            <MapPin size={15} color="var(--color-primary)" />
-            <span>Enquadrar imóveis</span>
-          </button>
-        </div>
-
-        {/* 4.1.1. ETIQUETA DISCRETA DE FONTE TERRITORIAL (H.11.1: Sem sobrepor controles no mobile) */}
-        {showTerritory && (
+          {/* 4.1. CONTROLES FLUTUANTES DO MAPA */}
           <div
             style={{
               position: 'absolute',
-              bottom: '12px',
-              left: '12px',
-              zIndex: 400,
-              maxWidth: 'calc(100% - 190px)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              backgroundColor: 'rgba(255, 255, 255, 0.92)',
-              backdropFilter: 'blur(4px)',
-              padding: '3px 8px',
-              borderRadius: '6px',
-              fontSize: '0.68rem',
-              color: '#475569',
-              border: '1px solid rgba(226, 232, 240, 0.9)',
-              pointerEvents: 'none',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-            }}
-            title="Referência territorial: IBGE Censo 2022 (Malha municipal e bairros de Criciúma)"
-          >
-            Território: IBGE 2022 (Criciúma)
-          </div>
-        )}
-
-        {/* 4.1.2. SELETOR DE BASEMAP NO TOPO DIREITO: MAPA | SATÉLITE (Fase 4.3 — Requisito 4 e 11) */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '14px',
-            right: '14px',
-            zIndex: 500,
-          }}
-        >
-          <BaseMapToggle
-            activeBaseMap={activeBaseMap}
-            onChange={setActiveBaseMap}
-            compact
-          />
-        </div>
-
-        {/* 4.2. BADGE INFORMATIVO NO TOPO DO MAPA */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '14px',
-            left: '14px',
-            zIndex: 500,
-            display: 'flex',
-            gap: '8px',
-            alignItems: 'center',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              backdropFilter: 'blur(8px)',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-full)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-sm)',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
+              bottom: '20px',
+              right: '20px',
+              zIndex: 510,
               display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
+              flexDirection: 'column',
+              gap: '8px',
+              alignItems: 'flex-end',
             }}
           >
-            <span
+            {/* Botão Traçar Rota no Mapa (Etapa 3D.2 / Ponto 27) */}
+            <button
+              type="button"
+              onClick={handleToggleRouteMode}
+              title={isRouteMode ? 'Sair do modo de traçar rota' : 'Traçar rota entre dois pontos no mapa'}
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-success)',
+                backgroundColor: isRouteMode ? '#1E4620' : 'white',
+                color: isRouteMode ? 'white' : 'var(--text-primary)',
+                border: isRouteMode ? '1.5px solid #1E4620' : '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 14px',
+                boxShadow: 'var(--shadow-md)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                cursor: 'pointer',
+                fontSize: '0.80rem',
+                fontWeight: 700,
+                transition: 'all 0.2s ease',
               }}
-            />
-            <span>
-              {mappedItems.length} {mappedItems.length === 1 ? 'imóvel' : 'imóveis'}
-            </span>
+            >
+              <Navigation size={15} color={isRouteMode ? '#86EFAC' : 'var(--color-primary)'} />
+              <span>{isRouteMode ? 'Cancelar rota' : 'Traçar rota'}</span>
+            </button>
+
+            {/* Botão Minha Localização (Etapa 3B / Ponto 8) */}
+            <button
+              type="button"
+              onClick={handleLocateUser}
+              disabled={isLocatingUser}
+              title="Ver minha localização atual no mapa"
+              style={{
+                backgroundColor: userCoords ? '#EFF6FF' : 'white',
+                color: userCoords ? '#1D4ED8' : 'var(--text-primary)',
+                border: userCoords ? '1.5px solid #3B82F6' : '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 14px',
+                boxShadow: 'var(--shadow-md)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                cursor: isLocatingUser ? 'wait' : 'pointer',
+                fontSize: '0.80rem',
+                fontWeight: 700,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {isLocatingUser ? (
+                <Loader2 size={15} className="animate-spin" color="#2563EB" />
+              ) : (
+                <LocateFixed size={15} color={userCoords ? '#2563EB' : 'var(--color-primary)'} />
+              )}
+              <span>{isLocatingUser ? 'Localizando...' : 'Minha localização'}</span>
+            </button>
+
+            {/* Botão de Controle de Território (Fase 4.2 - Requisito 3) */}
+            <button
+              type="button"
+              onClick={() => setShowTerritory(!showTerritory)}
+              title="Camada Territorial Oficial do IBGE (limite municipal e bairros)"
+              style={{
+                backgroundColor: showTerritory ? '#1E4620' : 'white',
+                color: showTerritory ? 'white' : 'var(--text-primary)',
+                border: showTerritory ? '1.5px solid #1E4620' : '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 14px',
+                boxShadow: 'var(--shadow-md)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                cursor: 'pointer',
+                fontSize: '0.80rem',
+                fontWeight: 700,
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <Layers size={15} color={showTerritory ? '#86EFAC' : 'var(--color-primary)'} />
+              <span>Território {showTerritory ? 'ON' : 'OFF'}</span>
+            </button>
+
+            {/* Botão Enquadrar Imóveis */}
+            <button
+              type="button"
+              onClick={handleFitAll}
+              title="Enquadrar todos os imóveis no mapa"
+              style={{
+                backgroundColor: 'white',
+                border: '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 14px',
+                boxShadow: 'var(--shadow-md)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                fontSize: '0.80rem',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+              }}
+            >
+              <MapPin size={15} color="var(--color-primary)" />
+              <span>Enquadrar imóveis</span>
+            </button>
           </div>
 
-          {unmappedCount > 0 && (
+          {/* 4.1.1. ETIQUETA DISCRETA DE FONTE TERRITORIAL (H.11.1: Sem sobrepor controles no mobile) */}
+          {showTerritory && (
             <div
               style={{
-                backgroundColor: 'rgba(254, 243, 199, 0.95)',
-                color: '#B45309',
+                position: 'absolute',
+                bottom: '12px',
+                left: '12px',
+                zIndex: 400,
+                maxWidth: 'calc(100% - 190px)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                backgroundColor: 'rgba(255, 255, 255, 0.92)',
+                backdropFilter: 'blur(4px)',
+                padding: '3px 8px',
+                borderRadius: '6px',
+                fontSize: '0.68rem',
+                color: '#475569',
+                border: '1px solid rgba(226, 232, 240, 0.9)',
+                pointerEvents: 'none',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+              }}
+              title="Referência territorial: IBGE Censo 2022 (Malha municipal e bairros de Criciúma)"
+            >
+              Território: IBGE 2022 (Criciúma)
+            </div>
+          )}
+
+          {/* 4.1.2. SELETOR DE BASEMAP NO TOPO DIREITO: MAPA | SATÉLITE (Fase 4.3 — Requisito 4 e 11) */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '14px',
+              right: '14px',
+              zIndex: 500,
+            }}
+          >
+            <BaseMapToggle
+              activeBaseMap={activeBaseMap}
+              onChange={setActiveBaseMap}
+              compact
+            />
+          </div>
+
+          {/* 4.2. BADGE INFORMATIVO NO TOPO DO MAPA */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '14px',
+              left: '14px',
+              zIndex: 500,
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'center',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
                 backdropFilter: 'blur(8px)',
                 padding: '6px 12px',
                 borderRadius: 'var(--radius-full)',
-                border: '1px solid #FDE68A',
+                border: '1px solid var(--border-light)',
                 boxShadow: 'var(--shadow-sm)',
-                fontSize: '0.76rem',
-                fontWeight: 600,
-              }}
-            >
-              {unmappedCount} sem coordenadas
-            </div>
-          )}
-        </div>
-
-        {/* 4.3. PAINEL/DRAWER CONTEXTUAL DE FILTROS (Abre ao clicar no tipo) */}
-        {isFilterOpen && (
-          <div
-            className="map-overlay-card"
-            style={{
-              top: '16px',
-              left: '16px',
-              bottom: '16px',
-              width: '100%',
-              maxWidth: '380px',
-              backgroundColor: 'rgba(255, 255, 255, 0.98)',
-              backdropFilter: 'blur(16px)',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-floating)',
-              display: 'flex',
-              flexDirection: 'column',
-              zIndex: 600,
-              overflow: 'hidden',
-            }}
-          >
-            {/* Header do Drawer */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid var(--border-light)',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
                 display: 'flex',
-                justifyContent: 'space-between',
                 alignItems: 'center',
-                backgroundColor: 'var(--bg-subtle)',
+                gap: '6px',
               }}
             >
-              <div>
-                <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-primary)', fontWeight: 800 }}>
-                  Filtro Contextual
-                </span>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {selectedCategory === 'Todos' ? 'Todos os Imóveis' : `Filtros para ${selectedCategory}`}
-                </h3>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsFilterOpen(false)}
+              <span
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '6px',
+                  width: 8,
+                  height: 8,
                   borderRadius: '50%',
-                  color: 'var(--text-muted)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  backgroundColor: 'var(--color-success)',
                 }}
-              >
-                <X size={18} />
-              </button>
+              />
+              <span>
+                {mappedItems.length} {mappedItems.length === 1 ? 'imóvel' : 'imóveis'}
+              </span>
             </div>
 
-            {/* Conteúdo com Campos Condicionais conforme o Tipo */}
-            <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
-              {/* Finalidade (Venda/Locação) - exceto para Em construção */}
-              {selectedCategory !== 'Em construção' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
-                    Finalidade
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-                    {['Todos', 'Venda', 'Locação'].map((pur) => (
-                      <button
-                        key={pur}
-                        type="button"
-                        onClick={() => setFilters((prev) => ({ ...prev, purpose: pur }))}
-                        className={filters.purpose === pur ? 'btn-primary' : 'btn-secondary'}
-                        style={{ padding: '6px 8px', fontSize: '0.80rem', justifyContent: 'center' }}
-                      >
-                        {pur}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Estágio da Obra (Exclusivo para Em construção) */}
-              {selectedCategory === 'Em construção' && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
-                    Estágio da obra
-                  </label>
-                  <select
-                    value={filters.stage}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, stage: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.86rem',
-                      backgroundColor: 'white',
-                    }}
-                  >
-                    <option value="Todos">Todos os estágios</option>
-                    <option value="Lançamento">Lançamento</option>
-                    <option value="Na planta">Na planta</option>
-                    <option value="Em construção">Em construção</option>
-                    <option value="Próximo da entrega">Próximo da entrega</option>
-                  </select>
-                </div>
-              )}
-
-              {/* Faixa de Valor */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
-                  {selectedCategory === 'Em construção' ? 'Valor a partir de (R$)' : 'Faixa de valor (R$)'}
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <input
-                    type="number"
-                    placeholder="Mínimo"
-                    value={filters.minPrice}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, minPrice: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.86rem',
-                    }}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Máximo"
-                    value={filters.maxPrice}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, maxPrice: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.86rem',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Localização: Cidade e Bairro */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '4px' }}>
-                    Cidade
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Criciúma"
-                    value={filters.city}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, city: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.84rem',
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '4px' }}>
-                    Bairro
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Centro"
-                    value={filters.neighborhood}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, neighborhood: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.84rem',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Dormitórios (para Casa, Apartamento e Em construção) */}
-              {['Casa', 'Apartamento', 'Em construção', 'Todos'].includes(selectedCategory) && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
-                    Dormitórios mínimos
-                  </label>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {[0, 1, 2, 3, 4].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setFilters((prev) => ({ ...prev, minBedrooms: num }))}
-                        className={filters.minBedrooms === num ? 'btn-primary' : 'btn-secondary'}
-                        style={{ flex: 1, padding: '6px 0', fontSize: '0.80rem', justifyContent: 'center' }}
-                      >
-                        {num === 0 ? 'Todos' : `${num}+`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Suítes e Vagas (para Casa e Apartamento) */}
-              {['Casa', 'Apartamento', 'Todos'].includes(selectedCategory) && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>
-                      Suítes mínimas
-                    </label>
-                    <select
-                      value={filters.minSuites}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, minSuites: Number(e.target.value) }))}
-                      style={{
-                        width: '100%',
-                        padding: '6px 10px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border-light)',
-                        fontSize: '0.84rem',
-                        backgroundColor: 'white',
-                      }}
-                    >
-                      <option value={0}>Qualquer</option>
-                      <option value={1}>1+ suíte</option>
-                      <option value={2}>2+ suítes</option>
-                      <option value={3}>3+ suítes</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>
-                      Vagas mínimas
-                    </label>
-                    <select
-                      value={filters.minParking}
-                      onChange={(e) => setFilters((prev) => ({ ...prev, minParking: Number(e.target.value) }))}
-                      style={{
-                        width: '100%',
-                        padding: '6px 10px',
-                        borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border-light)',
-                        fontSize: '0.84rem',
-                        backgroundColor: 'white',
-                      }}
-                    >
-                      <option value={0}>Qualquer</option>
-                      <option value={1}>1+ vaga</option>
-                      <option value={2}>2+ vagas</option>
-                      <option value={3}>3+ vagas</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Área (m²) */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
-                  {selectedCategory === 'Terreno' ? 'Área do terreno (m²)' : 'Área privativa (m²)'}
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <input
-                    type="number"
-                    placeholder="Mín m²"
-                    value={filters.minArea}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, minArea: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.84rem',
-                    }}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Máx m²"
-                    value={filters.maxArea}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, maxArea: e.target.value }))}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--border-light)',
-                      fontSize: '0.84rem',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Rodapé com Botão "Ver Imóveis" */}
-            <div
-              style={{
-                padding: '16px 20px',
-                borderTop: '1px solid var(--border-light)',
-                backgroundColor: 'white',
-                display: 'flex',
-                gap: '10px',
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                className="btn-secondary"
-                style={{ flex: 1, justifyContent: 'center', fontSize: '0.86rem' }}
-              >
-                Limpar
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsFilterOpen(false)}
-                className="btn-primary"
-                style={{ flex: 2, justifyContent: 'center', fontSize: '0.88rem' }}
-              >
-                <span>Ver imóveis ({filteredItems.length})</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 4.4. PREVIEW COMPACTO DO MARCADOR SELECIONADO (Inspirado no mockup 2.1.1) */}
-        {selectedItem && (
-          <div
-            className="map-overlay-card"
-            style={{
-              bottom: '20px',
-              left: '20px',
-              width: '100%',
-              maxWidth: '360px',
-              backgroundColor: 'white',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-floating)',
-              zIndex: 550,
-              overflow: 'hidden',
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '12px',
-            }}
-          >
-            {/* Topo do Preview */}
-            <div style={{ display: 'flex', gap: '12px', position: 'relative' }}>
-              {/* Foto Principal */}
+            {unmappedCount > 0 && (
               <div
                 style={{
-                  width: '100px',
-                  height: '84px',
-                  borderRadius: 'var(--radius-md)',
-                  overflow: 'hidden',
-                  backgroundColor: '#F3F4F6',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
+                  backgroundColor: 'rgba(254, 243, 199, 0.95)',
+                  color: '#B45309',
+                  backdropFilter: 'blur(8px)',
+                  padding: '6px 12px',
+                  borderRadius: 'var(--radius-full)',
+                  border: '1px solid #FDE68A',
+                  boxShadow: 'var(--shadow-sm)',
+                  fontSize: '0.76rem',
+                  fontWeight: 600,
                 }}
               >
-                {selectedItem.images && selectedItem.images.length > 0 ? (
-                  <img
-                    src={selectedItem.images[0].url}
-                    alt="Foto do imóvel"
-                    style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                ) : (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
-                    <MapPin size={24} />
-                  </div>
-                )}
-              </div>
-
-              {/* Informações Resumidas */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <span
-                    className={`badge ${selectedItem.isDevelopment ? 'badge-stage-construcao' : 'badge-primary'}`}
-                    style={{ fontSize: '0.68rem', padding: '2px 6px' }}
-                  >
-                    {selectedItem.isDevelopment ? selectedItem.stage : selectedItem.propertyType}
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => setSelectedItem(null)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: 'var(--text-muted)',
-                      padding: 2,
-                    }}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <h4
-                  style={{
-                    fontSize: '0.94rem',
-                    fontWeight: 800,
-                    color: 'var(--text-primary)',
-                    marginTop: '4px',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {selectedItem.isDevelopment ? selectedItem.name : selectedItem.title}
-                </h4>
-
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <MapPin size={12} color="var(--color-primary)" />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {selectedItem.neighborhood ? `${selectedItem.neighborhood}, ` : ''}{selectedItem.city || ''}
-                  </span>
-                </div>
-
-                {/* Preço */}
-                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>
-                  {selectedItem.isDevelopment ? (
-                    <>
-                      <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
-                        A partir de
-                      </span>
-                      {selectedItem.typologies && selectedItem.typologies.length > 0
-                        ? `R$ ${Math.min(...selectedItem.typologies.map((t) => t.price).filter((p) => p > 0)).toLocaleString('pt-BR')}`
-                        : 'Consulte'}
-                    </>
-                  ) : (
-                    `R$ ${selectedItem.price.toLocaleString('pt-BR')}`
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Especificações Rápidas */}
-            {selectedItem.isDevelopment ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Construtora: <strong>{selectedItem.developer}</strong></span>
-                  <span>{selectedItem.typologies?.length || 0} tipologia(s)</span>
-                </div>
-                {selectedItem.deliveryDate && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }}>
-                    <Calendar size={12} color="var(--color-primary)" />
-                    <span>Entrega prevista: {selectedItem.deliveryDate}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '0.78rem',
-                  color: 'var(--text-secondary)',
-                  borderTop: '1px solid var(--border-subtle)',
-                  paddingTop: '6px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                {(() => {
-                  const isLandPlot = isLand(selectedItem.propertyType);
-                  const mainArea = resolveMainArea(selectedItem);
-                  if (isLandPlot) {
-                    return (
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, color: 'var(--color-primary)' }}>
-                        <Maximize2 size={13} color="var(--color-primary)" />
-                        <span>{mainArea ? `${mainArea.formatted} (${mainArea.label})` : 'Metragem a consultar'}</span>
-                      </span>
-                    );
-                  }
-                  const bedInfo = resolveBedrooms(selectedItem);
-                  const bathInfo = resolveBathrooms(selectedItem);
-                  const parkInfo = resolveParking(selectedItem);
-                  return (
-                    <>
-                      {bedInfo && bedInfo.total > 0 && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <Bed size={13} color="var(--color-primary)" />
-                          <span>{bedInfo.total} {bedInfo.total === 1 ? 'qto' : 'qtos'}</span>
-                          {bedInfo.suites > 0 && <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', fontWeight: 600 }}>({bedInfo.suites} st)</span>}
-                        </span>
-                      )}
-                      {bathInfo && bathInfo.total > 0 && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <Bath size={13} color="var(--color-primary)" />
-                          <span>{bathInfo.total} banh</span>
-                        </span>
-                      )}
-                      {parkInfo && parkInfo.total > 0 && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                          <Car size={13} color="var(--color-primary)" />
-                          <span>{parkInfo.total} vg</span>
-                        </span>
-                      )}
-                      {mainArea && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}>
-                          <Maximize2 size={13} color="var(--color-primary)" />
-                          <span>{mainArea.formatted}</span>
-                        </span>
-                      )}
-                    </>
-                  );
-                })()}
+                {unmappedCount} sem coordenadas
               </div>
             )}
+          </div>
 
-            {/* Identificação de Responsabilidade / Corretor */}
-            {(() => {
-              const isMine = (selectedItem.responsibleBrokerId && selectedItem.responsibleBrokerId === user?.id) || selectedItem.userId === user?.id;
-              const brokerName = selectedItem.responsibleBroker?.profile?.commercialName || selectedItem.responsibleBroker?.name || 'Corretor';
-              const brokerImg = selectedItem.responsibleBroker?.profile?.avatarUrl || selectedItem.responsibleBroker?.profile?.logoUrl;
-              const initial = (brokerName || 'C').charAt(0).toUpperCase();
+          {/* 4.3. PAINEL/DRAWER CONTEXTUAL DE FILTROS (Abre ao clicar no tipo) */}
+          {isFilterOpen && (
+            <div
+              className="map-overlay-card"
+              style={{
+                top: '16px',
+                left: '16px',
+                bottom: '16px',
+                width: '100%',
+                maxWidth: '380px',
+                backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                backdropFilter: 'blur(16px)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--border-light)',
+                boxShadow: 'var(--shadow-floating)',
+                display: 'flex',
+                flexDirection: 'column',
+                zIndex: 600,
+                overflow: 'hidden',
+              }}
+            >
+              {/* Header do Drawer */}
+              <div
+                style={{
+                  padding: '16px 20px',
+                  borderBottom: '1px solid var(--border-light)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  backgroundColor: 'var(--bg-subtle)',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-primary)', fontWeight: 800 }}>
+                    Filtro Contextual
+                  </span>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                    {selectedCategory === 'Todos' ? 'Todos os Imóveis' : `Filtros para ${selectedCategory}`}
+                  </h3>
+                </div>
 
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '2px' }}>
-                  {isMine ? (
-                    <span
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    borderRadius: '50%',
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Conteúdo com Campos Condicionais conforme o Tipo */}
+              <div style={{ padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+                {/* Finalidade (Venda/Locação) - exceto para Em construção */}
+                {selectedCategory !== 'Em construção' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
+                      Finalidade
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                      {['Todos', 'Venda', 'Locação'].map((pur) => (
+                        <button
+                          key={pur}
+                          type="button"
+                          onClick={() => setFilters((prev) => ({ ...prev, purpose: pur }))}
+                          className={filters.purpose === pur ? 'btn-primary' : 'btn-secondary'}
+                          style={{ padding: '6px 8px', fontSize: '0.80rem', justifyContent: 'center' }}
+                        >
+                          {pur}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Estágio da Obra (Exclusivo para Em construção) */}
+                {selectedCategory === 'Em construção' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
+                      Estágio da obra
+                    </label>
+                    <select
+                      value={filters.stage}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, stage: e.target.value }))}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        fontSize: '0.74rem',
-                        fontWeight: 700,
-                        color: 'var(--color-primary)',
-                        backgroundColor: 'var(--color-primary-light)',
-                        padding: '3px 9px',
-                        borderRadius: 'var(--radius-full)',
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.86rem',
+                        backgroundColor: 'white',
                       }}
                     >
-                      <span
+                      <option value="Todos">Todos os estágios</option>
+                      <option value="Lançamento">Lançamento</option>
+                      <option value="Na planta">Na planta</option>
+                      <option value="Em construção">Em construção</option>
+                      <option value="Próximo da entrega">Próximo da entrega</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Faixa de Valor */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
+                    {selectedCategory === 'Em construção' ? 'Valor a partir de (R$)' : 'Faixa de valor (R$)'}
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <input
+                      type="number"
+                      placeholder="Mínimo"
+                      value={filters.minPrice}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, minPrice: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.86rem',
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="Máximo"
+                      value={filters.maxPrice}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, maxPrice: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.86rem',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Localização: Cidade e Bairro */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '4px' }}>
+                      Cidade
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Criciúma"
+                      value={filters.city}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, city: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.84rem',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '4px' }}>
+                      Bairro
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Centro"
+                      value={filters.neighborhood}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, neighborhood: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.84rem',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Dormitórios (para Casa, Apartamento e Em construção) */}
+                {['Casa', 'Apartamento', 'Em construção', 'Todos'].includes(selectedCategory) && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
+                      Dormitórios mínimos
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {[0, 1, 2, 3, 4].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setFilters((prev) => ({ ...prev, minBedrooms: num }))}
+                          className={filters.minBedrooms === num ? 'btn-primary' : 'btn-secondary'}
+                          style={{ flex: 1, padding: '6px 0', fontSize: '0.80rem', justifyContent: 'center' }}
+                        >
+                          {num === 0 ? 'Todos' : `${num}+`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Suítes e Vagas (para Casa e Apartamento) */}
+                {['Casa', 'Apartamento', 'Todos'].includes(selectedCategory) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>
+                        Suítes mínimas
+                      </label>
+                      <select
+                        value={filters.minSuites}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, minSuites: Number(e.target.value) }))}
                         style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: '50%',
-                          backgroundColor: 'var(--color-primary)',
-                          color: 'white',
-                          fontSize: '8px',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border-light)',
+                          fontSize: '0.84rem',
+                          backgroundColor: 'white',
                         }}
                       >
-                        ✓
-                      </span>
-                      <span>Seu imóvel</span>
-                    </span>
-                  ) : (
-                    <span
+                        <option value={0}>Qualquer</option>
+                        <option value={1}>1+ suíte</option>
+                        <option value={2}>2+ suítes</option>
+                        <option value={3}>3+ suítes</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '4px' }}>
+                        Vagas mínimas
+                      </label>
+                      <select
+                        value={filters.minParking}
+                        onChange={(e) => setFilters((prev) => ({ ...prev, minParking: Number(e.target.value) }))}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border-light)',
+                          fontSize: '0.84rem',
+                          backgroundColor: 'white',
+                        }}
+                      >
+                        <option value={0}>Qualquer</option>
+                        <option value={1}>1+ vaga</option>
+                        <option value={2}>2+ vagas</option>
+                        <option value={3}>3+ vagas</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Área (m²) */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.80rem', fontWeight: 700, marginBottom: '6px' }}>
+                    {selectedCategory === 'Terreno' ? 'Área do terreno (m²)' : 'Área privativa (m²)'}
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <input
+                      type="number"
+                      placeholder="Mín m²"
+                      value={filters.minArea}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, minArea: e.target.value }))}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        fontSize: '0.74rem',
-                        fontWeight: 700,
-                        color: '#4338CA',
-                        backgroundColor: '#EEF2FF',
-                        padding: '3px 9px',
-                        borderRadius: 'var(--radius-full)',
-                        border: '1px solid #E0E7FF',
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.84rem',
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="Máx m²"
+                      value={filters.maxArea}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, maxArea: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)',
+                        fontSize: '0.84rem',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Rodapé com Botão "Ver Imóveis" */}
+              <div
+                style={{
+                  padding: '16px 20px',
+                  borderTop: '1px solid var(--border-light)',
+                  backgroundColor: 'white',
+                  display: 'flex',
+                  gap: '10px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleClearFilters}
+                  className="btn-secondary"
+                  style={{ flex: 1, justifyContent: 'center', fontSize: '0.86rem' }}
+                >
+                  Limpar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterOpen(false)}
+                  className="btn-primary"
+                  style={{ flex: 2, justifyContent: 'center', fontSize: '0.88rem' }}
+                >
+                  <span>Ver imóveis ({filteredItems.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 4.4. PREVIEW COMPACTO DO MARCADOR SELECIONADO (Inspirado no mockup 2.1.1) */}
+          {selectedItem && (
+            <div
+              className="map-overlay-card"
+              style={{
+                bottom: '20px',
+                left: '20px',
+                width: '100%',
+                maxWidth: '360px',
+                backgroundColor: 'white',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--border-light)',
+                boxShadow: 'var(--shadow-floating)',
+                zIndex: 550,
+                overflow: 'hidden',
+                padding: '14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+              }}
+            >
+              {/* Topo do Preview */}
+              <div style={{ display: 'flex', gap: '12px', position: 'relative' }}>
+                {/* Foto Principal */}
+                <div
+                  style={{
+                    width: '100px',
+                    height: '84px',
+                    borderRadius: 'var(--radius-md)',
+                    overflow: 'hidden',
+                    backgroundColor: '#F3F4F6',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {selectedItem.images && selectedItem.images.length > 0 ? (
+                    <img
+                      src={selectedItem.images[0].url}
+                      alt="Foto do imóvel"
+                      style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
+                      <MapPin size={24} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Informações Resumidas */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <span
+                      className={`badge ${selectedItem.isDevelopment ? 'badge-stage-construcao' : 'badge-primary'}`}
+                      style={{ fontSize: '0.68rem', padding: '2px 6px' }}
+                    >
+                      {selectedItem.isDevelopment ? selectedItem.stage : selectedItem.propertyType}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedItem(null)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'var(--text-muted)',
+                        padding: 2,
                       }}
                     >
-                      {brokerImg ? (
-                        <img
-                          src={brokerImg}
-                          alt=""
-                          style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }}
-                        />
-                      ) : (
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <h4
+                    style={{
+                      fontSize: '0.94rem',
+                      fontWeight: 800,
+                      color: 'var(--text-primary)',
+                      marginTop: '4px',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {selectedItem.isDevelopment ? selectedItem.name : selectedItem.title}
+                  </h4>
+
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    <MapPin size={12} color="var(--color-primary)" />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {selectedItem.neighborhood ? `${selectedItem.neighborhood}, ` : ''}{selectedItem.city || ''}
+                    </span>
+                  </div>
+
+                  {/* Preço */}
+                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-primary)', marginTop: '4px' }}>
+                    {selectedItem.isDevelopment ? (
+                      <>
+                        <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
+                          A partir de
+                        </span>
+                        {selectedItem.typologies && selectedItem.typologies.length > 0
+                          ? `R$ ${Math.min(...selectedItem.typologies.map((t) => t.price).filter((p) => p > 0)).toLocaleString('pt-BR')}`
+                          : 'Consulte'}
+                      </>
+                    ) : (
+                      `R$ ${selectedItem.price.toLocaleString('pt-BR')}`
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Especificações Rápidas */}
+              {selectedItem.isDevelopment ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Construtora: <strong>{selectedItem.developer}</strong></span>
+                    <span>{selectedItem.typologies?.length || 0} tipologia(s)</span>
+                  </div>
+                  {selectedItem.deliveryDate && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-muted)' }}>
+                      <Calendar size={12} color="var(--color-primary)" />
+                      <span>Entrega prevista: {selectedItem.deliveryDate}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '0.78rem',
+                    color: 'var(--text-secondary)',
+                    borderTop: '1px solid var(--border-subtle)',
+                    paddingTop: '6px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  {(() => {
+                    const isLandPlot = isLand(selectedItem.propertyType);
+                    const mainArea = resolveMainArea(selectedItem);
+                    if (isLandPlot) {
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, color: 'var(--color-primary)' }}>
+                          <Maximize2 size={13} color="var(--color-primary)" />
+                          <span>{mainArea ? `${mainArea.formatted} (${mainArea.label})` : 'Metragem a consultar'}</span>
+                        </span>
+                      );
+                    }
+                    const bedInfo = resolveBedrooms(selectedItem);
+                    const bathInfo = resolveBathrooms(selectedItem);
+                    const parkInfo = resolveParking(selectedItem);
+                    return (
+                      <>
+                        {bedInfo && bedInfo.total > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Bed size={13} color="var(--color-primary)" />
+                            <span>{bedInfo.total} {bedInfo.total === 1 ? 'qto' : 'qtos'}</span>
+                            {bedInfo.suites > 0 && <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', fontWeight: 600 }}>({bedInfo.suites} st)</span>}
+                          </span>
+                        )}
+                        {bathInfo && bathInfo.total > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Bath size={13} color="var(--color-primary)" />
+                            <span>{bathInfo.total} banh</span>
+                          </span>
+                        )}
+                        {parkInfo && parkInfo.total > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Car size={13} color="var(--color-primary)" />
+                            <span>{parkInfo.total} vg</span>
+                          </span>
+                        )}
+                        {mainArea && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}>
+                            <Maximize2 size={13} color="var(--color-primary)" />
+                            <span>{mainArea.formatted}</span>
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Identificação de Responsabilidade / Corretor */}
+              {(() => {
+                const isMine = (selectedItem.responsibleBrokerId && selectedItem.responsibleBrokerId === user?.id) || selectedItem.userId === user?.id;
+                const brokerName = selectedItem.responsibleBroker?.profile?.commercialName || selectedItem.responsibleBroker?.name || 'Corretor';
+                const brokerImg = selectedItem.responsibleBroker?.profile?.avatarUrl || selectedItem.responsibleBroker?.profile?.logoUrl;
+                const initial = (brokerName || 'C').charAt(0).toUpperCase();
+
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingTop: '2px' }}>
+                    {isMine ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          color: 'var(--color-primary)',
+                          backgroundColor: 'var(--color-primary-light)',
+                          padding: '3px 9px',
+                          borderRadius: 'var(--radius-full)',
+                        }}
+                      >
                         <span
                           style={{
-                            width: 16,
-                            height: 16,
+                            width: 14,
+                            height: 14,
                             borderRadius: '50%',
-                            backgroundColor: '#4F46E5',
+                            backgroundColor: 'var(--color-primary)',
                             color: 'white',
-                            fontSize: '9px',
+                            fontSize: '8px',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             fontWeight: 800,
                           }}
                         >
-                          {initial}
+                          ✓
                         </span>
-                      )}
-                      <span>Imóvel de {brokerName}</span>
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Imóvel Compartilhado: Seletor de Corretores Anunciantes (F2.B05.3G.4) */}
-            {selectedItem.coListings && selectedItem.coListings.length > 1 && (
-              <div
-                style={{
-                  marginTop: '4px',
-                  padding: '8px 10px',
-                  backgroundColor: '#F8FAFC',
-                  borderRadius: 'var(--radius-sm)',
-                  border: '1px solid #E2E8F0',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Users size={12} color="#475569" />
-                    <span>{selectedItem.coListings.length} corretores anunciantes:</span>
-                  </span>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#059669', backgroundColor: '#ECFDF5', padding: '1px 5px', borderRadius: 4 }}>
-                    Preço único
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  {selectedItem.coListings.map((co) => {
-                    const coName = co.responsibleBroker?.profile?.commercialName || co.responsibleBroker?.name || co.user?.profile?.commercialName || co.user?.name || 'Corretor';
-                    return (
-                      <Link
-                        key={co.id}
-                        href={`/imoveis/${co.id}`}
-                        className="btn-secondary"
+                        <span>Seu imóvel</span>
+                      </span>
+                    ) : (
+                      <span
                         style={{
-                          justifyContent: 'space-between',
-                          padding: '5px 8px',
-                          fontSize: '0.76rem',
-                          borderRadius: 'var(--radius-sm)',
-                          textDecoration: 'none',
-                          backgroundColor: '#FFFFFF',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          color: '#4338CA',
+                          backgroundColor: '#EEF2FF',
+                          padding: '3px 9px',
+                          borderRadius: 'var(--radius-full)',
+                          border: '1px solid #E0E7FF',
                         }}
                       >
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
-                          <strong>{coName}</strong> {co.isPrimaryListing && <span style={{ color: '#059669', fontSize: '0.68rem' }}>(Principal)</span>}
-                        </span>
-                        <span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                          Ver anúncio <ArrowRight size={10} />
-                        </span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                        {brokerImg ? (
+                          <img
+                            src={brokerImg}
+                            alt=""
+                            style={{ width: 16, height: 16, borderRadius: '50%', objectFit: 'cover' }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              backgroundColor: '#4F46E5',
+                              color: 'white',
+                              fontSize: '9px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: 800,
+                            }}
+                          >
+                            {initial}
+                          </span>
+                        )}
+                        <span>Imóvel de {brokerName}</span>
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
 
-            {/* Botões de Ação para Traçar Rota até este imóvel (Etapa 3D.2 / Ponto 27) */}
-            {isValidCoordinate(selectedItem.latitude, selectedItem.longitude) && (
-              <NavigationActionButtons
-                latitude={selectedItem.latitude}
-                longitude={selectedItem.longitude}
-                fullWidth
-                size="sm"
-              />
-            )}
-
-            {/* Botão de Ação para Detalhes */}
-            <Link
-              href={selectedItem.isDevelopment ? `/empreendimentos/${selectedItem.id}` : `/imoveis/${selectedItem.id}`}
-              className="btn-primary"
-              style={{
-                width: '100%',
-                justifyContent: 'center',
-                padding: '8px 12px',
-                fontSize: '0.84rem',
-                borderRadius: 'var(--radius-sm)',
-              }}
-            >
-              <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? (selectedItem.userId === user?.id || selectedItem.responsibleBrokerId === user?.id ? 'Ver meu anúncio' : 'Abrir anúncio principal') : 'Ver imóvel')}</span>
-              <ArrowRight size={14} />
-            </Link>
-          </div>
-        )}
-
-        {/* 4.4.B. GAVETA MOBILE-FIRST DE DETALHES DO EDIFÍCIO (Etapa J.2.C.5) */}
-        {selectedBuildingGroup && (
-          <div
-            className="map-overlay-card"
-            style={{
-              bottom: '20px',
-              left: '20px',
-              width: '100%',
-              maxWidth: '430px',
-              maxHeight: '82vh',
-              backgroundColor: 'white',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--border-light)',
-              boxShadow: '0 12px 36px rgba(0, 0, 0, 0.22)',
-              zIndex: 560,
-              overflowY: 'auto',
-              padding: '16px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '14px',
-            }}
-          >
-            {/* Topo do Edifício: Fachada e Fechar */}
-            <div style={{ position: 'relative' }}>
-              {selectedBuildingGroup.coverImageUrl ? (
+              {/* Imóvel Compartilhado: Seletor de Corretores Anunciantes (F2.B05.3G.4) */}
+              {selectedItem.coListings && selectedItem.coListings.length > 1 && (
                 <div
                   style={{
-                    position: 'relative',
-                    width: '100%',
-                    height: '140px',
-                    borderRadius: 'var(--radius-md)',
-                    overflow: 'hidden',
-                    backgroundColor: '#1E293B',
-                    marginBottom: '10px',
+                    marginTop: '4px',
+                    padding: '8px 10px',
+                    backgroundColor: '#F8FAFC',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
                   }}
                 >
-                  <img
-                    src={selectedBuildingGroup.coverImageUrl}
-                    alt={selectedBuildingGroup.name}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                    }}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Users size={12} color="#475569" />
+                      <span>{selectedItem.coListings.length} corretores anunciantes:</span>
+                    </span>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#059669', backgroundColor: '#ECFDF5', padding: '1px 5px', borderRadius: 4 }}>
+                      Preço único
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {selectedItem.coListings.map((co) => {
+                      const coName = co.responsibleBroker?.profile?.commercialName || co.responsibleBroker?.name || co.user?.profile?.commercialName || co.user?.name || 'Corretor';
+                      return (
+                        <Link
+                          key={co.id}
+                          href={`/imoveis/${co.id}`}
+                          className="btn-secondary"
+                          style={{
+                            justifyContent: 'space-between',
+                            padding: '5px 8px',
+                            fontSize: '0.76rem',
+                            borderRadius: 'var(--radius-sm)',
+                            textDecoration: 'none',
+                            backgroundColor: '#FFFFFF',
+                          }}
+                        >
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
+                            <strong>{coName}</strong> {co.isPrimaryListing && <span style={{ color: '#059669', fontSize: '0.68rem' }}>(Principal)</span>}
+                          </span>
+                          <span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                            Ver anúncio <ArrowRight size={10} />
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Botões de Ação para Traçar Rota até este imóvel (Etapa 3D.2 / Ponto 27) */}
+              {isValidCoordinate(selectedItem.latitude, selectedItem.longitude) && (
+                <NavigationActionButtons
+                  latitude={selectedItem.latitude}
+                  longitude={selectedItem.longitude}
+                  fullWidth
+                  size="sm"
+                />
+              )}
+
+              {/* Botão de Ação para Detalhes */}
+              <Link
+                href={selectedItem.isDevelopment ? `/empreendimentos/${selectedItem.id}` : `/imoveis/${selectedItem.id}`}
+                className="btn-primary"
+                style={{
+                  width: '100%',
+                  justifyContent: 'center',
+                  padding: '8px 12px',
+                  fontSize: '0.84rem',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                <span>{selectedItem.isDevelopment ? 'Ver empreendimento' : (selectedItem.coListings && selectedItem.coListings.length > 1 ? (selectedItem.userId === user?.id || selectedItem.responsibleBrokerId === user?.id ? 'Ver meu anúncio' : 'Abrir anúncio principal') : 'Ver imóvel')}</span>
+                <ArrowRight size={14} />
+              </Link>
+            </div>
+          )}
+
+          {/* 4.4.B. GAVETA MOBILE-FIRST DE DETALHES DO EDIFÍCIO (Etapa J.2.C.5) */}
+          {selectedBuildingGroup && (
+            <div
+              className="map-overlay-card"
+              style={{
+                bottom: '20px',
+                left: '20px',
+                width: '100%',
+                maxWidth: '430px',
+                maxHeight: '82vh',
+                backgroundColor: 'white',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--border-light)',
+                boxShadow: '0 12px 36px rgba(0, 0, 0, 0.22)',
+                zIndex: 560,
+                overflowY: 'auto',
+                padding: '16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '14px',
+              }}
+            >
+              {/* Topo do Edifício: Fachada e Fechar */}
+              <div style={{ position: 'relative' }}>
+                {selectedBuildingGroup.coverImageUrl ? (
                   <div
                     style={{
-                      position: 'absolute',
-                      bottom: '8px',
-                      left: '8px',
-                      background: 'rgba(30, 70, 32, 0.90)',
-                      color: 'white',
-                      fontSize: '0.68rem',
-                      fontWeight: 700,
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      backdropFilter: 'blur(4px)',
+                      position: 'relative',
+                      width: '100%',
+                      height: '140px',
+                      borderRadius: 'var(--radius-md)',
+                      overflow: 'hidden',
+                      backgroundColor: '#1E293B',
+                      marginBottom: '10px',
+                    }}
+                  >
+                    <img
+                      src={selectedBuildingGroup.coverImageUrl}
+                      alt={selectedBuildingGroup.name}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        left: '8px',
+                        background: 'rgba(30, 70, 32, 0.90)',
+                        color: 'white',
+                        fontSize: '0.68rem',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        backdropFilter: 'blur(4px)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <span>🏢 Fachada do Edifício</span>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Botão Fechar no Topo Direito */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedBuildingGroup(null)}
+                  style={{
+                    position: 'absolute',
+                    top: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
+                    right: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
+                    background: selectedBuildingGroup.coverImageUrl ? 'rgba(0,0,0,0.6)' : '#F3F4F6',
+                    color: selectedBuildingGroup.coverImageUrl ? 'white' : '#4B5563',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '28px',
+                    height: '28px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    zIndex: 20,
+                  }}
+                  title="Fechar detalhes do edifício"
+                >
+                  <X size={16} />
+                </button>
+
+                {/* Identificação Principal do Edifício */}
+                <div style={{ paddingRight: selectedBuildingGroup.coverImageUrl ? '0px' : '32px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <span
+                      className="badge badge-primary"
+                      style={{
+                        fontSize: '0.70rem',
+                        padding: '2px 8px',
+                        background: '#E8F5E9',
+                        color: '#1E4620',
+                        fontWeight: 800,
+                        border: '1px solid #C8E6C9',
+                      }}
+                    >
+                      EDIFÍCIO
+                    </span>
+                    {selectedBuildingGroup.boundaryArea && (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          color: '#15803D',
+                          fontWeight: 700,
+                          background: '#F0FDF4',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid #BBF7D0',
+                        }}
+                      >
+                        Terreno {Math.round(selectedBuildingGroup.boundaryArea)} m²
+                      </span>
+                    )}
+                  </div>
+
+                  <h3
+                    style={{
+                      fontSize: '1.15rem',
+                      fontWeight: 800,
+                      color: '#111827',
+                      margin: '2px 0 4px 0',
+                      lineHeight: '1.25',
+                    }}
+                  >
+                    {selectedBuildingGroup.name}
+                  </h3>
+
+                  <p
+                    style={{
+                      fontSize: '0.80rem',
+                      color: '#4B5563',
+                      margin: 0,
                       display: 'flex',
                       alignItems: 'center',
                       gap: '4px',
                     }}
                   >
-                    <span>🏢 Fachada do Edifício</span>
-                  </div>
+                    <MapPin size={13} style={{ flexShrink: 0, color: '#1E4620' }} />
+                    <span>
+                      {selectedBuildingGroup.address ? `${selectedBuildingGroup.address}, ` : ''}
+                      {selectedBuildingGroup.neighborhood ? `${selectedBuildingGroup.neighborhood}, ` : ''}
+                      {selectedBuildingGroup.city || 'Criciúma'}
+                    </span>
+                  </p>
                 </div>
-              ) : null}
+              </div>
 
-              {/* Botão Fechar no Topo Direito */}
-              <button
-                type="button"
-                onClick={() => setSelectedBuildingGroup(null)}
+              {/* Placas Resumo do Edifício */}
+              <div
                 style={{
-                  position: 'absolute',
-                  top: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
-                  right: selectedBuildingGroup.coverImageUrl ? '8px' : '0px',
-                  background: selectedBuildingGroup.coverImageUrl ? 'rgba(0,0,0,0.6)' : '#F3F4F6',
-                  color: selectedBuildingGroup.coverImageUrl ? 'white' : '#4B5563',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '28px',
-                  height: '28px',
-                  display: 'flex',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '8px',
+                  backgroundColor: '#F8FAFC',
+                  padding: '10px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid #E2E8F0',
+                  textAlign: 'center',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Unidades
+                  </span>
+                  <strong style={{ fontSize: '1.05rem', color: '#1E4620', fontWeight: 800 }}>
+                    {selectedBuildingGroup.totalUnitsCount}
+                  </strong>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Anúncios
+                  </span>
+                  <strong style={{ fontSize: '1.05rem', color: '#1D4ED8', fontWeight: 800 }}>
+                    {selectedBuildingGroup.totalListingsCount}
+                  </strong>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
+                    A partir de
+                  </span>
+                  <strong style={{ fontSize: '0.86rem', color: '#1E4620', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    {formatPriceShort(selectedBuildingGroup.minPrice)}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Botões de Ação Rápida e Rotas */}
+              {isValidCoordinate(selectedBuildingGroup.latitude, selectedBuildingGroup.longitude) && (
+                <NavigationActionButtons
+                  latitude={selectedBuildingGroup.latitude}
+                  longitude={selectedBuildingGroup.longitude}
+                  fullWidth
+                  size="sm"
+                />
+              )}
+
+              {/* Link para Página Completa do Edifício */}
+              <Link
+                href={`/edificios/${selectedBuildingGroup.buildingId}`}
+                id="btn-view-building-page"
+                style={{
+                  display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  cursor: 'pointer',
-                  zIndex: 20,
+                  gap: '8px',
+                  width: '100%',
+                  padding: '10px 14px',
+                  backgroundColor: '#1E4620',
+                  color: '#FFFFFF',
+                  borderRadius: '8px',
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  textDecoration: 'none',
+                  boxShadow: '0 2px 6px rgba(30, 70, 32, 0.25)',
+                  transition: 'background-color 0.15s ease-in-out',
                 }}
-                title="Fechar detalhes do edifício"
               >
-                <X size={16} />
-              </button>
+                <span>🏢</span>
+                <span>Ver Página Completa do Edifício</span>
+                <span style={{ fontSize: '0.9rem' }}>↗</span>
+              </Link>
 
-              {/* Identificação Principal do Edifício */}
-              <div style={{ paddingRight: selectedBuildingGroup.coverImageUrl ? '0px' : '32px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                  <span
-                    className="badge badge-primary"
-                    style={{
-                      fontSize: '0.70rem',
-                      padding: '2px 8px',
-                      background: '#E8F5E9',
-                      color: '#1E4620',
-                      fontWeight: 800,
-                      border: '1px solid #C8E6C9',
-                    }}
-                  >
-                    EDIFÍCIO
+              {/* Divisor */}
+              <div style={{ height: '1px', backgroundColor: '#E5E7EB', margin: '2px 0' }} />
+
+              {/* Listagem de Unidades Agrupadas por Andar */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Apartamentos por Andar
                   </span>
-                  {selectedBuildingGroup.boundaryArea && (
-                    <span
-                      style={{
-                        fontSize: '0.68rem',
-                        color: '#15803D',
-                        fontWeight: 700,
-                        background: '#F0FDF4',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        border: '1px solid #BBF7D0',
-                      }}
-                    >
-                      Terreno {Math.round(selectedBuildingGroup.boundaryArea)} m²
-                    </span>
-                  )}
+                  <span style={{ fontSize: '0.74rem', color: '#6B7280' }}>
+                    {selectedBuildingGroup.floors.length} {selectedBuildingGroup.floors.length === 1 ? 'andar' : 'andares'}
+                  </span>
                 </div>
 
-                <h3
-                  style={{
-                    fontSize: '1.15rem',
-                    fontWeight: 800,
-                    color: '#111827',
-                    margin: '2px 0 4px 0',
-                    lineHeight: '1.25',
-                  }}
-                >
-                  {selectedBuildingGroup.name}
-                </h3>
-
-                <p
-                  style={{
-                    fontSize: '0.80rem',
-                    color: '#4B5563',
-                    margin: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <MapPin size={13} style={{ flexShrink: 0, color: '#1E4620' }} />
-                  <span>
-                    {selectedBuildingGroup.address ? `${selectedBuildingGroup.address}, ` : ''}
-                    {selectedBuildingGroup.neighborhood ? `${selectedBuildingGroup.neighborhood}, ` : ''}
-                    {selectedBuildingGroup.city || 'Criciúma'}
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            {/* Placas Resumo do Edifício */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '8px',
-                backgroundColor: '#F8FAFC',
-                padding: '10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid #E2E8F0',
-                textAlign: 'center',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
-                  Unidades
-                </span>
-                <strong style={{ fontSize: '1.05rem', color: '#1E4620', fontWeight: 800 }}>
-                  {selectedBuildingGroup.totalUnitsCount}
-                </strong>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
-                  Anúncios
-                </span>
-                <strong style={{ fontSize: '1.05rem', color: '#1D4ED8', fontWeight: 800 }}>
-                  {selectedBuildingGroup.totalListingsCount}
-                </strong>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '0.66rem', color: '#64748B', display: 'block', fontWeight: 700, textTransform: 'uppercase' }}>
-                  A partir de
-                </span>
-                <strong style={{ fontSize: '0.86rem', color: '#1E4620', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                  {formatPriceShort(selectedBuildingGroup.minPrice)}
-                </strong>
-              </div>
-            </div>
-
-            {/* Botões de Ação Rápida e Rotas */}
-            {isValidCoordinate(selectedBuildingGroup.latitude, selectedBuildingGroup.longitude) && (
-              <NavigationActionButtons
-                latitude={selectedBuildingGroup.latitude}
-                longitude={selectedBuildingGroup.longitude}
-                fullWidth
-                size="sm"
-              />
-            )}
-
-            {/* Divisor */}
-            <div style={{ height: '1px', backgroundColor: '#E5E7EB', margin: '2px 0' }} />
-
-            {/* Listagem de Unidades Agrupadas por Andar */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '0.80rem', fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Apartamentos por Andar
-                </span>
-                <span style={{ fontSize: '0.74rem', color: '#6B7280' }}>
-                  {selectedBuildingGroup.floors.length} {selectedBuildingGroup.floors.length === 1 ? 'andar' : 'andares'}
-                </span>
-              </div>
-
-              {selectedBuildingGroup.floors.map((floorGroup, fIdx) => (
-                <div
-                  key={`floor_${floorGroup.floor ?? 'unk'}_${fIdx}`}
-                  style={{
-                    backgroundColor: '#FFFFFF',
-                    border: '1px solid #E5E7EB',
-                    borderRadius: 'var(--radius-md)',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {/* Cabeçalho do Andar */}
+                {selectedBuildingGroup.floors.map((floorGroup, fIdx) => (
                   <div
+                    key={`floor_${floorGroup.floor ?? 'unk'}_${fIdx}`}
                     style={{
-                      padding: '8px 12px',
-                      backgroundColor: '#F3F4F6',
-                      borderBottom: '1px solid #E5E7EB',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #E5E7EB',
+                      borderRadius: 'var(--radius-md)',
+                      overflow: 'hidden',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Layers size={14} style={{ color: '#1E4620' }} />
-                      <strong style={{ fontSize: '0.82rem', color: '#1F2937' }}>
-                        {floorGroup.floorLabel}
-                      </strong>
-                    </div>
-                    <span
+                    {/* Cabeçalho do Andar */}
+                    <div
                       style={{
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        color: '#4B5563',
-                        background: '#E5E7EB',
-                        padding: '1px 6px',
-                        borderRadius: '4px',
+                        padding: '8px 12px',
+                        backgroundColor: '#F3F4F6',
+                        borderBottom: '1px solid #E5E7EB',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                       }}
                     >
-                      {floorGroup.units.length} {floorGroup.units.length === 1 ? 'unidade' : 'unidades'}
-                    </span>
-                  </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Layers size={14} style={{ color: '#1E4620' }} />
+                        <strong style={{ fontSize: '0.82rem', color: '#1F2937' }}>
+                          {floorGroup.floorLabel}
+                        </strong>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          color: '#4B5563',
+                          background: '#E5E7EB',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        {floorGroup.units.length} {floorGroup.units.length === 1 ? 'unidade' : 'unidades'}
+                      </span>
+                    </div>
 
-                  {/* Unidades neste Andar */}
-                  <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {floorGroup.units.map((unit) => {
-                      const isUnitMine = unit.isMine;
-                      const hasMultipleBrokers = unit.coListings && unit.coListings.length > 1;
+                    {/* Unidades neste Andar */}
+                    <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {floorGroup.units.map((unit) => {
+                        const isUnitMine = unit.isMine;
+                        const hasMultipleBrokers = unit.coListings && unit.coListings.length > 1;
 
-                      return (
-                        <div
-                          key={unit.physicalPropertyId}
-                          style={{
-                            padding: '10px',
-                            backgroundColor: isUnitMine ? '#F0FDF4' : '#FAFAFA',
-                            border: isUnitMine ? '1.5px solid #86EFAC' : '1px solid #E5E7EB',
-                            borderRadius: '6px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '6px',
-                          }}
-                        >
-                          {/* Topo da Unidade: Título, Preço e Badge */}
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <strong style={{ fontSize: '0.88rem', color: '#111827' }}>
-                                  {unit.unitNumber ? `Apartamento ${unit.unitNumber}` : unit.title}
-                                </strong>
-                                {isUnitMine && (
-                                  <span
-                                    style={{
-                                      fontSize: '0.64rem',
-                                      fontWeight: 800,
-                                      color: '#1E4620',
-                                      background: '#DCFCE7',
-                                      padding: '1px 5px',
-                                      borderRadius: '4px',
-                                    }}
-                                  >
-                                    Seu Imóvel
+                        return (
+                          <div
+                            key={unit.physicalPropertyId}
+                            style={{
+                              padding: '10px',
+                              backgroundColor: isUnitMine ? '#F0FDF4' : '#FAFAFA',
+                              border: isUnitMine ? '1.5px solid #86EFAC' : '1px solid #E5E7EB',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '6px',
+                            }}
+                          >
+                            {/* Topo da Unidade: Título, Preço e Badge */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <strong style={{ fontSize: '0.88rem', color: '#111827' }}>
+                                    {unit.unitNumber ? `Apartamento ${unit.unitNumber}` : unit.title}
+                                  </strong>
+                                  {isUnitMine && (
+                                    <span
+                                      style={{
+                                        fontSize: '0.64rem',
+                                        fontWeight: 800,
+                                        color: '#1E4620',
+                                        background: '#DCFCE7',
+                                        padding: '1px 5px',
+                                        borderRadius: '4px',
+                                      }}
+                                    >
+                                      Seu Imóvel
+                                    </span>
+                                  )}
+                                </div>
+                                {unit.unitNumber && unit.title && unit.title.toLowerCase() !== `apartamento ${unit.unitNumber}`.toLowerCase() && (
+                                  <span style={{ fontSize: '0.72rem', color: '#6B7280', display: 'block' }}>
+                                    {unit.title}
                                   </span>
                                 )}
                               </div>
-                              {unit.unitNumber && unit.title && unit.title.toLowerCase() !== `apartamento ${unit.unitNumber}`.toLowerCase() && (
-                                <span style={{ fontSize: '0.72rem', color: '#6B7280', display: 'block' }}>
-                                  {unit.title}
+
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <span style={{ fontSize: '0.90rem', fontWeight: 800, color: '#1E4620' }}>
+                                  R$ {unit.price.toLocaleString('pt-BR')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Atributos da Unidade */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.72rem', color: '#4B5563', margin: '2px 0' }}>
+                              {unit.privateArea && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Maximize2 size={11} style={{ color: '#1E4620' }} />
+                                  {unit.privateArea} m² privativos
+                                </span>
+                              )}
+                              {unit.bedrooms > 0 && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Bed size={11} style={{ color: '#1E4620' }} />
+                                  {unit.bedrooms} {unit.bedrooms === 1 ? 'quarto' : 'quartos'} {unit.suites > 0 ? `(${unit.suites} suíte)` : ''}
+                                </span>
+                              )}
+                              {unit.bathrooms > 0 && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Bath size={11} style={{ color: '#1E4620' }} />
+                                  {unit.bathrooms} banheiros
+                                </span>
+                              )}
+                              {unit.parkingSpaces > 0 && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                  <Car size={11} style={{ color: '#1E4620' }} />
+                                  {unit.parkingSpaces} {unit.parkingSpaces === 1 ? 'vaga' : 'vagas'}
                                 </span>
                               )}
                             </div>
 
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <span style={{ fontSize: '0.90rem', fontWeight: 800, color: '#1E4620' }}>
-                                R$ {unit.price.toLocaleString('pt-BR')}
-                              </span>
-                            </div>
-                          </div>
+                            {/* Seção de Corretores (Bloco 05) */}
+                            <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px dashed #E5E7EB' }}>
+                              {hasMultipleBrokers ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#3730A3', textTransform: 'uppercase' }}>
+                                    {unit.coListings.length} corretores parceiros anunciando esta unidade:
+                                  </span>
+                                  {unit.coListings.map((cl: any) => {
+                                    const isMyCoListing =
+                                      user?.id &&
+                                      (cl.responsibleBroker?.id === user.id ||
+                                        cl.user?.id === user.id ||
+                                        cl.responsibleBrokerId === user.id ||
+                                        cl.userId === user.id);
+                                    const brokerName =
+                                      cl.responsibleBroker?.profile?.commercialName ||
+                                      cl.responsibleBroker?.name ||
+                                      cl.user?.profile?.commercialName ||
+                                      cl.user?.name ||
+                                      'Corretor Parceiro';
+                                    const brokerImg =
+                                      cl.responsibleBroker?.profile?.avatarUrl ||
+                                      cl.responsibleBroker?.profile?.logoUrl ||
+                                      cl.user?.profile?.avatarUrl;
 
-                          {/* Atributos da Unidade */}
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.72rem', color: '#4B5563', margin: '2px 0' }}>
-                            {unit.privateArea && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                <Maximize2 size={11} style={{ color: '#1E4620' }} />
-                                {unit.privateArea} m² privativos
-                              </span>
-                            )}
-                            {unit.bedrooms > 0 && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                <Bed size={11} style={{ color: '#1E4620' }} />
-                                {unit.bedrooms} {unit.bedrooms === 1 ? 'quarto' : 'quartos'} {unit.suites > 0 ? `(${unit.suites} suíte)` : ''}
-                              </span>
-                            )}
-                            {unit.bathrooms > 0 && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                <Bath size={11} style={{ color: '#1E4620' }} />
-                                {unit.bathrooms} banheiros
-                              </span>
-                            )}
-                            {unit.parkingSpaces > 0 && (
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                <Car size={11} style={{ color: '#1E4620' }} />
-                                {unit.parkingSpaces} {unit.parkingSpaces === 1 ? 'vaga' : 'vagas'}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Seção de Corretores (Bloco 05) */}
-                          <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: '1px dashed #E5E7EB' }}>
-                            {hasMultipleBrokers ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <span style={{ fontSize: '0.68rem', fontWeight: 800, color: '#3730A3', textTransform: 'uppercase' }}>
-                                  {unit.coListings.length} corretores parceiros anunciando esta unidade:
-                                </span>
-                                {unit.coListings.map((cl: any) => {
-                                  const isMyCoListing =
-                                    user?.id &&
-                                    (cl.responsibleBroker?.id === user.id ||
-                                      cl.user?.id === user.id ||
-                                      cl.responsibleBrokerId === user.id ||
-                                      cl.userId === user.id);
-                                  const brokerName =
-                                    cl.responsibleBroker?.profile?.commercialName ||
-                                    cl.responsibleBroker?.name ||
-                                    cl.user?.profile?.commercialName ||
-                                    cl.user?.name ||
-                                    'Corretor Parceiro';
-                                  const brokerImg =
-                                    cl.responsibleBroker?.profile?.avatarUrl ||
-                                    cl.responsibleBroker?.profile?.logoUrl ||
-                                    cl.user?.profile?.avatarUrl;
-
-                                  return (
-                                    <div
-                                      key={cl.id}
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: '4px 6px',
-                                        backgroundColor: isMyCoListing ? '#EEF2FF' : '#FFFFFF',
-                                        border: isMyCoListing ? '1px solid #C7D2FE' : '1px solid #E2E8F0',
-                                        borderRadius: '4px',
-                                      }}
-                                    >
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
-                                        {brokerImg ? (
-                                          <img
-                                            src={brokerImg}
-                                            alt={brokerName}
-                                            style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }}
-                                          />
-                                        ) : (
-                                          <div
-                                            style={{
-                                              width: '18px',
-                                              height: '18px',
-                                              borderRadius: '50%',
-                                              background: '#4F46E5',
-                                              color: 'white',
-                                              fontSize: '9px',
-                                              fontWeight: 800,
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                            }}
-                                          >
-                                            {brokerName.charAt(0).toUpperCase()}
-                                          </div>
-                                        )}
-                                        <span style={{ fontSize: '0.74rem', color: '#1F2937', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {brokerName}
-                                          {cl.isPrimaryListing && (
-                                            <span style={{ color: '#059669', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
-                                              (Principal)
-                                            </span>
-                                          )}
-                                          {isMyCoListing && (
-                                            <span style={{ color: '#4F46E5', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
-                                              (Você)
-                                            </span>
-                                          )}
-                                        </span>
-                                      </div>
-
-                                      <Link
-                                        href={`/imoveis/${cl.id}`}
+                                    return (
+                                      <div
+                                        key={cl.id}
                                         style={{
-                                          fontSize: '0.72rem',
-                                          fontWeight: 700,
-                                          color: '#4F46E5',
-                                          textDecoration: 'none',
-                                          whiteSpace: 'nowrap',
-                                          padding: '2px 6px',
-                                          borderRadius: '3px',
-                                          background: '#EEF2FF',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          padding: '4px 6px',
+                                          backgroundColor: isMyCoListing ? '#EEF2FF' : '#FFFFFF',
+                                          border: isMyCoListing ? '1px solid #C7D2FE' : '1px solid #E2E8F0',
+                                          borderRadius: '4px',
                                         }}
                                       >
-                                        Ver anúncio &rarr;
-                                      </Link>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <Users size={12} style={{ color: '#4B5563' }} />
-                                  <span style={{ fontSize: '0.72rem', color: '#4B5563' }}>
-                                    {unit.coListings[0]?.responsibleBroker?.profile?.commercialName ||
-                                      unit.coListings[0]?.responsibleBroker?.name ||
-                                      unit.coListings[0]?.user?.profile?.commercialName ||
-                                      unit.coListings[0]?.user?.name ||
-                                      'Corretor responsável'}
-                                  </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                                          {brokerImg ? (
+                                            <img
+                                              src={brokerImg}
+                                              alt={brokerName}
+                                              style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover' }}
+                                            />
+                                          ) : (
+                                            <div
+                                              style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                background: '#4F46E5',
+                                                color: 'white',
+                                                fontSize: '9px',
+                                                fontWeight: 800,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                              }}
+                                            >
+                                              {brokerName.charAt(0).toUpperCase()}
+                                            </div>
+                                          )}
+                                          <span style={{ fontSize: '0.74rem', color: '#1F2937', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {brokerName}
+                                            {cl.isPrimaryListing && (
+                                              <span style={{ color: '#059669', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
+                                                (Principal)
+                                              </span>
+                                            )}
+                                            {isMyCoListing && (
+                                              <span style={{ color: '#4F46E5', fontSize: '0.66rem', fontWeight: 800, marginLeft: '4px' }}>
+                                                (Você)
+                                              </span>
+                                            )}
+                                          </span>
+                                        </div>
+
+                                        <Link
+                                          href={`/imoveis/${cl.id}`}
+                                          style={{
+                                            fontSize: '0.72rem',
+                                            fontWeight: 700,
+                                            color: '#4F46E5',
+                                            textDecoration: 'none',
+                                            whiteSpace: 'nowrap',
+                                            padding: '2px 6px',
+                                            borderRadius: '3px',
+                                            background: '#EEF2FF',
+                                          }}
+                                        >
+                                          Ver anúncio &rarr;
+                                        </Link>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
-                                <Link
-                                  href={`/imoveis/${unit.id}`}
-                                  style={{
-                                    fontSize: '0.72rem',
-                                    fontWeight: 700,
-                                    color: '#1E4620',
-                                    textDecoration: 'none',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '2px',
-                                  }}
-                                >
-                                  <span>Ver anúncio</span>
-                                  <ArrowRight size={11} />
-                                </Link>
-                              </div>
-                            )}
+                              ) : (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Users size={12} style={{ color: '#4B5563' }} />
+                                    <span style={{ fontSize: '0.72rem', color: '#4B5563' }}>
+                                      {unit.coListings[0]?.responsibleBroker?.profile?.commercialName ||
+                                        unit.coListings[0]?.responsibleBroker?.name ||
+                                        unit.coListings[0]?.user?.profile?.commercialName ||
+                                        unit.coListings[0]?.user?.name ||
+                                        'Corretor responsável'}
+                                    </span>
+                                  </div>
+                                  <Link
+                                    href={`/imoveis/${unit.id}`}
+                                    style={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      color: '#1E4620',
+                                      textDecoration: 'none',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '2px',
+                                    }}
+                                  >
+                                    <span>Ver anúncio</span>
+                                    <ArrowRight size={11} />
+                                  </Link>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
 
         {/* Faixa lateral livre à direita no mobile para rolagem suave da página (Etapa 3A / Ponto 1) */}
@@ -4467,8 +4511,8 @@ export default function HomeMap({
 
               const priceVal = isDev
                 ? (item.typologies && item.typologies.length > 0
-                    ? Math.min(...item.typologies.map((t) => t.price).filter((p) => p > 0))
-                    : 0)
+                  ? Math.min(...item.typologies.map((t) => t.price).filter((p) => p > 0))
+                  : 0)
                 : item.price;
 
               const coverImg = item.images && item.images.length > 0 ? item.images[0].url : null;
