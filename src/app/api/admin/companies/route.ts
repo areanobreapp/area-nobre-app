@@ -16,10 +16,11 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search') || undefined;
     const status = searchParams.get('status') || undefined;
     const city = searchParams.get('city') || undefined;
+    const state = searchParams.get('state') || undefined;
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '20', 10);
 
-    const result = await listCompanies({ search, status, city, page, limit }, user.role);
+    const result = await listCompanies({ search, status, city, state, page, limit }, user.role);
     return NextResponse.json(result, { status: 200 });
   } catch (error: any) {
     console.error('Erro ao listar construtoras:', error);

@@ -4,6 +4,16 @@ import { prisma } from '@/lib/db';
 import { recalculateMatchesForDevelopment } from '@/lib/matching';
 import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
 import { assertUserAcceptedTerms } from '@/lib/legal/service';
+import {
+  buildDevelopmentWhere,
+  sanitizeDevelopmentForViewer,
+  normalizeDevelopmentStatusInput,
+  resolvePublicationStatus,
+  DEVELOPMENT_BUILDING_SELECT,
+  DEVELOPMENT_COMPANY_SELECT,
+} from '@/lib/development-visibility';
+
+const VALID_PROJECT_TYPES = ['VERTICAL', 'HORIZONTAL', 'MISTO', 'LOTEAMENTO'];
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,49 +28,20 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search')?.trim();
-    const stage = searchParams.get('stage');
-    const status = searchParams.get('status');
 
-    const brokerId = searchParams.get('brokerId');
-    const viewAll = searchParams.get('all') === 'true';
-    const scope = searchParams.get('scope'); // 'shared' | 'mine'
-
-    const where: any = {};
-    const isSharedQuery = scope === 'shared' || (user.role === 'ADMIN' && viewAll);
-
-    if (user.role === 'ADMIN' && brokerId) {
-      where.responsibleBrokerId = brokerId;
-    } else if (isSharedQuery) {
-      where.OR = [
-        { responsibleBroker: { status: 'ACTIVE' } },
-        { responsibleBrokerId: null, user: { status: 'ACTIVE' } },
-      ];
-    } else {
-      where.OR = [
-        { userId: user.id },
-        { responsibleBrokerId: user.id },
-      ];
-    }
-
-    if (stage && stage !== 'Todos') {
-      where.stage = stage;
-    }
-
-    if (status && status !== 'Todos') {
-      where.status = status;
-    }
-
-    if (search) {
-      where.OR = [
-        { name: { contains: search } },
-        { developer: { contains: search } },
-        { neighborhood: { contains: search } },
-        { city: { contains: search } },
-        { address: { contains: search } },
-      ];
-    }
-
+    // Camadas independentes (acesso, publicação, comercial, texto) combinadas com AND.
+    // A pesquisa textual NUNCA substitui as restrições obrigatórias (Bloco 6A.6).
+    const where = buildDevelopmentWhere(user, {
+      search: searchParams.get('search'),
+      stage: searchParams.get('stage'),
+      status: searchParams.get('status') || searchParams.get('publicationStatus'),
+      projectType: searchParams.get('projectType'),
+      companyId: searchParams.get('companyId'),
+      city: searchParams.get('city'),
+      neighborhood: searchParams.get('neighborhood'),
+      brokerId: searchParams.get('brokerId'),
+      scope: searchParams.get('scope'),
+    });
     const developments = await prisma.development.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -71,6 +52,13 @@ export async function GET(req: NextRequest) {
         typologies: {
           orderBy: { price: 'asc' },
         },
+        blocks: {
+          orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+        },
+        company: {
+          select: DEVELOPMENT_COMPANY_SELECT,
+        },
+        building: { select: DEVELOPMENT_BUILDING_SELECT },
         responsibleBroker: {
           select: {
             id: true,
@@ -91,25 +79,19 @@ export async function GET(req: NextRequest) {
           },
         },
         _count: {
-          select: { typologies: true },
+          select: { typologies: true, blocks: true },
         },
       },
     });
 
     const isUserAdmin = user.role === 'ADMIN';
-    const sanitizedDevelopments = developments.map((d) => {
-      const isOwner = d.responsibleBrokerId === user.id || d.userId === user.id || isUserAdmin;
-      if (isOwner) return d;
-      return {
-        ...d,
-        typologies: d.typologies?.map((t) => ({
-          ...t,
-          notes: null,
-        })),
-      };
-    });
+    const sanitizedDevelopments = developments.map((d) => sanitizeDevelopmentForViewer(d, user));
 
-    return NextResponse.json({ success: true, developments: sanitizedDevelopments });
+    return NextResponse.json({
+      success: true,
+      developments: sanitizedDevelopments,
+      canManage: isUserAdmin, // Somente ADMIN cadastra/edita empreendimentos (Bloco 6)
+    });
   } catch (error) {
     console.error('Erro ao listar empreendimentos:', error);
     return NextResponse.json({ error: 'Falha ao buscar empreendimentos.' }, { status: 500 });
@@ -120,7 +102,7 @@ export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+      return NextResponse.json({ error: 'NÃ£o autorizado.' }, { status: 401 });
     }
 
     if (user.role !== 'ADMIN') {
@@ -139,9 +121,17 @@ export async function POST(req: NextRequest) {
     const {
       name,
       developer,
+      companyId,
+      projectType,
+      totalTowers,
+      totalUnits,
       stage,
       deliveryDate,
+      deliveryYear,
+      deliveryMonth,
+      indexCorrection,
       status,
+      publicationStatus,
       description,
       internalNotes,
       address,
@@ -153,6 +143,7 @@ export async function POST(req: NextRequest) {
       zipcode,
       latitude,
       longitude,
+      buildingId,
       hasPool,
       hasGym,
       hasPartyHall,
@@ -166,12 +157,73 @@ export async function POST(req: NextRequest) {
     if (!name?.trim()) {
       return NextResponse.json({ error: 'Nome do empreendimento é obrigatório.' }, { status: 400 });
     }
-    if (!developer?.trim()) {
-      return NextResponse.json({ error: 'Nome da construtora é obrigatório.' }, { status: 400 });
+    if (!companyId?.trim()) {
+      return NextResponse.json({ error: 'É obrigatório selecionar uma construtora parceira cadastrada (companyId).' }, { status: 400 });
     }
+
+    const company = await prisma.company.findUnique({
+      where: { id: companyId.trim() },
+    });
+    if (!company) {
+      return NextResponse.json({ error: 'Construtora selecionada não existe no cadastro.' }, { status: 404 });
+    }
+    if (company.status !== 'ACTIVE') {
+      return NextResponse.json({ error: 'A construtora selecionada está inativa e não pode receber novos empreendimentos.' }, { status: 400 });
+    }
+
     if (!stage?.trim()) {
       return NextResponse.json({ error: 'Estágio da obra é obrigatório.' }, { status: 400 });
     }
+
+    const resolvedProjectType = projectType ? String(projectType).trim().toUpperCase() : 'VERTICAL';
+    if (!VALID_PROJECT_TYPES.includes(resolvedProjectType)) {
+      return NextResponse.json(
+        { error: `Tipo de projeto inválido. Valores aceitos: ${VALID_PROJECT_TYPES.join(', ')}.` },
+        { status: 400 }
+      );
+    }
+
+    const vTowers = validateNonNegativeInt(totalTowers, 'Quantidade de torres/quadras');
+    if (vTowers.error) return NextResponse.json({ error: vTowers.error }, { status: 400 });
+
+    const vUnits = validateNonNegativeInt(totalUnits, 'Total estimado de unidades');
+    if (vUnits.error) return NextResponse.json({ error: vUnits.error }, { status: 400 });
+
+    let resolvedDeliveryMonth: number | null = null;
+    if (deliveryMonth !== undefined && deliveryMonth !== null && String(deliveryMonth).trim() !== '') {
+      const m = parseInt(String(deliveryMonth), 10);
+      if (isNaN(m) || m < 1 || m > 12) {
+        return NextResponse.json({ error: 'Mês de entrega inválido (1 a 12).' }, { status: 400 });
+      }
+      resolvedDeliveryMonth = m;
+    }
+
+    let resolvedDeliveryYear: number | null = null;
+    if (deliveryYear !== undefined && deliveryYear !== null && String(deliveryYear).trim() !== '') {
+      const y = parseInt(String(deliveryYear), 10);
+      if (isNaN(y) || y < 1990 || y > 2100) {
+        return NextResponse.json({ error: 'Ano de entrega inválido.' }, { status: 400 });
+      }
+      resolvedDeliveryYear = y;
+    }
+
+    let resolvedDeliveryDate = deliveryDate?.trim() || null;
+    if (!resolvedDeliveryDate && resolvedDeliveryYear) {
+      resolvedDeliveryDate = resolvedDeliveryMonth
+        ? `${String(resolvedDeliveryMonth).padStart(2, '0')}/${resolvedDeliveryYear}`
+        : `${resolvedDeliveryYear}`;
+    }
+
+    let resolvedBuildingId: string | null = null;
+    if (buildingId && typeof buildingId === 'string' && buildingId.trim()) {
+      const building = await prisma.building.findUnique({ where: { id: buildingId.trim() } });
+      if (!building) {
+        return NextResponse.json({ error: 'Edifício da base cartográfica não encontrado.' }, { status: 404 });
+      }
+      resolvedBuildingId = building.id;
+    }
+
+    const resolvedStatus = normalizeDevelopmentStatusInput(status, publicationStatus);
 
     // Valida tipologias se fornecidas
     const validatedTypologies = [];
@@ -180,7 +232,7 @@ export async function POST(req: NextRequest) {
         const t = typologies[i];
         const tipLabel = t.name?.trim() ? `Tipologia "${t.name.trim()}": ` : `Tipologia #${i + 1}: `;
 
-        const vSuites = validateNonNegativeInt(t.suites, 'Suítes', { defaultValue: 0 });
+        const vSuites = validateNonNegativeInt(t.suites, 'SuÃ­tes', { defaultValue: 0 });
         if (vSuites.error) return NextResponse.json({ error: `${tipLabel}${vSuites.error}` }, { status: 400 });
 
         const vOtherBedrooms = validateNonNegativeInt(t.otherBedrooms, 'Demais quartos');
@@ -210,13 +262,13 @@ export async function POST(req: NextRequest) {
         const vPrice = validateNonNegativeFloat(t.price, 'Valor', { isCurrencyString: true, defaultValue: 0 });
         if (vPrice.error) return NextResponse.json({ error: `${tipLabel}${vPrice.error}` }, { status: 400 });
 
-        const vPrivateArea = validateNonNegativeFloat(t.privateArea, 'Área privativa');
+        const vPrivateArea = validateNonNegativeFloat(t.privateArea, 'Ãrea privativa');
         if (vPrivateArea.error) return NextResponse.json({ error: `${tipLabel}${vPrivateArea.error}` }, { status: 400 });
 
-        const vBuiltArea = validateNonNegativeFloat(t.builtArea, 'Área construída');
+        const vBuiltArea = validateNonNegativeFloat(t.builtArea, 'Ãrea construÃ­da');
         if (vBuiltArea.error) return NextResponse.json({ error: `${tipLabel}${vBuiltArea.error}` }, { status: 400 });
 
-        const vTotalArea = validateNonNegativeFloat(t.totalArea, 'Área total');
+        const vTotalArea = validateNonNegativeFloat(t.totalArea, 'Ãrea total');
         if (vTotalArea.error) return NextResponse.json({ error: `${tipLabel}${vTotalArea.error}` }, { status: 400 });
 
         const suites = vSuites.value ?? 0;
@@ -255,7 +307,7 @@ export async function POST(req: NextRequest) {
           parkingSpaces,
           coveredParkingSpaces,
           uncoveredParkingSpaces,
-          status: t.status || 'Disponível',
+          status: t.status || 'DisponÃ­vel',
           notes: t.notes?.trim() || null,
           acceptsExchange: t.acceptsExchange !== undefined ? Boolean(t.acceptsExchange) : null,
           exchangeNotes: t.exchangeNotes?.trim() || null,
@@ -266,15 +318,31 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const parsedLat =
+      latitude !== undefined && latitude !== null && String(latitude).trim() !== ''
+        ? parseFloat(String(latitude))
+        : null;
+    const parsedLng =
+      longitude !== undefined && longitude !== null && String(longitude).trim() !== ''
+        ? parseFloat(String(longitude))
+        : null;
+
     const development = await prisma.development.create({
       data: {
         userId: user.id,
         responsibleBrokerId: user.id,
         name: name.trim(),
-        developer: developer.trim(),
+        developer: company.tradeName || company.name,
+        companyId: company.id,
+        projectType: resolvedProjectType,
+        totalTowers: vTowers.value ?? null,
+        totalUnits: vUnits.value ?? null,
         stage: stage.trim(),
-        deliveryDate: deliveryDate?.trim() || null,
-        status: status || 'Ativo',
+        deliveryDate: resolvedDeliveryDate,
+        deliveryYear: resolvedDeliveryYear,
+        deliveryMonth: resolvedDeliveryMonth,
+        indexCorrection: indexCorrection?.trim() || null,
+        status: resolvedStatus,
         description: description?.trim() || null,
         internalNotes: internalNotes?.trim() || null,
         address: address?.trim() || null,
@@ -282,37 +350,60 @@ export async function POST(req: NextRequest) {
         complement: complement?.trim() || null,
         neighborhood: neighborhood?.trim() || null,
         city: city?.trim() || null,
-        state: state?.trim() || null,
+        state: state?.trim() ? state.trim().toUpperCase() : null,
         zipcode: zipcode?.trim() || null,
-        latitude: latitude ? parseFloat(String(latitude)) : null,
-        longitude: longitude ? parseFloat(String(longitude)) : null,
-        hasPool: hasPool !== undefined ? Boolean(hasPool) : null,
-        hasGym: hasGym !== undefined ? Boolean(hasGym) : null,
-        hasPartyHall: hasPartyHall !== undefined ? Boolean(hasPartyHall) : null,
-        hasPetSpace: hasPetSpace !== undefined ? Boolean(hasPetSpace) : null,
-        hasElevator: hasElevator !== undefined ? Boolean(hasElevator) : null,
-        hasDirectInstallments: hasDirectInstallments !== undefined ? Boolean(hasDirectInstallments) : null,
+        latitude: parsedLat !== null && !isNaN(parsedLat) ? parsedLat : null,
+        longitude: parsedLng !== null && !isNaN(parsedLng) ? parsedLng : null,
+        buildingId: resolvedBuildingId,
+        hasPool: hasPool !== undefined && hasPool !== null ? Boolean(hasPool) : null,
+        hasGym: hasGym !== undefined && hasGym !== null ? Boolean(hasGym) : null,
+        hasPartyHall: hasPartyHall !== undefined && hasPartyHall !== null ? Boolean(hasPartyHall) : null,
+        hasPetSpace: hasPetSpace !== undefined && hasPetSpace !== null ? Boolean(hasPetSpace) : null,
+        hasElevator: hasElevator !== undefined && hasElevator !== null ? Boolean(hasElevator) : null,
+        hasDirectInstallments:
+          hasDirectInstallments !== undefined && hasDirectInstallments !== null
+            ? Boolean(hasDirectInstallments)
+            : null,
         images: {
-          create: (images || []).map((url: string, index: number) => ({
-            url,
-            isCover: index === 0,
-            order: index,
-          })),
+          create: (images || [])
+            .map((img: any, index: number) => {
+              const url = typeof img === 'string' ? img.trim() : String(img?.url || '').trim();
+              if (!url) return null;
+              const isCover =
+                typeof img === 'object' && img !== null && typeof img.isCover === 'boolean'
+                  ? img.isCover
+                  : index === 0;
+              return {
+                url,
+                isCover,
+                order: index,
+              };
+            })
+            .filter(Boolean) as { url: string; isCover: boolean; order: number }[],
         },
         typologies: {
           create: validatedTypologies,
         },
       },
       include: {
-        images: true,
-        typologies: true,
+        company: { select: DEVELOPMENT_COMPANY_SELECT },
+        building: { select: DEVELOPMENT_BUILDING_SELECT },
+        images: { orderBy: [{ isCover: 'desc' }, { order: 'asc' }] },
+        typologies: { orderBy: { price: 'asc' } },
+        blocks: { orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }] },
       },
     });
 
     // Recalcula matches imediatamente para todas as tipologias cadastradas
     await recalculateMatchesForDevelopment(development.id);
 
-    return NextResponse.json({ success: true, development });
+    return NextResponse.json({
+      success: true,
+      development: {
+        ...development,
+        publicationStatus: resolvePublicationStatus(development.status),
+      },
+    });
   } catch (error) {
     console.error('Erro ao cadastrar empreendimento:', error);
     return NextResponse.json({ error: 'Falha ao salvar empreendimento.' }, { status: 500 });

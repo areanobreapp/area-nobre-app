@@ -53,7 +53,7 @@ export default async function RootLayout({
           <main className="main-content">
             {children}
           </main>
-          <MobileNav />
+          <MobileNav isAdmin={user?.role === 'ADMIN'} />
           <LegalNoticeModal />
         </div>
       </body>

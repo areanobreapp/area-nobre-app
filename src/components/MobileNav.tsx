@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Home, Building2, Search, MapPin, Plus, X, MessageCircle } from 'lucide-react';
 import { useSupportContact } from '@/lib/use-support-contact';
 
-export default function MobileNav() {
+export default function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
   const { defaultUrl: supportUrl } = useSupportContact();
@@ -149,23 +149,25 @@ export default function MobileNav() {
                 <span style={{ fontWeight: 600 }}>Novo imóvel convencional</span>
               </button>
 
-              <button
-                type="button"
-                className="btn-secondary"
-                style={{
-                  justifyContent: 'flex-start',
-                  padding: '14px 16px',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '0.96rem',
-                }}
-                onClick={() => {
-                  setModalOpen(false);
-                  router.push('/empreendimentos/novo');
-                }}
-              >
-                <Building2 size={20} color="var(--color-primary)" />
-                <span style={{ fontWeight: 600 }}>Novo imóvel em construção</span>
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{
+                    justifyContent: 'flex-start',
+                    padding: '14px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '0.96rem',
+                  }}
+                  onClick={() => {
+                    setModalOpen(false);
+                    router.push('/empreendimentos/novo');
+                  }}
+                >
+                  <Building2 size={20} color="var(--color-primary)" />
+                  <span style={{ fontWeight: 600 }}>Novo empreendimento (Admin)</span>
+                </button>
+              )}
 
               <button
                 type="button"

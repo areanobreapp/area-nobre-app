@@ -3,6 +3,12 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
 import HomeMapClient from '@/components/HomeMapClient';
+import {
+  buildDevelopmentWhere,
+  DEVELOPMENT_BUILDING_SELECT,
+  DEVELOPMENT_COMPANY_SELECT,
+  sanitizeDevelopmentForViewer,
+} from '@/lib/development-visibility';
 
 export default async function HomePage({
   searchParams,
@@ -157,13 +163,19 @@ export default async function HomePage({
       orderBy: { createdAt: 'desc' },
     }),
     prisma.development.findMany({
-      where: activeBrokerCondition,
+      where: buildDevelopmentWhere(user, { status: 'Ativo' }),
       include: {
         images: {
           orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
         },
         typologies: {
           orderBy: { price: 'asc' },
+        },
+        building: {
+          select: DEVELOPMENT_BUILDING_SELECT,
+        },
+        company: {
+          select: DEVELOPMENT_COMPANY_SELECT,
         },
         responsibleBroker: {
           select: {
@@ -290,17 +302,7 @@ export default async function HomePage({
     };
   });
 
-  const developments = rawDevelopments.map((d) => {
-    const isOwner = d.responsibleBrokerId === user.id || d.userId === user.id || isUserAdmin;
-    if (isOwner) return d;
-    return {
-      ...d,
-      typologies: d.typologies?.map((t) => ({
-        ...t,
-        notes: null,
-      })),
-    };
-  });
+  const developments = rawDevelopments.map((d) => sanitizeDevelopmentForViewer(d, user));
 
   const formattedMatches = topMatches.map((m) => {
     let parsedExplanation = [];

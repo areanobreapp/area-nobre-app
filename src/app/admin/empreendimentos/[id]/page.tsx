@@ -325,11 +325,21 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                   borderRadius: '16px',
                   fontSize: '0.74rem',
                   fontWeight: 800,
-                  backgroundColor: dev.status === 'Ativo' ? '#DEF7EC' : '#F3F4F6',
-                  color: dev.status === 'Ativo' ? '#03543F' : '#6B7280',
+                  backgroundColor:
+                    dev.status === 'Ativo'
+                      ? '#DEF7EC'
+                      : dev.status === 'Rascunho'
+                      ? '#FEF3C7'
+                      : '#F3F4F6',
+                  color:
+                    dev.status === 'Ativo'
+                      ? '#03543F'
+                      : dev.status === 'Rascunho'
+                      ? '#92400E'
+                      : '#6B7280',
                 }}
               >
-                {dev.status}
+                {dev.publicationStatus || (dev.status === 'Ativo' ? 'PUBLICADO' : dev.status === 'Rascunho' ? 'RASCUNHO' : 'ARQUIVADO')}
               </span>
               <span
                 style={{
@@ -369,7 +379,49 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <Link
+              href={`/empreendimentos/${dev.id}`}
+              id="btn-ver-ficha-corretor"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 14px',
+                borderRadius: '8px',
+                border: '1px solid #BFDBFE',
+                backgroundColor: '#EFF6FF',
+                color: '#1E40AF',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              <ExternalLink size={15} />
+              <span>Ver Visão do Corretor</span>
+            </Link>
+
+            <Link
+              href={`/empreendimentos/${dev.id}/editar?returnTo=admin`}
+              id="btn-editar-empreendimento-admin"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 16px',
+                borderRadius: '8px',
+                border: '1px solid #D1D5DB',
+                backgroundColor: '#FFFFFF',
+                color: '#374151',
+                fontSize: '0.84rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              <Edit size={15} />
+              <span>Editar Empreendimento</span>
+            </Link>
+
             <button
               type="button"
               onClick={handleToggleStatus}
@@ -545,10 +597,23 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '12px', fontSize: '0.78rem', color: '#6B7280', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', gap: '12px', fontSize: '0.78rem', color: '#6B7280', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                         {block.totalFloors && <span>{block.totalFloors} pavimentos</span>}
                         {block.unitsPerFloor && <span>{block.unitsPerFloor} un/andar</span>}
                         <span>Ordem: {block.displayOrder}</span>
+                        <span
+                          style={{
+                            padding: '1px 7px',
+                            borderRadius: '999px',
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            backgroundColor: '#F3F4F6',
+                            color: '#4B5563',
+                            border: '1px solid #E5E7EB',
+                          }}
+                        >
+                          Estoque de Unidades (Bloco 6B)
+                        </span>
                       </div>
                     </div>
 

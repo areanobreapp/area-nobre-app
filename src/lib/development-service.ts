@@ -1,6 +1,11 @@
 import { prisma as defaultPrisma } from '@/lib/db';
 import type { PrismaClient } from '@prisma/client';
 import { sanitizeContact } from './company-service';
+import {
+  normalizeDevelopmentStatusInput,
+  resolvePublicationStatus,
+  type DevelopmentPublicationStatus,
+} from './development-visibility';
 
 export interface CreateDevelopmentInput {
   name: string;
@@ -13,7 +18,8 @@ export interface CreateDevelopmentInput {
   deliveryYear?: number | null;
   deliveryMonth?: number | null;
   indexCorrection?: string | null;
-  status?: string; // 'Ativo' | 'Inativo'
+  status?: string; // 'Ativo' | 'Rascunho' | 'Inativo'
+  publicationStatus?: DevelopmentPublicationStatus | string | null;
   description?: string | null;
   internalNotes?: string | null;
   address?: string | null;
@@ -32,6 +38,7 @@ export interface CreateDevelopmentInput {
   hasElevator?: boolean | null;
   hasDirectInstallments?: boolean | null;
   buildingId?: string | null;
+  images?: string[];
 }
 
 export interface UpdateDevelopmentInput extends Partial<CreateDevelopmentInput> {}
@@ -105,6 +112,7 @@ export function sanitizeDevelopment(dev: any, userRole?: string): any {
     deliveryMonth: dev.deliveryMonth,
     indexCorrection: dev.indexCorrection,
     status: dev.status,
+    publicationStatus: resolvePublicationStatus(dev.status),
     description: dev.description,
     internalNotes: userRole === 'ADMIN' ? dev.internalNotes : undefined,
     address: dev.address,
@@ -162,6 +170,11 @@ export async function createDevelopment(
     err.code = 'NOT_FOUND';
     throw err;
   }
+  if (company.status !== 'ACTIVE') {
+    const err: any = new Error('A construtora informada está inativa e não pode receber novos empreendimentos.');
+    err.code = 'VALIDATION_ERROR';
+    throw err;
+  }
 
   // Se buildingId fornecido, validar se existe
   if (data.buildingId?.trim()) {
@@ -175,11 +188,14 @@ export async function createDevelopment(
     }
   }
 
+  const resolvedStatus = normalizeDevelopmentStatusInput(data.status, data.publicationStatus);
+
   const development = await prisma.development.create({
     data: {
       userId: adminUserId,
+      responsibleBrokerId: adminUserId,
       name: data.name.trim(),
-      developer: company.tradeName, // Mantido para retrocompatibilidade
+      developer: company.tradeName || company.name, // Mantido para retrocompatibilidade
       companyId: company.id,
       stage: data.stage.trim(),
       projectType: data.projectType || 'VERTICAL',
@@ -189,7 +205,7 @@ export async function createDevelopment(
       deliveryYear: data.deliveryYear ?? null,
       deliveryMonth: data.deliveryMonth ?? null,
       indexCorrection: data.indexCorrection?.trim() || null,
-      status: data.status || 'Ativo',
+      status: resolvedStatus,
       description: data.description?.trim() || null,
       internalNotes: data.internalNotes?.trim() || null,
       address: data.address?.trim() || null,
@@ -208,10 +224,22 @@ export async function createDevelopment(
       hasElevator: data.hasElevator ?? null,
       hasDirectInstallments: data.hasDirectInstallments ?? null,
       buildingId: data.buildingId?.trim() || null,
+      ...(Array.isArray(data.images) && data.images.length > 0
+        ? {
+            images: {
+              create: data.images.map((url, idx) => ({
+                url,
+                isCover: idx === 0,
+                order: idx,
+              })),
+            },
+          }
+        : {}),
     },
     include: {
       company: true,
       blocks: true,
+      images: { orderBy: [{ isCover: 'desc' }, { order: 'asc' }] },
       contacts: {
         include: { contact: true },
       },
@@ -362,7 +390,12 @@ export async function updateDevelopment(
       err.code = 'NOT_FOUND';
       throw err;
     }
-    developerName = company.tradeName;
+    if (company.status !== 'ACTIVE') {
+      const err: any = new Error('A construtora informada está inativa e não pode ser vinculada.');
+      err.code = 'VALIDATION_ERROR';
+      throw err;
+    }
+    developerName = company.tradeName || company.name;
   }
 
   if (data.buildingId !== undefined && data.buildingId !== null && data.buildingId !== '') {
@@ -373,6 +406,25 @@ export async function updateDevelopment(
       throw err;
     }
   }
+
+  if (Array.isArray(data.images)) {
+    await prisma.developmentImage.deleteMany({ where: { developmentId: id } });
+    if (data.images.length > 0) {
+      await prisma.developmentImage.createMany({
+        data: data.images.map((url, idx) => ({
+          developmentId: id,
+          url,
+          isCover: idx === 0,
+          order: idx,
+        })),
+      });
+    }
+  }
+
+  const nextStatus =
+    data.status !== undefined || data.publicationStatus !== undefined
+      ? normalizeDevelopmentStatusInput(data.status ?? existing.status, data.publicationStatus)
+      : undefined;
 
   const updated = await prisma.development.update({
     where: { id },
@@ -388,7 +440,7 @@ export async function updateDevelopment(
       deliveryYear: data.deliveryYear !== undefined ? data.deliveryYear : undefined,
       deliveryMonth: data.deliveryMonth !== undefined ? data.deliveryMonth : undefined,
       indexCorrection: data.indexCorrection !== undefined ? (data.indexCorrection?.trim() || null) : undefined,
-      status: data.status !== undefined ? data.status : undefined,
+      status: nextStatus,
       description: data.description !== undefined ? (data.description?.trim() || null) : undefined,
       internalNotes: data.internalNotes !== undefined ? (data.internalNotes?.trim() || null) : undefined,
       address: data.address !== undefined ? (data.address?.trim() || null) : undefined,

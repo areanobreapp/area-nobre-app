@@ -170,6 +170,39 @@ export default function DevelopmentModal({
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: '8px',
+              backgroundColor: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
+              flexWrap: 'wrap',
+              fontSize: '0.80rem',
+              color: '#1E40AF',
+            }}
+          >
+            <span>
+              Deseja incluir fotos, mapa interativo, CEP, diferenciais e plantas agora?
+            </span>
+            <a
+              href={`/empreendimentos/novo?companyId=${encodeURIComponent(companyId)}&returnTo=admin`}
+              id="link-cadastro-completo-empreendimento"
+              style={{
+                fontWeight: 700,
+                color: '#1E4620',
+                textDecoration: 'underline',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Abrir Formulário Administrativo Completo →
+            </a>
+          </div>
+
           {error && (
             <div
               style={{
@@ -232,6 +265,7 @@ export default function DevelopmentModal({
                   outline: 'none',
                 }}
               >
+                <option value="Breve lançamento">Breve lançamento</option>
                 <option value="Lançamento">Lançamento</option>
                 <option value="Na planta">Na planta</option>
                 <option value="Em construção">Em construção</option>
@@ -428,8 +462,9 @@ export default function DevelopmentModal({
                   outline: 'none',
                 }}
               >
-                <option value="Ativo">Ativo (Divulgação permitida)</option>
-                <option value="Inativo">Inativo (Oculto)</option>
+                <option value="Ativo">PUBLICADO — Visível para corretores e mapa</option>
+                <option value="Rascunho">RASCUNHO — Visível apenas ao ADMIN</option>
+                <option value="Inativo">ARQUIVADO — Fora das consultas comerciais</option>
               </select>
             </div>
 

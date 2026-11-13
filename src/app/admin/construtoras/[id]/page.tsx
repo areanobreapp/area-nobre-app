@@ -455,6 +455,27 @@ export default function CompanyProfilePage({ params }: CompanyProfilePageProps) 
               <span>Editar Cadastro</span>
             </Link>
 
+            <Link
+              href={`/empreendimentos/novo?companyId=${company.id}&returnTo=admin`}
+              id="btn-novo-empreendimento-completo"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '9px 16px',
+                borderRadius: '8px',
+                backgroundColor: '#F0FDF4',
+                color: '#1E4620',
+                border: '1px solid #1E4620',
+                fontSize: '0.86rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              <Plus size={15} strokeWidth={2.6} />
+              <span>Cadastro Completo</span>
+            </Link>
+
             <button
               type="button"
               id="btn-novo-empreendimento-header"
@@ -618,27 +639,49 @@ export default function CompanyProfilePage({ params }: CompanyProfilePageProps) 
               Lançamentos e Empreendimentos de {company.tradeName}
             </h3>
 
-            <button
-              type="button"
-              id="btn-cadastrar-dev-tab"
-              onClick={() => setDevModalOpen(true)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                backgroundColor: '#1E4620',
-                color: '#FFFFFF',
-                borderRadius: '8px',
-                fontSize: '0.84rem',
-                fontWeight: 700,
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              <Plus size={15} />
-              <span>Novo Empreendimento</span>
-            </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <Link
+                href={`/empreendimentos/novo?companyId=${company.id}&returnTo=admin`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 14px',
+                  backgroundColor: '#F0FDF4',
+                  color: '#1E4620',
+                  border: '1px solid #1E4620',
+                  borderRadius: '8px',
+                  fontSize: '0.84rem',
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                }}
+              >
+                <Plus size={15} />
+                <span>Cadastro Completo</span>
+              </Link>
+
+              <button
+                type="button"
+                id="btn-cadastrar-dev-tab"
+                onClick={() => setDevModalOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  backgroundColor: '#1E4620',
+                  color: '#FFFFFF',
+                  borderRadius: '8px',
+                  fontSize: '0.84rem',
+                  fontWeight: 700,
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <Plus size={15} />
+                <span>Novo Empreendimento</span>
+              </button>
+            </div>
           </div>
 
           {(company.developments || []).length === 0 ? (

@@ -25,6 +25,7 @@ const STAGES = ['Todos', 'Lançamento', 'Na planta', 'Em construção', 'Próxim
 
 export default function EmpreendimentosPage() {
   const [developments, setDevelopments] = useState<any[]>([]);
+  const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('Todos');
@@ -44,6 +45,7 @@ export default function EmpreendimentosPage() {
         const data = await res.json();
         if (res.ok) {
           setDevelopments(data.developments || []);
+          setCanManage(Boolean(data.canManage));
         }
       } catch (err) {
         console.error('Falha ao buscar empreendimentos:', err);
@@ -140,16 +142,18 @@ export default function EmpreendimentosPage() {
             Imóveis em construção
           </h1>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Gerencie e organize os empreendimentos das construtoras com as quais você trabalha.
+            Consulte os empreendimentos das construtoras cadastrados pela administração do Área Nobre.
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <Link href="/empreendimentos/novo" className="btn-primary">
-            <Plus size={16} strokeWidth={2.6} />
-            <span>Novo empreendimento</span>
-          </Link>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <Link href="/empreendimentos/novo" className="btn-primary">
+              <Plus size={16} strokeWidth={2.6} />
+              <span>Novo empreendimento</span>
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* Barra de Pesquisa e Filtros */}
@@ -200,28 +204,35 @@ export default function EmpreendimentosPage() {
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Status:</span>
-            {['Todos', 'Ativo', 'Inativo'].map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setStatusFilter(st)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  borderRadius: 'var(--radius-full)',
-                  border: statusFilter === st ? '1px solid var(--color-primary)' : '1px solid var(--border-light)',
-                  backgroundColor: statusFilter === st ? 'var(--color-primary-light)' : 'transparent',
-                  color: statusFilter === st ? 'var(--color-primary)' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {st}
-              </button>
-            ))}
-          </div>
+          {canManage && (
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Divulgação:</span>
+              {[
+                { key: 'Todos', label: 'Todos' },
+                { key: 'Ativo', label: 'Publicado' },
+                { key: 'Rascunho', label: 'Rascunho' },
+                { key: 'Inativo', label: 'Arquivado' },
+              ].map((st) => (
+                <button
+                  key={st.key}
+                  type="button"
+                  onClick={() => setStatusFilter(st.key)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-full)',
+                    border: statusFilter === st.key ? '1px solid var(--color-primary)' : '1px solid var(--border-light)',
+                    backgroundColor: statusFilter === st.key ? 'var(--color-primary-light)' : 'transparent',
+                    color: statusFilter === st.key ? 'var(--color-primary)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {st.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -257,17 +268,19 @@ export default function EmpreendimentosPage() {
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
             {search || stageFilter !== 'Todos' || statusFilter !== 'Todos'
               ? 'Nenhum empreendimento encontrado com os filtros aplicados'
-              : 'Cadastre seus empreendimentos para cruzar tipologias com as demandas de clientes.'}
+              : 'Nenhum empreendimento disponível no momento.'}
           </h3>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', maxWidth: '440px', margin: '0 auto 20px auto' }}>
             {search || stageFilter !== 'Todos' || statusFilter !== 'Todos'
               ? 'Tente ajustar os termos de pesquisa ou selecionar outro estágio da obra.'
-              : 'Organize os lançamentos das construtoras e permita que suas unidades participem automaticamente do matching no território.'}
+              : 'Os empreendimentos das construtoras são cadastrados pela administração do Área Nobre e ficarão disponíveis aqui.'}
           </p>
-          <Link href="/empreendimentos/novo" className="btn-primary">
-            <Plus size={16} strokeWidth={2.6} />
-            <span>Cadastrar primeiro empreendimento</span>
-          </Link>
+          {canManage && (
+            <Link href="/empreendimentos/novo" className="btn-primary">
+              <Plus size={16} strokeWidth={2.6} />
+              <span>Cadastrar primeiro empreendimento</span>
+            </Link>
+          )}
         </div>
       ) : (
         <div
@@ -280,7 +293,35 @@ export default function EmpreendimentosPage() {
           {developments.map((d) => {
             const coverImage = d.images?.[0]?.url || null;
             const typologies = d.typologies || [];
-            const minPrice = typologies.length > 0 ? Math.min(...typologies.map((t: any) => t.price).filter((p: number) => p > 0)) : null;
+            const validPrices = typologies
+              .map((t: any) => Number(t.price))
+              .filter((p: number) => Number.isFinite(p) && p > 0);
+            const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+
+            const deliveryLabel =
+              d.deliveryDate ||
+              (d.deliveryMonth && d.deliveryYear
+                ? `${String(d.deliveryMonth).padStart(2, '0')}/${d.deliveryYear}`
+                : d.deliveryYear
+                ? String(d.deliveryYear)
+                : null);
+
+            const projectTypeLabel =
+              d.projectType === 'HORIZONTAL'
+                ? 'Horizontal'
+                : d.projectType === 'MISTO'
+                ? 'Misto'
+                : d.projectType === 'LOTEAMENTO'
+                ? 'Loteamento'
+                : 'Vertical';
+
+            const generalTags: string[] = [];
+            if (d.hasPool) generalTags.push('Piscina');
+            if (d.hasGym) generalTags.push('Academia');
+            if (d.hasPartyHall) generalTags.push('Salão de Festas');
+            if (d.hasPetSpace) generalTags.push('Espaço Pet');
+            if (d.hasElevator) generalTags.push('Elevador');
+            if (d.hasDirectInstallments) generalTags.push('Parcelamento Direto');
 
             // Metragens e dormitórios min/max das tipologias
             const bedroomsList = typologies.map((t: any) => t.bedrooms).filter((b: number) => b !== null && b !== undefined && b > 0);
@@ -344,12 +385,14 @@ export default function EmpreendimentosPage() {
                     {d.stage}
                   </span>
 
-                  {/* Badge de Status */}
+                  {/* Badge de Status / Tipo */}
                   <span
                     className={`badge ${d.status === 'Ativo' ? 'badge-success' : 'badge-neutral'}`}
                     style={{ position: 'absolute', top: '10px', right: '10px', backdropFilter: 'blur(4px)' }}
                   >
-                    {d.status}
+                    {canManage
+                      ? d.publicationStatus || (d.status === 'Ativo' ? 'PUBLICADO' : d.status === 'Rascunho' ? 'RASCUNHO' : 'ARQUIVADO')
+                      : projectTypeLabel}
                   </span>
 
                   {/* Badge de Localização / Território */}
@@ -377,8 +420,13 @@ export default function EmpreendimentosPage() {
                 {/* Conteúdo do Card */}
                 <div style={{ padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
                   <div>
-                    <div style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Construtora: {d.developer}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {d.company?.tradeName || d.developer}
+                      </span>
+                      <span style={{ fontSize: '0.70rem', fontWeight: 700, color: 'var(--text-muted)', backgroundColor: '#F3F4F6', padding: '2px 7px', borderRadius: '999px' }}>
+                        {projectTypeLabel}
+                      </span>
                     </div>
 
                     <Link href={`/empreendimentos/${d.id}`}>
@@ -393,7 +441,7 @@ export default function EmpreendimentosPage() {
                     </p>
                   </div>
 
-                  {/* Previsão de Entrega & Resumo de Tipologias */}
+                  {/* Previsão de Entrega & Resumo de Escala/Tipologias */}
                   <div
                     style={{
                       display: 'flex',
@@ -410,14 +458,39 @@ export default function EmpreendimentosPage() {
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                       <Calendar size={14} color="var(--color-primary)" />
-                      {d.deliveryDate ? `Entrega: ${d.deliveryDate}` : 'Previsão a confirmar'}
+                      {deliveryLabel ? `Entrega: ${deliveryLabel}` : 'Previsão a confirmar'}
                     </span>
 
                     <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
                       <Layers size={14} color="var(--color-primary)" />
-                      {typologies.length} tipologia(s)
+                      {typologies.length > 0
+                        ? `${typologies.length} tipologia(s)`
+                        : d.totalUnits
+                        ? `${d.totalUnits} unidades`
+                        : 'Ficha institucional'}
                     </span>
                   </div>
+
+                  {generalTags.length > 0 && (
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {generalTags.slice(0, 4).map((tag) => (
+                        <span
+                          key={tag}
+                          style={{
+                            fontSize: '0.70rem',
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: '999px',
+                            backgroundColor: '#F0FDF4',
+                            color: '#166534',
+                            border: '1px solid #BBF7D0',
+                          }}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Resumo de Configurações das Plantas */}
                   {(bedLabel || areaLabel) && (
@@ -458,32 +531,36 @@ export default function EmpreendimentosPage() {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button
-                        type="button"
-                        onClick={() => setLocationModalItem(d)}
-                        className="btn-secondary"
-                        style={{ padding: '6px 8px', fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        title={d.latitude && d.longitude ? 'Ajustar posição no mapa' : 'Localizar empreendimento no mapa com GeoBase'}
-                      >
-                        <MapPin size={12} color="var(--color-primary)" />
-                        <span>{d.latitude && d.longitude ? 'Ajustar pino' : 'Localizar'}</span>
-                      </button>
+                      {canManage && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setLocationModalItem(d)}
+                            className="btn-secondary"
+                            style={{ padding: '6px 8px', fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            title={d.latitude && d.longitude ? 'Ajustar posição no mapa' : 'Localizar empreendimento no mapa com GeoBase'}
+                          >
+                            <MapPin size={12} color="var(--color-primary)" />
+                            <span>{d.latitude && d.longitude ? 'Ajustar pino' : 'Localizar'}</span>
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={(e) => handleToggleStatus(d.id, d.status, e)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '0.76rem',
-                          color: d.status === 'Ativo' ? 'var(--text-muted)' : 'var(--color-success)',
-                          textDecoration: 'underline',
-                          padding: '4px',
-                        }}
-                      >
-                        {d.status === 'Ativo' ? 'Desativar' : 'Reativar'}
-                      </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleToggleStatus(d.id, d.status, e)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.76rem',
+                              color: d.status === 'Ativo' ? 'var(--text-muted)' : 'var(--color-success)',
+                              textDecoration: 'underline',
+                              padding: '4px',
+                            }}
+                          >
+                            {d.status === 'Ativo' ? 'Desativar' : 'Reativar'}
+                          </button>
+                        </>
+                      )}
 
                       <Link
                         href={`/empreendimentos/${d.id}`}

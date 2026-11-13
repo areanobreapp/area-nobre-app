@@ -92,6 +92,7 @@ export interface ListCompaniesParams {
   search?: string;
   status?: string;
   city?: string;
+  state?: string;
   page?: number;
   limit?: number;
 }
@@ -302,7 +303,7 @@ export async function listCompanies(
   userRole?: string,
   prisma: PrismaClient = defaultPrisma
 ) {
-  const { search, status, city, page = 1, limit = 20 } = params;
+  const { search, status, city, state, page = 1, limit = 20 } = params;
   const skip = (Math.max(1, page) - 1) * limit;
 
   const where: any = {};
@@ -313,8 +314,12 @@ export async function listCompanies(
     where.status = 'ACTIVE';
   }
 
-  if (city) {
-    where.city = { equals: city, mode: 'insensitive' };
+  if (city?.trim()) {
+    where.city = { contains: city.trim(), mode: 'insensitive' };
+  }
+
+  if (state?.trim() && state !== 'ALL' && state !== 'TODAS') {
+    where.state = { equals: state.trim(), mode: 'insensitive' };
   }
 
   if (search?.trim()) {

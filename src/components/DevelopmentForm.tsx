@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import {
@@ -24,8 +24,13 @@ import {
   Car,
   Maximize2,
   Compass,
+  Link2,
+  Search,
+  Sparkles,
+  Eye,
 } from 'lucide-react';
 import FieldHelper from './FieldHelper';
+import CompanySelectAutocomplete, { CompanyOption } from '@/components/admin/CompanySelectAutocomplete';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 
@@ -65,13 +70,60 @@ interface TypologyInput {
 interface DevelopmentFormProps {
   initialData?: any;
   isEditing?: boolean;
+  initialCompanyId?: string;
+  returnTo?: string;
 }
 
 const STAGES = [
+  'Breve lançamento',
   'Lançamento',
   'Na planta',
   'Em construção',
   'Próximo da entrega',
+  'Pronto para morar',
+];
+
+const PROJECT_TYPES = [
+  { value: 'VERTICAL', label: 'Vertical (Edifício / Torres)' },
+  { value: 'HORIZONTAL', label: 'Horizontal (Condomínio de Casas)' },
+  { value: 'MISTO', label: 'Misto (Vertical + Horizontal / Comercial)' },
+  { value: 'LOTEAMENTO', label: 'Loteamento / Terrenos Urbanizados' },
+];
+
+const PUBLICATION_OPTIONS = [
+  {
+    value: 'Ativo',
+    code: 'PUBLICADO',
+    label: 'PUBLICADO — Visível nas consultas dos corretores e no mapa',
+  },
+  {
+    value: 'Rascunho',
+    code: 'RASCUNHO',
+    label: 'RASCUNHO — Visível apenas ao ADMIN (em preparação)',
+  },
+  {
+    value: 'Inativo',
+    code: 'ARQUIVADO',
+    label: 'ARQUIVADO — Mantido no banco, fora das consultas comerciais',
+  },
+];
+
+const INDEX_OPTIONS = ['', 'CUB/SC', 'INCC-M', 'IGP-M', 'IPCA', 'Outro'];
+
+const MONTHS = [
+  { value: '', label: 'Mês (opcional)' },
+  { value: '1', label: '01 - Janeiro' },
+  { value: '2', label: '02 - Fevereiro' },
+  { value: '3', label: '03 - Março' },
+  { value: '4', label: '04 - Abril' },
+  { value: '5', label: '05 - Maio' },
+  { value: '6', label: '06 - Junho' },
+  { value: '7', label: '07 - Julho' },
+  { value: '8', label: '08 - Agosto' },
+  { value: '9', label: '09 - Setembro' },
+  { value: '10', label: '10 - Outubro' },
+  { value: '11', label: '11 - Novembro' },
+  { value: '12', label: '12 - Dezembro' },
 ];
 
 const PROPERTY_TYPES = [
@@ -85,7 +137,12 @@ const PROPERTY_TYPES = [
 
 const TYPOLOGY_STATUSES = ['Disponível', 'Reservada', 'Esgotada'];
 
-export default function DevelopmentForm({ initialData, isEditing = false }: DevelopmentFormProps) {
+export default function DevelopmentForm({
+  initialData,
+  isEditing = false,
+  initialCompanyId,
+  returnTo,
+}: DevelopmentFormProps) {
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -95,12 +152,46 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
 
   // Informações do Empreendimento
   const [name, setName] = useState(initialData?.name || '');
+  const [companyId, setCompanyId] = useState(initialData?.companyId || initialCompanyId || '');
+  const [selectedCompany, setSelectedCompany] = useState<CompanyOption | null>(
+    initialData?.company || null
+  );
   const [developer, setDeveloper] = useState(initialData?.developer || '');
+  const [companyError, setCompanyError] = useState<string | null>(null);
+  const [projectType, setProjectType] = useState<string>(initialData?.projectType || 'VERTICAL');
+  const [totalTowers, setTotalTowers] = useState<string>(
+    initialData?.totalTowers != null ? String(initialData.totalTowers) : ''
+  );
+  const [totalUnits, setTotalUnits] = useState<string>(
+    initialData?.totalUnits != null ? String(initialData.totalUnits) : ''
+  );
   const [stage, setStage] = useState(initialData?.stage || 'Em construção');
   const [deliveryDate, setDeliveryDate] = useState(initialData?.deliveryDate || '');
-  const [status, setStatus] = useState(initialData?.status || 'Ativo');
+  const [deliveryMonth, setDeliveryMonth] = useState<string>(
+    initialData?.deliveryMonth != null ? String(initialData.deliveryMonth) : ''
+  );
+  const [deliveryYear, setDeliveryYear] = useState<string>(
+    initialData?.deliveryYear != null ? String(initialData.deliveryYear) : ''
+  );
+  const [indexCorrection, setIndexCorrection] = useState<string>(initialData?.indexCorrection || '');
+  const [status, setStatus] = useState(() => {
+    const raw = initialData?.status || 'Ativo';
+    if (raw === 'Rascunho' || raw === 'RASCUNHO') return 'Rascunho';
+    if (raw === 'Inativo' || raw === 'ARQUIVADO' || raw === 'Arquivado') return 'Inativo';
+    return 'Ativo';
+  });
   const [description, setDescription] = useState(initialData?.description || '');
   const [internalNotes, setInternalNotes] = useState(initialData?.internalNotes || '');
+
+  // Infraestrutura e Diferenciais Gerais do Empreendimento
+  const [hasPool, setHasPool] = useState<boolean>(Boolean(initialData?.hasPool));
+  const [hasGym, setHasGym] = useState<boolean>(Boolean(initialData?.hasGym));
+  const [hasPartyHall, setHasPartyHall] = useState<boolean>(Boolean(initialData?.hasPartyHall));
+  const [hasPetSpace, setHasPetSpace] = useState<boolean>(Boolean(initialData?.hasPetSpace));
+  const [hasElevator, setHasElevator] = useState<boolean>(Boolean(initialData?.hasElevator));
+  const [hasDirectInstallments, setHasDirectInstallments] = useState<boolean>(
+    Boolean(initialData?.hasDirectInstallments)
+  );
 
   // Localização
   const [zipcode, setZipcode] = useState(initialData?.zipcode || '');
@@ -114,6 +205,63 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
   const [longitude, setLongitude] = useState(initialData?.longitude ? String(initialData.longitude) : '');
   const [geoPrecision, setGeoPrecision] = useState<{ precision?: 'precise' | 'approximate'; precisionLevel?: string } | null>(null);
 
+  // Vínculo com Edifício da Base Cartográfica (Building)
+  const [buildingId, setBuildingId] = useState<string>(initialData?.buildingId || '');
+  const [selectedBuilding, setSelectedBuilding] = useState<any>(initialData?.building || null);
+  const [buildingSearch, setBuildingSearch] = useState<string>('');
+  const [buildingResults, setBuildingResults] = useState<any[]>([]);
+  const [searchingBuildings, setSearchingBuildings] = useState<boolean>(false);
+
+  // Pré-carrega construtora quando iniciado a partir do perfil da construtora (?companyId=...)
+  useEffect(() => {
+    if (!initialData?.company && initialCompanyId) {
+      fetch(`/api/admin/companies/${initialCompanyId}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          const comp = json?.data || json?.company;
+          if (comp && comp.id) {
+            setCompanyId(comp.id);
+            setSelectedCompany({
+              id: comp.id,
+              name: comp.name,
+              tradeName: comp.tradeName,
+              cnpj: comp.cnpj || null,
+              city: comp.city || 'Criciúma',
+              state: comp.state || 'SC',
+              logoUrl: comp.logoUrl || null,
+              status: comp.status || 'ACTIVE',
+            });
+            setDeveloper(comp.tradeName || comp.name);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [initialCompanyId, initialData?.company]);
+
+  // Busca de edifícios na base cartográfica para vinculação opcional sem duplicação
+  useEffect(() => {
+    const q = buildingSearch.trim();
+    if (q.length < 2) {
+      setBuildingResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setSearchingBuildings(true);
+      try {
+        const res = await fetch(`/api/buildings?search=${encodeURIComponent(q)}&limit=8`);
+        if (res.ok) {
+          const json = await res.json();
+          setBuildingResults(json.buildings || json.data || []);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setSearchingBuildings(false);
+      }
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [buildingSearch]);
+
   // Fotos
   const [images, setImages] = useState<string[]>(
     initialData?.images?.map((img: any) => img.url) || []
@@ -121,7 +269,8 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
 
   // Tipologias dinâmicas
   const [typologies, setTypologies] = useState<TypologyInput[]>(() => {
-    if (initialData?.typologies && initialData.typologies.length > 0) {
+    if (initialData && Array.isArray(initialData.typologies)) {
+      if (initialData.typologies.length === 0) return [];
       return initialData.typologies.map((t: any) => {
         const isLegacyBaths = Boolean(
           isEditing &&
@@ -265,6 +414,15 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
     setImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   }
 
+  function handleSetCoverImage(indexToPromote: number) {
+    if (indexToPromote <= 0) return;
+    setImages((prev) => {
+      const target = prev[indexToPromote];
+      if (!target) return prev;
+      return [target, ...prev.filter((_, idx) => idx !== indexToPromote)];
+    });
+  }
+
   // Consulta CEP rápida via GeoBase (com fallback)
   async function handleCepLookup() {
     const cleanCep = zipcode.replace(/\D/g, '');
@@ -304,13 +462,19 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
     }
   }
 
-  // Gerenciamento de Tipologias
+  // Gerenciamento de Tipologias (Opcional no cadastro institucional)
   function handleAddTypology() {
+    const defaultPropType =
+      projectType === 'HORIZONTAL'
+        ? 'Casa em Condomínio'
+        : projectType === 'LOTEAMENTO'
+        ? 'Outro'
+        : 'Apartamento';
     setTypologies((prev) => [
       ...prev,
       {
         name: `Tipo ${String.fromCharCode(65 + prev.length)}`,
-        propertyType: 'Apartamento',
+        propertyType: defaultPropType,
         price: '',
         privateArea: '',
         builtArea: '',
@@ -339,10 +503,6 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
   }
 
   function handleRemoveTypology(index: number) {
-    if (typologies.length === 1) {
-      alert('O empreendimento deve conter pelo menos uma tipologia.');
-      return;
-    }
     setTypologies((prev) => prev.filter((_, idx) => idx !== index));
   }
 
@@ -363,18 +523,33 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
       setError('Por favor, informe o nome do empreendimento.');
       return;
     }
-    if (!developer.trim()) {
-      setError('Por favor, informe a construtora responsável.');
+    if (!companyId.trim()) {
+      const msg = 'Por favor, pesquise e selecione uma construtora parceira cadastrada.';
+      setCompanyError(msg);
+      setError(msg);
       return;
     }
+    setCompanyError(null);
     if (!stage.trim()) {
       setError('Por favor, selecione o estágio da obra.');
       return;
     }
 
-    // Valida tipologias
-    for (let i = 0; i < typologies.length; i++) {
-      const t = typologies[i];
+    // Filtra tipologias em branco (quando o ADMIN opta por cadastrar apenas o empreendimento institucional sem inventar preços)
+    const activeTypologies = typologies.filter((t) => {
+      const hasPrice = Boolean(t.price && t.price.replace(/\D/g, '') !== '');
+      const hasAreas = Boolean(
+        (t.privateArea && String(t.privateArea).trim() !== '') ||
+          (t.builtArea && String(t.builtArea).trim() !== '') ||
+          (t.totalArea && String(t.totalArea).trim() !== '')
+      );
+      const hasNotes = Boolean(t.notes && t.notes.trim() !== '');
+      return Boolean(t.id || hasPrice || hasAreas || hasNotes);
+    });
+
+    // Valida tipologias preenchidas
+    for (let i = 0; i < activeTypologies.length; i++) {
+      const t = activeTypologies[i];
       if (!t.name.trim()) {
         setError(`Por favor, dê um nome à tipologia #${i + 1} (ex: 2 dormitórios).`);
         return;
@@ -387,8 +562,8 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
     }
 
     // Validação de divergência de totais para tipologias legadas
-    for (let i = 0; i < typologies.length; i++) {
-      const t = typologies[i];
+    for (let i = 0; i < activeTypologies.length; i++) {
+      const t = activeTypologies[i];
       const parsedSuites = Math.max(0, Number(t.suites) || 0);
       const parsedSocial = Math.max(0, parseInt(String(t.socialBathrooms ?? 0), 10) || 0);
       const parsedLavabos = Math.max(0, parseInt(String(t.lavabos ?? 0), 10) || 0);
@@ -456,12 +631,23 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
       }
     }
 
+    const publicationStatus =
+      status === 'Rascunho' ? 'RASCUNHO' : status === 'Inativo' ? 'ARQUIVADO' : 'PUBLICADO';
+
     const payload = {
       name: name.trim(),
-      developer: developer.trim(),
+      companyId: companyId.trim(),
+      developer: selectedCompany?.tradeName || developer.trim(),
+      projectType,
+      totalTowers: totalTowers.trim() !== '' ? parseInt(totalTowers, 10) : null,
+      totalUnits: totalUnits.trim() !== '' ? parseInt(totalUnits, 10) : null,
       stage,
       deliveryDate: deliveryDate.trim() || null,
+      deliveryMonth: deliveryMonth.trim() !== '' ? parseInt(deliveryMonth, 10) : null,
+      deliveryYear: deliveryYear.trim() !== '' ? parseInt(deliveryYear, 10) : null,
+      indexCorrection: indexCorrection.trim() || null,
       status,
+      publicationStatus,
       description: description.trim() || null,
       internalNotes: internalNotes.trim() || null,
       zipcode,
@@ -473,8 +659,15 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
       state,
       latitude: finalLat,
       longitude: finalLng,
+      buildingId: buildingId.trim() || null,
+      hasPool,
+      hasGym,
+      hasPartyHall,
+      hasPetSpace,
+      hasElevator,
+      hasDirectInstallments,
       images,
-      typologies: typologies.map((t) => {
+      typologies: activeTypologies.map((t) => {
         const parsedSuites = Math.max(0, Number(t.suites) || 0);
         const hasOtherBed = t.otherBedrooms !== undefined && t.otherBedrooms !== null && t.otherBedrooms !== '';
         const parsedOtherBed = hasOtherBed ? Math.max(0, parseInt(String(t.otherBedrooms), 10) || 0) : null;
@@ -546,13 +739,19 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
         throw new Error(data.error || 'Erro ao salvar empreendimento.');
       }
 
-      router.push(`/empreendimentos/${data.development.id}`);
+      if (returnTo === 'admin') {
+        router.push(`/admin/empreendimentos/${data.development.id}`);
+      } else {
+        router.push(`/empreendimentos/${data.development.id}`);
+      }
       router.refresh();
     } catch (err: any) {
       setError(err.message || 'Falha ao salvar empreendimento.');
       setLoading(false);
     }
   }
+
+  const isHorizontalLike = projectType === 'HORIZONTAL' || projectType === 'LOTEAMENTO';
 
   return (
     <form onSubmit={handleSubmit} style={{ maxWidth: '880px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -579,19 +778,19 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
       {/* Título da Página */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Imóveis em construção
+              Cadastro Administrativo Oficial
             </span>
             <span className="badge badge-primary" style={{ fontSize: '0.72rem' }}>
-              Estoque da Construtora
+              Empreendimentos de Construtoras
             </span>
           </div>
           <h1 style={{ fontSize: '1.65rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-            {isEditing ? 'Editar Empreendimento' : 'Cadastrar Empreendimento'}
+            {isEditing ? 'Editar Empreendimento Oficial' : 'Cadastrar Empreendimento Oficial'}
           </h1>
           <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Organize os lançamentos das construtoras parceiras para cruzá-los futuramente com as buscas de clientes.
+            Fonte oficial de dados dos projetos imobiliários das construtoras parceiras para consulta dos corretores e mapa.
           </p>
         </div>
       </div>
@@ -615,16 +814,16 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
         </div>
       )}
 
-      {/* BLOCO 1: Informações Gerais do Empreendimento */}
+      {/* BLOCO 1: Identificação do Empreendimento e Controle de Divulgação */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
           <Building size={20} color="var(--color-primary)" />
           <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            Dados do Empreendimento
+            Identificação e Controle de Divulgação
           </h2>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
           {/* Nome */}
           <div>
             <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
@@ -632,6 +831,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
             </label>
             <input
               type="text"
+              id="input-nome-empreendimento"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -647,39 +847,66 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
             />
           </div>
 
-          {/* Construtora */}
+          {/* Construtora Parceira com Autocomplete Integrado */}
+          <div>
+            <CompanySelectAutocomplete
+              value={companyId}
+              onChange={(newCompanyId, company) => {
+                setCompanyId(newCompanyId);
+                setSelectedCompany(company);
+                if (company) {
+                  setDeveloper(company.tradeName || company.name);
+                } else if (!newCompanyId) {
+                  setDeveloper('');
+                }
+                if (newCompanyId) {
+                  setCompanyError(null);
+                }
+              }}
+              initialCompany={selectedCompany || initialData?.company || null}
+              legacyDeveloperName={!initialData?.companyId ? initialData?.developer : null}
+              required
+              disabled={loading}
+              error={companyError}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          {/* Tipo de Empreendimento */}
           <div>
             <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
-              Construtora parceira *
+              Tipo de empreendimento *
             </label>
-            <input
-              type="text"
-              required
-              value={developer}
-              onChange={(e) => setDeveloper(e.target.value)}
-              placeholder="Ex: Construtora XYZ ou Fontana"
+            <select
+              id="select-project-type"
+              value={projectType}
+              onChange={(e) => setProjectType(e.target.value)}
               style={{
                 width: '100%',
                 padding: '10px 14px',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--border-light)',
                 fontSize: '0.92rem',
+                backgroundColor: 'white',
                 outline: 'none',
               }}
-            />
-            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-              A construtora é informação cadastral do empreendimento.
-            </span>
+            >
+              {PROJECT_TYPES.map((pt) => (
+                <option key={pt.value} value={pt.value}>
+                  {pt.label}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
           {/* Estágio da Obra */}
           <div>
             <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
               Estágio da obra *
             </label>
             <select
+              id="select-stage"
               value={stage}
               onChange={(e) => setStage(e.target.value)}
               style={{
@@ -700,14 +927,181 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
             </select>
           </div>
 
-          {/* Previsão de Entrega */}
+          {/* Controle de Divulgação (RASCUNHO / PUBLICADO / ARQUIVADO) */}
           <div>
             <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
-              Previsão de entrega
+              Controle de divulgação *
+            </label>
+            <select
+              id="select-publication-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                backgroundColor: 'white',
+                outline: 'none',
+              }}
+            >
+              {PUBLICATION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* BLOCO 1B: Características do Empreendimento, Escala, Prazos e Infraestrutura */}
+      <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <Sparkles size={20} color="var(--color-primary)" />
+          <div>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Características Gerais, Prazos e Infraestrutura
+            </h2>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              {isHorizontalLike
+                ? 'Configurado para condomínio horizontal / loteamento (quadras, lotes/casas e áreas comuns).'
+                : 'Configurado para empreendimento vertical / misto (torres, unidades, elevadores e lazer).'}
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              {isHorizontalLike ? 'Qtd. de Quadras / Etapas' : 'Qtd. de Torres / Blocos'}
+            </label>
+            <input
+              type="number"
+              id="input-total-towers"
+              min="0"
+              value={totalTowers}
+              onChange={(e) => setTotalTowers(e.target.value)}
+              placeholder={isHorizontalLike ? 'Ex: 4' : 'Ex: 2'}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              {isHorizontalLike ? 'Total estimado de lotes/casas' : 'Total estimado de unidades'}
+            </label>
+            <input
+              type="number"
+              id="input-total-units"
+              min="0"
+              value={totalUnits}
+              onChange={(e) => setTotalUnits(e.target.value)}
+              placeholder={isHorizontalLike ? 'Ex: 120' : 'Ex: 64'}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              Índice de correção
+            </label>
+            <select
+              id="select-index-correction"
+              value={indexCorrection}
+              onChange={(e) => setIndexCorrection(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                backgroundColor: 'white',
+                outline: 'none',
+              }}
+            >
+              {INDEX_OPTIONS.map((idx) => (
+                <option key={idx} value={idx}>
+                  {idx || 'Não informado'}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              Mês previsto de entrega
+            </label>
+            <select
+              id="select-delivery-month"
+              value={deliveryMonth}
+              onChange={(e) => setDeliveryMonth(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                backgroundColor: 'white',
+                outline: 'none',
+              }}
+            >
+              {MONTHS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              Ano previsto de entrega
+            </label>
+            <input
+              type="number"
+              id="input-delivery-year"
+              min="2000"
+              max="2100"
+              value={deliveryYear}
+              onChange={(e) => setDeliveryYear(e.target.value)}
+              placeholder="Ex: 2028"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-light)',
+                fontSize: '0.92rem',
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
+              Texto comercial da entrega
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
+                id="input-delivery-date"
                 value={deliveryDate}
                 onChange={(e) => setDeliveryDate(e.target.value)}
                 placeholder="Ex: Março/2028 ou 2º Sem/2027"
@@ -727,28 +1121,58 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
               />
             </div>
           </div>
+        </div>
 
-          {/* Status */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>
-              Status do empreendimento
-            </label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 14px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border-light)',
-                fontSize: '0.92rem',
-                backgroundColor: 'white',
-                outline: 'none',
-              }}
-            >
-              <option value="Ativo">Ativo na carteira</option>
-              <option value="Inativo">Inativo / Desativado</option>
-            </select>
+        {/* Infraestrutura e Diferenciais do Condomínio */}
+        <div>
+          <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '10px', color: 'var(--text-primary)' }}>
+            Infraestrutura, Lazer e Condições Gerais
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '10px' }}>
+            {[
+              { id: 'check-has-pool', checked: hasPool, set: setHasPool, label: 'Piscina' },
+              { id: 'check-has-gym', checked: hasGym, set: setHasGym, label: 'Academia / Fitness' },
+              { id: 'check-has-party-hall', checked: hasPartyHall, set: setHasPartyHall, label: 'Salão de Festas / Gourmet' },
+              { id: 'check-has-pet-space', checked: hasPetSpace, set: setHasPetSpace, label: 'Espaço Pet' },
+              {
+                id: 'check-has-elevator',
+                checked: hasElevator,
+                set: setHasElevator,
+                label: isHorizontalLike ? 'Acessibilidade / Elevador' : 'Elevador',
+              },
+              {
+                id: 'check-has-direct-installments',
+                checked: hasDirectInstallments,
+                set: setHasDirectInstallments,
+                label: 'Parcelamento Direto c/ Construtora',
+              },
+            ].map((item) => (
+              <label
+                key={item.id}
+                htmlFor={item.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: item.checked ? '1px solid var(--color-primary)' : '1px solid var(--border-light)',
+                  backgroundColor: item.checked ? '#F0FDF4' : '#F9FAFB',
+                  cursor: 'pointer',
+                  fontSize: '0.86rem',
+                  fontWeight: item.checked ? 600 : 500,
+                }}
+              >
+                <input
+                  id={item.id}
+                  type="checkbox"
+                  checked={item.checked}
+                  onChange={(e) => item.set(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--color-primary)' }}
+                />
+                <span>{item.label}</span>
+              </label>
+            ))}
           </div>
         </div>
       </div>
@@ -1179,19 +1603,200 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
             title="Localização do Empreendimento no Mapa"
           />
         )}
+
+        {/* Associação Opcional com Edifício da Base Cartográfica (Building) */}
+        <div
+          style={{
+            marginTop: '8px',
+            padding: '16px',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--border-light)',
+            backgroundColor: '#F8FAFC',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Link2 size={18} color="var(--color-primary)" />
+              <div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Vínculo com Edifício da Base Cartográfica (Opcional)
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Associe este empreendimento a um edifício já existente na base predial do mapa sem criar registros duplicados.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {buildingId && selectedBuilding ? (
+            <div
+              id="card-edificio-vinculado"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '10px',
+                padding: '12px 14px',
+                backgroundColor: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1E40AF' }}>
+                  Edifício vinculado: {selectedBuilding.name}
+                </div>
+                <div style={{ fontSize: '0.76rem', color: '#1E3A8A' }}>
+                  ID: {buildingId}
+                  {selectedBuilding.latitude != null && selectedBuilding.longitude != null
+                    ? ` • Coordenadas cartográficas: ${Number(selectedBuilding.latitude).toFixed(5)}, ${Number(selectedBuilding.longitude).toFixed(5)}`
+                    : ''}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(!latitude || !longitude) &&
+                  selectedBuilding.latitude != null &&
+                  selectedBuilding.longitude != null && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => {
+                        setLatitude(String(selectedBuilding.latitude));
+                        setLongitude(String(selectedBuilding.longitude));
+                      }}
+                      style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+                    >
+                      Usar coordenadas do edifício
+                    </button>
+                  )}
+                <button
+                  type="button"
+                  id="btn-desvincular-edificio"
+                  onClick={() => {
+                    setBuildingId('');
+                    setSelectedBuilding(null);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: '1px solid #FECACA',
+                    backgroundColor: '#FEF2F2',
+                    color: '#B91C1C',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '6px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Desvincular
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative' }}>
+                <Search
+                  size={16}
+                  color="#9CA3AF"
+                  style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
+                />
+                <input
+                  type="text"
+                  id="input-busca-edificio"
+                  value={buildingSearch}
+                  onChange={(e) => setBuildingSearch(e.target.value)}
+                  placeholder="Pesquisar edifício existente na base cartográfica pelo nome ou endereço..."
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px 9px 36px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-light)',
+                    fontSize: '0.86rem',
+                    backgroundColor: 'white',
+                  }}
+                />
+              </div>
+              {searchingBuildings && (
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Pesquisando edifícios na base cartográfica...
+                </div>
+              )}
+              {buildingResults.length > 0 && (
+                <div
+                  style={{
+                    marginTop: '6px',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: 'white',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  {buildingResults.map((b: any) => (
+                    <button
+                      type="button"
+                      key={b.id}
+                      id={`building-option-${b.id}`}
+                      onClick={() => {
+                        setBuildingId(b.id);
+                        setSelectedBuilding(b);
+                        setBuildingSearch('');
+                        setBuildingResults([]);
+                        if ((!latitude || !longitude) && b.latitude != null && b.longitude != null) {
+                          setLatitude(String(b.latitude));
+                          setLongitude(String(b.longitude));
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '9px 12px',
+                        border: 'none',
+                        borderBottom: '1px solid #F1F5F9',
+                        backgroundColor: 'white',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          {b.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {b.address || b.neighborhood || b.city || 'Base cartográfica'}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                        Vincular
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* BLOCO 3: Fotos do Empreendimento */}
+      {/* BLOCO 3: Identidade Visual (Fachada Principal e Galeria) */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
           <ImageIcon size={20} color="var(--color-primary)" />
           <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            Fotos e Fachada
+            Identidade Visual — Fachada Principal e Galeria
           </h2>
         </div>
 
         <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
-          Adicione a imagem principal (fachada/perspectiva 3D) e imagens adicionais do empreendimento ou plantas.
+          Adicione a imagem principal (capa/fachada ou perspectiva 3D) e a galeria de imagens do empreendimento e áreas comuns.
         </p>
 
         {/* Upload Box */}
@@ -1216,7 +1821,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
             {uploading ? 'Enviando imagens...' : 'Clique ou arraste para adicionar fotos'}
           </span>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            JPG, PNG ou WebP (A primeira foto será a capa)
+            JPG, PNG ou WebP (A primeira foto será a capa/fachada principal)
           </span>
           <input
             type="file"
@@ -1233,7 +1838,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
               gap: '12px',
               marginTop: '10px',
             }}
@@ -1244,7 +1849,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
                 style={{
                   position: 'relative',
                   width: '100%',
-                  height: '110px',
+                  height: '115px',
                   borderRadius: 'var(--radius-sm)',
                   overflow: 'hidden',
                   backgroundColor: '#F3F4F6',
@@ -1255,7 +1860,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
                 }}
               >
                 <img src={url} alt={`Foto ${idx + 1}`} style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }} />
-                {idx === 0 && (
+                {idx === 0 ? (
                   <span
                     style={{
                       position: 'absolute',
@@ -1269,8 +1874,28 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
                       borderRadius: 'var(--radius-sm)',
                     }}
                   >
-                    CAPA
+                    CAPA / FACHADA
                   </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleSetCoverImage(idx)}
+                    style={{
+                      position: 'absolute',
+                      bottom: 4,
+                      left: 4,
+                      backgroundColor: 'rgba(15, 23, 42, 0.78)',
+                      color: 'white',
+                      border: 'none',
+                      fontSize: '0.66rem',
+                      fontWeight: 600,
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Definir Capa
+                  </button>
                 )}
                 <button
                   type="button"
@@ -1299,23 +1924,24 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
         )}
       </div>
 
-      {/* BLOCO 4: Tipologias / Unidades Disponíveis */}
+      {/* BLOCO 4: Tipologias / Plantas (Opcional no Cadastro Institucional) */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Layers size={20} color="var(--color-primary)" />
             <div>
               <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Tipologias / Unidades Disponíveis
+                Tipologias e Plantas de Referência (Opcional)
               </h2>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Cadastre os tipos de unidades ofertadas no empreendimento com valores a partir de e metragens.
+                Opcional nesta etapa: cadastre plantas e valores iniciais se disponíveis, ou deixe em branco para registrar apenas os dados institucionais.
               </p>
             </div>
           </div>
 
           <button
             type="button"
+            id="btn-add-typology"
             onClick={handleAddTypology}
             className="btn-secondary"
             style={{ padding: '8px 14px', fontSize: '0.86rem' }}
@@ -1326,6 +1952,21 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
         </div>
 
         {/* Lista de Tipologias */}
+        {typologies.length === 0 ? (
+          <div
+            style={{
+              padding: '20px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px dashed var(--border-light)',
+              backgroundColor: '#F9FAFB',
+              textAlign: 'center',
+              color: 'var(--text-secondary)',
+              fontSize: '0.86rem',
+            }}
+          >
+            Nenhuma tipologia comercial informada. O empreendimento será salvo apenas com sua ficha institucional oficial (sem preços fictícios).
+          </div>
+        ) : null}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {typologies.map((t, idx) => {
             const parsedSuites = Math.max(0, Number(t.suites) || 0);
@@ -1402,24 +2043,22 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
                       ))}
                     </select>
 
-                    {typologies.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTypology(idx)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--color-danger)',
-                          cursor: 'pointer',
-                          padding: '4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                        }}
-                        title="Excluir tipologia"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTypology(idx)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--color-danger)',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                      title="Remover tipologia"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
 
@@ -1427,11 +2066,10 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                      Identificação / Nome da Planta *
+                      Identificação / Nome da Planta
                     </label>
                     <input
                       type="text"
-                      required
                       value={t.name}
                       onChange={(e) => handleUpdateTypology(idx, 'name', e.target.value)}
                       placeholder="Ex: 2 dormitórios ou Tipo A"
@@ -1472,14 +2110,14 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
 
                   <div>
                     <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '4px' }}>
-                      Valor inicial (A partir de) *
+                      Valor inicial (A partir de)
                     </label>
                     <input
                       type="text"
-                      required
+                      id={`input-tipologia-price-${idx}`}
                       value={t.price ? formatCurrency(t.price) : ''}
                       onChange={(e) => handleUpdateTypology(idx, 'price', e.target.value.replace(/\D/g, ''))}
-                      placeholder="Ex: R$ 620.000"
+                      placeholder="Ex: R$ 620.000 (ou em branco)"
                       style={{
                         width: '100%',
                         padding: '8px 12px',
@@ -2038,6 +2676,7 @@ export default function DevelopmentForm({ initialData, isEditing = false }: Deve
 
         <button
           type="submit"
+          id="btn-submit-development"
           disabled={loading || uploading}
           className="btn-primary"
           style={{ padding: '12px 28px', fontSize: '0.96rem' }}

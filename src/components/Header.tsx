@@ -137,16 +137,18 @@ export default function Header({ user }: HeaderProps) {
                       <Building2 size={16} />
                       <span>Novo imóvel convencional</span>
                     </button>
-                    <button
-                      className="dropdown-item"
-                      onClick={() => {
-                        setCadastrarOpen(false);
-                        router.push('/empreendimentos/novo');
-                      }}
-                    >
-                      <Building2 size={16} />
-                      <span>Novo imóvel em construção</span>
-                    </button>
+                    {user?.role === 'ADMIN' && (
+                      <button
+                        className="dropdown-item"
+                        onClick={() => {
+                          setCadastrarOpen(false);
+                          router.push('/empreendimentos/novo');
+                        }}
+                      >
+                        <Building2 size={16} />
+                        <span>Novo empreendimento (Admin)</span>
+                      </button>
+                    )}
                     <button
                       className="dropdown-item"
                       onClick={() => {

@@ -40,6 +40,7 @@ export default function EmpreendimentoDetalhesPage({
 
   const [development, setDevelopment] = useState<any>(null);
   const [isOwner, setIsOwner] = useState(true);
+  const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
@@ -64,6 +65,7 @@ export default function EmpreendimentoDetalhesPage({
         if (!res.ok) throw new Error(data.error || 'Erro ao carregar empreendimento.');
         setDevelopment(data.development);
         setIsOwner(data.isOwner ?? true);
+        setCanManage(Boolean(data.canManage));
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -146,7 +148,35 @@ export default function EmpreendimentoDetalhesPage({
   const images = development.images || [];
   const currentPhoto = images[activePhotoIndex]?.url || images[0]?.url || null;
   const typologies = development.typologies || [];
-  const minPrice = typologies.length > 0 ? Math.min(...typologies.map((t: any) => t.price).filter((p: number) => p > 0)) : null;
+  const validPrices = typologies
+    .map((t: any) => Number(t.price))
+    .filter((p: number) => Number.isFinite(p) && p > 0);
+  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+
+  const deliveryLabel =
+    development.deliveryDate ||
+    (development.deliveryMonth && development.deliveryYear
+      ? `${String(development.deliveryMonth).padStart(2, '0')}/${development.deliveryYear}`
+      : development.deliveryYear
+      ? String(development.deliveryYear)
+      : null);
+
+  const projectTypeLabel =
+    development.projectType === 'HORIZONTAL'
+      ? 'Condomínio Horizontal'
+      : development.projectType === 'MISTO'
+      ? 'Empreendimento Misto'
+      : development.projectType === 'LOTEAMENTO'
+      ? 'Loteamento'
+      : 'Edifício Vertical';
+
+  const generalAmenities: string[] = [];
+  if (development.hasPool) generalAmenities.push('Piscina');
+  if (development.hasGym) generalAmenities.push('Academia / Fitness');
+  if (development.hasPartyHall) generalAmenities.push('Salão de Festas / Gourmet');
+  if (development.hasPetSpace) generalAmenities.push('Espaço Pet');
+  if (development.hasElevator) generalAmenities.push('Elevador');
+  if (development.hasDirectInstallments) generalAmenities.push('Parcelamento Direto c/ Construtora');
 
   return (
     <div style={{ maxWidth: '920px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -166,8 +196,16 @@ export default function EmpreendimentoDetalhesPage({
           <span>Voltar para Imóveis em construção</span>
         </Link>
 
-        {isOwner ? (
-          <div style={{ display: 'flex', gap: '8px' }}>
+        {canManage ? (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Link
+              href={`/admin/empreendimentos/${id}`}
+              className="btn-secondary"
+              style={{ padding: '8px 14px', fontSize: '0.86rem' }}
+            >
+              <span>Torres & Gerentes</span>
+            </Link>
+
             <button
               type="button"
               onClick={handleToggleStatus}
@@ -204,9 +242,9 @@ export default function EmpreendimentoDetalhesPage({
               style={{
                 padding: '6px 14px',
                 borderRadius: 'var(--radius-full)',
-                backgroundColor: '#EEF2FF',
-                color: '#4338CA',
-                border: '1px solid #E0E7FF',
+                backgroundColor: development.companyId ? '#F0FDF4' : '#EEF2FF',
+                color: development.companyId ? '#166534' : '#4338CA',
+                border: development.companyId ? '1px solid #BBF7D0' : '1px solid #E0E7FF',
                 fontSize: '0.84rem',
                 fontWeight: 700,
                 display: 'inline-flex',
@@ -214,7 +252,11 @@ export default function EmpreendimentoDetalhesPage({
                 gap: '6px',
               }}
             >
-              <span>Empreendimento de {development.responsibleBroker?.profile?.commercialName || development.responsibleBroker?.name || 'outro corretor'}</span>
+              <span>
+                {development.companyId
+                  ? `Empreendimento Oficial • ${development.company?.tradeName || development.developer}`
+                  : `Empreendimento de ${development.responsibleBroker?.profile?.commercialName || development.responsibleBroker?.name || 'outro corretor'}`}
+              </span>
             </span>
           </div>
         )}
@@ -307,9 +349,11 @@ export default function EmpreendimentoDetalhesPage({
           >
             <ImageIcon size={36} color="var(--text-light)" />
             <span style={{ fontSize: '0.9rem' }}>Nenhuma foto cadastrada</span>
-            <Link href={`/empreendimentos/${id}/editar`} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
-              Adicionar fotos
-            </Link>
+            {canManage && (
+              <Link href={`/empreendimentos/${id}/editar`} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                Adicionar fotos
+              </Link>
+            )}
           </div>
         )}
       </div>
@@ -318,16 +362,24 @@ export default function EmpreendimentoDetalhesPage({
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
               <span className={`badge ${getStageBadgeClass(development.stage)}`}>
                 {development.stage}
               </span>
               <span className={`badge ${development.status === 'Ativo' ? 'badge-success' : 'badge-neutral'}`}>
-                {development.status}
+                {canManage
+                  ? development.publicationStatus ||
+                    (development.status === 'Ativo'
+                      ? 'PUBLICADO'
+                      : development.status === 'Rascunho'
+                      ? 'RASCUNHO'
+                      : 'ARQUIVADO')
+                  : development.status}
               </span>
               <span className="badge badge-primary">
-                Construtora: {development.developer}
+                Construtora: {development.company?.tradeName || development.developer}
               </span>
+              <span className="badge badge-neutral">{projectTypeLabel}</span>
             </div>
 
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-primary)' }}>
@@ -348,14 +400,105 @@ export default function EmpreendimentoDetalhesPage({
             <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)', letterSpacing: '-0.02em' }}>
               {minPrice && minPrice > 0 ? `R$ ${minPrice.toLocaleString('pt-BR')}` : 'Sob consulta'}
             </div>
-            {development.deliveryDate && (
+            {deliveryLabel && (
               <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <Calendar size={14} color="var(--color-primary)" />
-                <span>Previsão de entrega: <strong>{development.deliveryDate}</strong></span>
+                <span>Previsão de entrega: <strong>{deliveryLabel}</strong></span>
               </div>
             )}
           </div>
         </div>
+
+        {/* Características Gerais, Escala e Infraestrutura */}
+        {(development.totalTowers ||
+          development.totalUnits ||
+          development.indexCorrection ||
+          development.building ||
+          generalAmenities.length > 0 ||
+          (development.blocks && development.blocks.length > 0)) && (
+          <div
+            style={{
+              padding: '14px 16px',
+              backgroundColor: '#F9FAFB',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--border-light)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+            }}
+          >
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+              {development.totalTowers ? (
+                <span>
+                  <strong>
+                    {development.projectType === 'HORIZONTAL' || development.projectType === 'LOTEAMENTO'
+                      ? 'Quadras / Etapas:'
+                      : 'Torres / Blocos:'}
+                  </strong>{' '}
+                  {development.totalTowers}
+                </span>
+              ) : null}
+              {development.totalUnits ? (
+                <span>
+                  <strong>Total estimado:</strong> {development.totalUnits} unidades
+                </span>
+              ) : null}
+              {development.indexCorrection ? (
+                <span>
+                  <strong>Correção:</strong> {development.indexCorrection}
+                </span>
+              ) : null}
+              {development.building?.name ? (
+                <span>
+                  <strong>Edifício associado:</strong> {development.building.name}
+                </span>
+              ) : null}
+            </div>
+
+            {generalAmenities.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {generalAmenities.map((am) => (
+                  <span
+                    key={am}
+                    style={{
+                      fontSize: '0.76rem',
+                      fontWeight: 600,
+                      padding: '3px 10px',
+                      borderRadius: '999px',
+                      backgroundColor: '#F0FDF4',
+                      color: '#166534',
+                      border: '1px solid #BBF7D0',
+                    }}
+                  >
+                    {am}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {development.blocks && development.blocks.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', fontSize: '0.8rem' }}>
+                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Torres / Quadras:</span>
+                {development.blocks.map((b: any) => (
+                  <span
+                    key={b.id}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid var(--border-light)',
+                      color: 'var(--text-secondary)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {b.name}
+                    {b.totalFloors ? ` (${b.totalFloors} andares)` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Banner de Matches da Carteira */}
         {(() => {
@@ -401,10 +544,12 @@ export default function EmpreendimentoDetalhesPage({
             </p>
           </div>
 
-          <Link href={`/empreendimentos/${id}/editar`} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.82rem' }}>
-            <Edit3 size={14} />
-            <span>Gerenciar plantas</span>
-          </Link>
+          {canManage && (
+            <Link href={`/empreendimentos/${id}/editar`} className="btn-secondary" style={{ padding: '6px 12px', fontSize: '0.82rem' }}>
+              <Edit3 size={14} />
+              <span>Gerenciar plantas</span>
+            </Link>
+          )}
         </div>
 
         {typologies.length === 0 ? (
@@ -486,7 +631,7 @@ export default function EmpreendimentoDetalhesPage({
                     A partir de
                   </div>
                   <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-                    R$ {t.price.toLocaleString('pt-BR')}
+                    {t.price && Number(t.price) > 0 ? `R$ ${Number(t.price).toLocaleString('pt-BR')}` : 'Sob consulta'}
                   </div>
                 </div>
 

@@ -328,6 +328,7 @@ export interface BuildingGroupItem {
   purpose: string;
   title: string;
   price: number;
+  linkedDevelopment?: any | null;
 }
 
 export function extractFloorNumber(
@@ -413,11 +414,16 @@ export function groupPropertiesForMap<T extends {
 } {
   const buildingMap = new Map<string, T[]>();
   const standaloneItems: T[] = [];
+  const devByBuildingId = new Map<string, T>();
 
   for (const item of items) {
-    // Empreendimentos em lançamento já possuem agrupamento próprio de tipologias
+    // Empreendimentos vinculados a Edifícios são unificados ao pino do Edifício para evitar duplicação no mapa
     if (item.isDevelopment) {
-      standaloneItems.push(item);
+      if (item.buildingId) {
+        devByBuildingId.set(item.buildingId, item);
+      } else {
+        standaloneItems.push(item);
+      }
       continue;
     }
 
@@ -448,6 +454,10 @@ export function groupPropertiesForMap<T extends {
   buildingMap.forEach((buildingProps, bId) => {
     const firstProp = buildingProps[0];
     const b = firstProp.building || firstProp.physicalProperty?.building;
+    const linkedDev = devByBuildingId.get(bId) || null;
+    if (linkedDev) {
+      devByBuildingId.delete(bId);
+    }
 
     const units: BuildingUnitDetail[] = buildingProps.map((p) => {
       const unitInfo = p.physicalProperty?.unit;
@@ -565,7 +575,11 @@ export function groupPropertiesForMap<T extends {
     });
 
     const prices = units.map((u) => u.price).filter((pr) => pr > 0);
-    const minPrice = prices.length > 0 ? Math.min(...prices) : Number(firstProp.price) || 0;
+    const devPrices = ((linkedDev as any)?.typologies || [])
+      .map((t: any) => Number(t.price))
+      .filter((p: number) => p > 0);
+    const combinedPrices = [...prices, ...devPrices];
+    const minPrice = combinedPrices.length > 0 ? Math.min(...combinedPrices) : Number(firstProp.price) || 0;
 
     const totalListingsCount = units.reduce(
       (acc, u) => acc + Math.max(u.coListings.length, 1),
@@ -600,7 +614,65 @@ export function groupPropertiesForMap<T extends {
       purpose: firstProp.purpose || 'Venda',
       title: b.name || 'Edifício',
       price: minPrice,
+      linkedDevelopment: linkedDev,
     });
+  });
+
+  // Empreendimentos vinculados a Edifícios que ainda não possuem revendas no filtro
+  devByBuildingId.forEach((dev, bId) => {
+    const b = dev.building;
+    const hasValidCoords =
+      (b && b.latitude != null && b.longitude != null && !isNaN(b.latitude) && !isNaN(b.longitude)) ||
+      (dev.latitude != null && dev.longitude != null && !isNaN(dev.latitude) && !isNaN(dev.longitude));
+
+    if (hasValidCoords) {
+      const lat = b?.latitude ?? dev.latitude;
+      const lng = b?.longitude ?? dev.longitude;
+      const devPrices = ((dev as any).typologies || [])
+        .map((t: any) => Number(t.price))
+        .filter((p: number) => p > 0);
+      const minPrice = devPrices.length > 0 ? Math.min(...devPrices) : 0;
+      const isMine =
+        (currentUserId && dev.responsibleBrokerId === currentUserId) ||
+        (currentUserId && dev.userId === currentUserId);
+
+      const coverImg =
+        b?.coverImageUrl ||
+        (dev.images && dev.images.length > 0
+          ? (typeof dev.images[0] === 'string' ? dev.images[0] : dev.images[0].url)
+          : null);
+
+      buildingGroups.push({
+        id: `bgroup_${bId}`,
+        isBuildingGroup: true,
+        isDevelopment: false,
+        buildingId: bId,
+        name: b?.name || dev.name || 'Edifício',
+        normalizedName: b?.normalizedName,
+        alternativeNames: b?.alternativeNames,
+        address: b?.address || dev.address,
+        neighborhood: b?.neighborhood || dev.neighborhood,
+        city: b?.city || dev.city || 'Criciúma',
+        latitude: lat,
+        longitude: lng,
+        coverImageUrl: coverImg,
+        boundary: b?.boundary || null,
+        boundaryArea: b?.boundaryArea || null,
+        totalUnitsCount: 0,
+        totalListingsCount: 0,
+        minPrice,
+        floors: [],
+        units: [],
+        hasMyListing: Boolean(isMine),
+        propertyType: 'Empreendimento',
+        purpose: 'Lançamento',
+        title: dev.name || b?.name || 'Edifício',
+        price: minPrice,
+        linkedDevelopment: dev,
+      });
+    } else {
+      standaloneItems.push(dev);
+    }
   });
 
   return {

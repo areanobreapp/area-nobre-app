@@ -741,7 +741,10 @@ export default function HomeMap({
         }
         // Faixa de preço do empreendimento (pelo preço mínimo das tipologias)
         const typologies = item.typologies || [];
-        const minDevPrice = typologies.length > 0 ? Math.min(...typologies.map((t) => t.price).filter((p) => p > 0)) : 0;
+        const validDevPrices = typologies
+          .map((t) => Number(t.price))
+          .filter((p) => Number.isFinite(p) && p > 0);
+        const minDevPrice = validDevPrices.length > 0 ? Math.min(...validDevPrices) : 0;
         if (filters.minPrice && minDevPrice < Number(filters.minPrice)) {
           return false;
         }
@@ -1313,23 +1316,46 @@ export default function HomeMap({
              </div>`
           : '';
 
+        const devCompany = bg.linkedDevelopment?.company?.tradeName || bg.linkedDevelopment?.company?.name || bg.linkedDevelopment?.developer;
+        const devStage = bg.linkedDevelopment?.stage;
+
         marker.bindPopup(`
-          <div style="font-family: inherit; font-size: 13px; min-width: 200px;">
-            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+          <div style="font-family: inherit; font-size: 13px; min-width: 220px;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;">
               <span style="background: #E8F5E9; color: #1E4620; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Edifício</span>
-              <span style="font-size: 11px; font-weight: 700; color: #15803D;">${bg.totalUnitsCount} ${bg.totalUnitsCount === 1 ? 'unidade' : 'unidades'}</span>
+              ${bg.linkedDevelopment ? `<span style="background: #EFF6FF; color: #1D4ED8; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Lançamento</span>` : ''}
+              ${bg.totalUnitsCount > 0 ? `<span style="font-size: 11px; font-weight: 700; color: #15803D;">${bg.totalUnitsCount} ${bg.totalUnitsCount === 1 ? 'unidade' : 'unidades'}</span>` : ''}
             </div>
             <strong style="color: #111827; font-size: 14px;">${bg.name}</strong><br/>
             <span style="color: #4B5563; font-size: 12px;">${bg.address || ''}</span>
+            ${devCompany ? `
+              <div style="font-size: 11px; color: #15803D; margin-top: 4px;">
+                Construtora: <strong>${devCompany}</strong>
+              </div>
+            ` : ''}
+            ${devStage ? `
+              <div style="font-size: 11px; color: #6B7280; margin-top: 2px;">
+                Estágio: <strong>${devStage}</strong>
+              </div>
+            ` : ''}
             <div style="font-weight: 800; color: #1E4620; font-size: 13px; margin-top: 5px;">
               A partir de R$ ${bg.minPrice.toLocaleString('pt-BR')}
             </div>
-            <div style="margin-top: 6px; font-size: 11px; color: #374151;">
-              Total de anúncios: <strong>${bg.totalListingsCount}</strong>
+            ${bg.totalListingsCount > 0 ? `
+              <div style="margin-top: 4px; font-size: 11px; color: #374151;">
+                Total de anúncios: <strong>${bg.totalListingsCount}</strong>
+              </div>
+            ` : ''}
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+              ${bg.linkedDevelopment ? `
+                <a href="/empreendimentos/${bg.linkedDevelopment.id}" style="display: block; text-align: center; background: #1D4ED8; color: #FFFFFF; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
+                  🚀 Ver Empreendimento / Lançamento →
+                </a>
+              ` : ''}
+              <a href="/edificios/${bg.buildingId}" style="display: block; text-align: center; background: #1E4620; color: #FFFFFF; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
+                🏢 Ver Página do Edifício →
+              </a>
             </div>
-            <a href="/edificios/${bg.buildingId}" style="display: block; margin-top: 8px; text-align: center; background: #1E4620; color: #FFFFFF; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 6px; text-decoration: none;">
-              🏢 Ver Página do Edifício ↗
-            </a>
             ${navButtonsHtml}
           </div>
         `);
@@ -1974,10 +2000,12 @@ export default function HomeMap({
             <Plus size={15} />
             <span>Imóvel</span>
           </Link>
-          <Link href="/empreendimentos/novo" className="btn-secondary" style={{ padding: '8px 14px', fontSize: '0.84rem' }}>
-            <Plus size={15} />
-            <span>Empreendimento</span>
-          </Link>
+          {user?.role === 'ADMIN' && (
+            <Link href="/empreendimentos/novo" className="btn-secondary" style={{ padding: '8px 14px', fontSize: '0.84rem' }}>
+              <Plus size={15} />
+              <span>Empreendimento</span>
+            </Link>
+          )}
           <Link href="/buscas/nova" className="btn-primary" style={{ padding: '8px 16px', fontSize: '0.84rem' }}>
             <Search size={15} />
             <span>Nova busca</span>
@@ -3911,7 +3939,7 @@ export default function HomeMap({
 
                 {/* Identificação Principal do Edifício */}
                 <div style={{ paddingRight: selectedBuildingGroup.coverImageUrl ? '0px' : '32px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', flexWrap: 'wrap' }}>
                     <span
                       className="badge badge-primary"
                       style={{
@@ -3925,6 +3953,21 @@ export default function HomeMap({
                     >
                       EDIFÍCIO
                     </span>
+                    {selectedBuildingGroup.linkedDevelopment && (
+                      <span
+                        style={{
+                          fontSize: '0.70rem',
+                          padding: '2px 8px',
+                          background: '#EFF6FF',
+                          color: '#1D4ED8',
+                          fontWeight: 800,
+                          borderRadius: '9999px',
+                          border: '1px solid #BFDBFE',
+                        }}
+                      >
+                        LANÇAMENTO OFICIAL
+                      </span>
+                    )}
                     {selectedBuildingGroup.boundaryArea && (
                       <span
                         style={{
@@ -4023,6 +4066,67 @@ export default function HomeMap({
                   fullWidth
                   size="sm"
                 />
+              )}
+
+              {/* Card de Empreendimento Vinculado */}
+              {selectedBuildingGroup.linkedDevelopment && (
+                <div
+                  style={{
+                    backgroundColor: '#F0FDF4',
+                    border: '1px solid #BBF7D0',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#166534', textTransform: 'uppercase' }}>
+                      Empreendimento Vinculado
+                    </span>
+                    {selectedBuildingGroup.linkedDevelopment.stage && (
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#15803D', backgroundColor: '#DCFCE7', padding: '1px 6px', borderRadius: '4px' }}>
+                        {selectedBuildingGroup.linkedDevelopment.stage}
+                      </span>
+                    )}
+                  </div>
+                  <strong style={{ fontSize: '0.88rem', color: '#14532D' }}>
+                    {selectedBuildingGroup.linkedDevelopment.name}
+                  </strong>
+                  {(selectedBuildingGroup.linkedDevelopment.company?.tradeName || selectedBuildingGroup.linkedDevelopment.company?.name || selectedBuildingGroup.linkedDevelopment.developer) && (
+                    <span style={{ fontSize: '0.76rem', color: '#166534' }}>
+                      Construtora: <strong>{selectedBuildingGroup.linkedDevelopment.company?.tradeName || selectedBuildingGroup.linkedDevelopment.company?.name || selectedBuildingGroup.linkedDevelopment.developer}</strong>
+                    </span>
+                  )}
+                  {selectedBuildingGroup.linkedDevelopment.deliveryDate && (
+                    <span style={{ fontSize: '0.72rem', color: '#4B5563' }}>
+                      Previsão de entrega: <strong>{new Date(selectedBuildingGroup.linkedDevelopment.deliveryDate).toLocaleDateString('pt-BR')}</strong>
+                    </span>
+                  )}
+                  <Link
+                    href={`/empreendimentos/${selectedBuildingGroup.linkedDevelopment.id}`}
+                    id="btn-view-linked-development"
+                    style={{
+                      marginTop: '6px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      padding: '8px 12px',
+                      backgroundColor: '#1D4ED8',
+                      color: '#FFFFFF',
+                      borderRadius: '6px',
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <span>🚀</span>
+                    <span>Ver Detalhes do Empreendimento</span>
+                    <span>→</span>
+                  </Link>
+                </div>
               )}
 
               {/* Link para Página Completa do Edifício */}
@@ -4509,10 +4613,11 @@ export default function HomeMap({
               const isDev = item.isDevelopment;
               const hasCoords = item.latitude !== null && item.latitude !== undefined && !isNaN(item.latitude);
 
+              const validDevPrices = isDev && item.typologies
+                ? item.typologies.map((t) => Number(t.price)).filter((p) => Number.isFinite(p) && p > 0)
+                : [];
               const priceVal = isDev
-                ? (item.typologies && item.typologies.length > 0
-                  ? Math.min(...item.typologies.map((t) => t.price).filter((p) => p > 0))
-                  : 0)
+                ? (validDevPrices.length > 0 ? Math.min(...validDevPrices) : 0)
                 : item.price;
 
               const coverImg = item.images && item.images.length > 0 ? item.images[0].url : null;
@@ -4675,12 +4780,18 @@ export default function HomeMap({
                   <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--color-primary)', lineHeight: 1.2 }}>
                       {isDev ? (
-                        <>
-                          <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
-                            A partir de
+                        priceVal > 0 && Number.isFinite(priceVal) ? (
+                          <>
+                            <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
+                              A partir de
+                            </span>
+                            {`R$ ${priceVal.toLocaleString('pt-BR')}`}
+                          </>
+                        ) : (
+                          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                            Sob consulta
                           </span>
-                          {priceVal > 0 ? `R$ ${priceVal.toLocaleString('pt-BR')}` : 'Consulte'}
-                        </>
+                        )
                       ) : (
                         `R$ ${priceVal.toLocaleString('pt-BR')}`
                       )}
@@ -4724,9 +4835,9 @@ export default function HomeMap({
                     >
                       {isDev ? (
                         <>
-                          <span><strong>{item.developer}</strong></span>
+                          <span><strong>{(item as any).company?.tradeName || (item as any).company?.legalName || item.developer}</strong></span>
                           <span>•</span>
-                          <span>{item.typologies?.length || 0} tipologias</span>
+                          <span>{item.typologies?.length ? `${item.typologies.length} tipologias` : ((item as any).stage || 'Empreendimento')}</span>
                         </>
                       ) : (
                         (() => {

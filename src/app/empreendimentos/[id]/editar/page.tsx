@@ -6,10 +6,13 @@ import DevelopmentForm from '@/components/DevelopmentForm';
 
 export default function EditarEmpreendimentoPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ returnTo?: string }>;
 }) {
   const { id } = use(params);
+  const sp = searchParams ? use(searchParams) : undefined;
   const [development, setDevelopment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,5 +53,5 @@ export default function EditarEmpreendimentoPage({
     );
   }
 
-  return <DevelopmentForm initialData={development} isEditing={true} />;
+  return <DevelopmentForm initialData={development} isEditing={true} returnTo={sp?.returnTo} />;
 }

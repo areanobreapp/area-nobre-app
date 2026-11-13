@@ -4,6 +4,15 @@ import { prisma } from '@/lib/db';
 import { recalculateMatchesForDevelopment } from '@/lib/matching';
 import { validateNonNegativeInt, validateNonNegativeFloat } from '@/lib/validation';
 import { assertUserAcceptedTerms } from '@/lib/legal/service';
+import {
+  buildDevelopmentVisibleByIdWhere,
+  normalizeDevelopmentStatusInput,
+  resolvePublicationStatus,
+  DEVELOPMENT_BUILDING_SELECT,
+  DEVELOPMENT_COMPANY_SELECT,
+} from '@/lib/development-visibility';
+
+const VALID_PROJECT_TYPES = ['VERTICAL', 'HORIZONTAL', 'MISTO', 'LOTEAMENTO'];
 
 export async function GET(
   req: NextRequest,
@@ -22,12 +31,20 @@ export async function GET(
 
     const { id } = await params;
 
-    const development = await prisma.development.findUnique({
-      where: { id },
+    // Visibilidade (Bloco 6A.6): o registro só é aberto se estiver no escopo de acesso e publicação do usuário.
+    const development = await prisma.development.findFirst({
+      where: buildDevelopmentVisibleByIdWhere(user, id),
       include: {
+        company: {
+          select: DEVELOPMENT_COMPANY_SELECT,
+        },
         images: {
           orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
         },
+        blocks: {
+          orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+        },
+        building: { select: DEVELOPMENT_BUILDING_SELECT },
         responsibleBroker: {
           select: {
             id: true,
@@ -70,11 +87,13 @@ export async function GET(
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
     }
 
-    const isOwner = development.userId === user.id || development.responsibleBrokerId === user.id;
+    const isOwner =
+      !development.companyId &&
+      (development.userId === user.id || development.responsibleBrokerId === user.id);
     const isAdmin = user.role === 'ADMIN';
 
     // Se corretor inativo e usuário não for admin nem dono, 404
-    if (development.responsibleBroker?.status === 'INACTIVE' && !isAdmin && !isOwner) {
+    if (!development.companyId && development.responsibleBroker?.status === 'INACTIVE' && !isAdmin && !isOwner) {
       return NextResponse.json({ error: 'Empreendimento não disponível.' }, { status: 404 });
     }
 
@@ -120,9 +139,12 @@ export async function GET(
       success: true,
       development: {
         ...development,
+        publicationStatus: resolvePublicationStatus(development.status),
+        internalNotes: (isOwner || isAdmin) ? development.internalNotes : null,
         typologies: formattedTypologies,
       },
       isOwner: isOwner || isAdmin,
+      canManage: isAdmin, // Somente ADMIN gerencia dados oficiais (Bloco 6)
     });
   } catch (error) {
     console.error('Erro ao buscar empreendimento:', error);
@@ -157,17 +179,28 @@ export async function PUT(
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
     }
 
-    const isOwner = existing.userId === user.id || existing.responsibleBrokerId === user.id;
-    if (user.role !== 'ADMIN' && !isOwner) {
-      return NextResponse.json({ error: 'Você não tem permissão para editar este empreendimento.' }, { status: 403 });
+    // Regra de negócio (Bloco 6): somente ADMIN edita dados oficiais de empreendimentos.
+    if (user.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Apenas administradores podem editar empreendimentos de construtoras.' },
+        { status: 403 }
+      );
     }
 
     const {
       name,
       developer,
+      companyId,
+      projectType,
+      totalTowers,
+      totalUnits,
       stage,
       deliveryDate,
+      deliveryYear,
+      deliveryMonth,
+      indexCorrection,
       status,
+      publicationStatus,
       description,
       internalNotes,
       address,
@@ -179,6 +212,7 @@ export async function PUT(
       zipcode,
       latitude,
       longitude,
+      buildingId,
       hasPool,
       hasGym,
       hasPartyHall,
@@ -189,20 +223,124 @@ export async function PUT(
       typologies,
     } = body;
 
+    if (name !== undefined && !String(name).trim()) {
+      return NextResponse.json({ error: 'Nome do empreendimento não pode ser vazio.' }, { status: 400 });
+    }
+
+    let resolvedProjectType = existing.projectType;
+    if (projectType !== undefined && projectType !== null && String(projectType).trim() !== '') {
+      const pt = String(projectType).trim().toUpperCase();
+      if (!VALID_PROJECT_TYPES.includes(pt)) {
+        return NextResponse.json(
+          { error: `Tipo de projeto inválido. Valores aceitos: ${VALID_PROJECT_TYPES.join(', ')}.` },
+          { status: 400 }
+        );
+      }
+      resolvedProjectType = pt;
+    }
+
+    let resolvedTotalTowers = existing.totalTowers;
+    if (totalTowers !== undefined) {
+      if (totalTowers === null || String(totalTowers).trim() === '') {
+        resolvedTotalTowers = null;
+      } else {
+        const vTowers = validateNonNegativeInt(totalTowers, 'Quantidade de torres/quadras');
+        if (vTowers.error) return NextResponse.json({ error: vTowers.error }, { status: 400 });
+        resolvedTotalTowers = vTowers.value;
+      }
+    }
+
+    let resolvedTotalUnits = existing.totalUnits;
+    if (totalUnits !== undefined) {
+      if (totalUnits === null || String(totalUnits).trim() === '') {
+        resolvedTotalUnits = null;
+      } else {
+        const vUnits = validateNonNegativeInt(totalUnits, 'Total estimado de unidades');
+        if (vUnits.error) return NextResponse.json({ error: vUnits.error }, { status: 400 });
+        resolvedTotalUnits = vUnits.value;
+      }
+    }
+
+    let resolvedDeliveryMonth = existing.deliveryMonth;
+    if (deliveryMonth !== undefined) {
+      if (deliveryMonth === null || String(deliveryMonth).trim() === '') {
+        resolvedDeliveryMonth = null;
+      } else {
+        const m = parseInt(String(deliveryMonth), 10);
+        if (isNaN(m) || m < 1 || m > 12) {
+          return NextResponse.json({ error: 'Mês de entrega inválido (1 a 12).' }, { status: 400 });
+        }
+        resolvedDeliveryMonth = m;
+      }
+    }
+
+    let resolvedDeliveryYear = existing.deliveryYear;
+    if (deliveryYear !== undefined) {
+      if (deliveryYear === null || String(deliveryYear).trim() === '') {
+        resolvedDeliveryYear = null;
+      } else {
+        const y = parseInt(String(deliveryYear), 10);
+        if (isNaN(y) || y < 1990 || y > 2100) {
+          return NextResponse.json({ error: 'Ano de entrega inválido.' }, { status: 400 });
+        }
+        resolvedDeliveryYear = y;
+      }
+    }
+
+    let resolvedDeliveryDate =
+      deliveryDate !== undefined ? deliveryDate?.trim() || null : existing.deliveryDate;
+    if (!resolvedDeliveryDate && resolvedDeliveryYear) {
+      resolvedDeliveryDate = resolvedDeliveryMonth
+        ? `${String(resolvedDeliveryMonth).padStart(2, '0')}/${resolvedDeliveryYear}`
+        : `${resolvedDeliveryYear}`;
+    }
+
+    let resolvedBuildingId = existing.buildingId;
+    if (buildingId !== undefined) {
+      if (buildingId === null || String(buildingId).trim() === '') {
+        resolvedBuildingId = null;
+      } else {
+        const building = await prisma.building.findUnique({ where: { id: String(buildingId).trim() } });
+        if (!building) {
+          return NextResponse.json({ error: 'Edifício da base cartográfica não encontrado.' }, { status: 404 });
+        }
+        resolvedBuildingId = building.id;
+      }
+    }
+
+    const resolvedStatus =
+      status !== undefined || publicationStatus !== undefined
+        ? normalizeDevelopmentStatusInput(status ?? existing.status, publicationStatus)
+        : existing.status;
+
     // Atualiza fotos se fornecidas
     if (images && Array.isArray(images)) {
       await prisma.developmentImage.deleteMany({
         where: { developmentId: id },
       });
 
-      await prisma.developmentImage.createMany({
-        data: images.map((url: string, index: number) => ({
-          developmentId: id,
-          url,
-          isCover: index === 0,
-          order: index,
-        })),
-      });
+      const normalizedImages = images
+        .map((img: any, index: number) => {
+          const url = typeof img === 'string' ? img.trim() : String(img?.url || '').trim();
+          if (!url) return null;
+          const isCover =
+            typeof img === 'object' && img !== null && typeof img.isCover === 'boolean'
+              ? img.isCover
+              : index === 0;
+          return {
+            developmentId: id,
+            url,
+            isCover,
+            order: index,
+          };
+        })
+        .filter(Boolean) as { developmentId: string; url: string; isCover: boolean; order: number }[];
+
+      if (normalizedImages.length > 0) {
+        await prisma.developmentImage.createMany({
+          data: normalizedImages,
+        });
+      }
     }
 
     // Valida e prepara tipologias com integridade relacional estrita (preserva IDs, links públicos e matches)
@@ -334,14 +472,59 @@ export async function PUT(
       }
     }
 
+    let resolvedCompanyId: string | null = existing.companyId;
+    let resolvedDeveloper: string = existing.developer;
+
+    if (companyId !== undefined) {
+      if (companyId && typeof companyId === 'string' && companyId.trim()) {
+        const company = await prisma.company.findUnique({
+          where: { id: companyId.trim() },
+        });
+        if (!company) {
+          return NextResponse.json({ error: 'Construtora informada não existe.' }, { status: 404 });
+        }
+        if (company.status !== 'ACTIVE' && company.id !== existing.companyId) {
+          return NextResponse.json({ error: 'A construtora informada está inativa.' }, { status: 400 });
+        }
+        resolvedCompanyId = company.id;
+        resolvedDeveloper = company.tradeName || company.name;
+      } else {
+        if (existing.companyId) {
+          return NextResponse.json({ error: 'É obrigatório selecionar uma construtora cadastrada válida.' }, { status: 400 });
+        }
+      }
+    } else if (developer !== undefined && developer.trim() && !existing.companyId) {
+      resolvedDeveloper = developer.trim();
+    }
+
+    const parsedLat =
+      latitude !== undefined
+        ? latitude !== null && String(latitude).trim() !== ''
+          ? parseFloat(String(latitude))
+          : null
+        : existing.latitude;
+    const parsedLng =
+      longitude !== undefined
+        ? longitude !== null && String(longitude).trim() !== ''
+          ? parseFloat(String(longitude))
+          : null
+        : existing.longitude;
+
     const updated = await prisma.development.update({
       where: { id },
       data: {
         name: name !== undefined ? name.trim() : existing.name,
-        developer: developer !== undefined ? developer.trim() : existing.developer,
+        developer: resolvedDeveloper,
+        companyId: resolvedCompanyId,
+        projectType: resolvedProjectType,
+        totalTowers: resolvedTotalTowers,
+        totalUnits: resolvedTotalUnits,
         stage: stage !== undefined ? stage.trim() : existing.stage,
-        deliveryDate: deliveryDate !== undefined ? deliveryDate?.trim() || null : existing.deliveryDate,
-        status: status !== undefined ? status : existing.status,
+        deliveryDate: resolvedDeliveryDate,
+        deliveryYear: resolvedDeliveryYear,
+        deliveryMonth: resolvedDeliveryMonth,
+        indexCorrection: indexCorrection !== undefined ? indexCorrection?.trim() || null : existing.indexCorrection,
+        status: resolvedStatus,
         description: description !== undefined ? description?.trim() || null : existing.description,
         internalNotes: internalNotes !== undefined ? internalNotes?.trim() || null : existing.internalNotes,
         address: address !== undefined ? address?.trim() || null : existing.address,
@@ -349,10 +532,11 @@ export async function PUT(
         complement: complement !== undefined ? complement?.trim() || null : existing.complement,
         neighborhood: neighborhood !== undefined ? neighborhood?.trim() || null : existing.neighborhood,
         city: city !== undefined ? city?.trim() || null : existing.city,
-        state: state !== undefined ? state?.trim() || null : existing.state,
+        state: state !== undefined ? (state?.trim() ? state.trim().toUpperCase() : null) : existing.state,
         zipcode: zipcode !== undefined ? zipcode?.trim() || null : existing.zipcode,
-        latitude: latitude !== undefined ? (latitude ? parseFloat(String(latitude)) : null) : existing.latitude,
-        longitude: longitude !== undefined ? (longitude ? parseFloat(String(longitude)) : null) : existing.longitude,
+        latitude: parsedLat !== null && !isNaN(parsedLat) ? parsedLat : null,
+        longitude: parsedLng !== null && !isNaN(parsedLng) ? parsedLng : null,
+        buildingId: resolvedBuildingId,
         hasPool: hasPool !== undefined ? Boolean(hasPool) : existing.hasPool,
         hasGym: hasGym !== undefined ? Boolean(hasGym) : existing.hasGym,
         hasPartyHall: hasPartyHall !== undefined ? Boolean(hasPartyHall) : existing.hasPartyHall,
@@ -361,11 +545,18 @@ export async function PUT(
         hasDirectInstallments: hasDirectInstallments !== undefined ? Boolean(hasDirectInstallments) : existing.hasDirectInstallments,
       },
       include: {
+        company: {
+          select: DEVELOPMENT_COMPANY_SELECT,
+        },
+        building: { select: DEVELOPMENT_BUILDING_SELECT },
         images: {
           orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
         },
         typologies: {
           orderBy: { price: 'asc' },
+        },
+        blocks: {
+          orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
         },
       },
     });
@@ -373,7 +564,13 @@ export async function PUT(
     // Recalcula matches após atualização do empreendimento e tipologias
     await recalculateMatchesForDevelopment(updated.id);
 
-    return NextResponse.json({ success: true, development: updated });
+    return NextResponse.json({
+      success: true,
+      development: {
+        ...updated,
+        publicationStatus: resolvePublicationStatus(updated.status),
+      },
+    });
   } catch (error) {
     console.error('Erro ao atualizar empreendimento:', error);
     return NextResponse.json({ error: 'Falha ao atualizar empreendimento.' }, { status: 500 });
@@ -395,21 +592,33 @@ export async function PATCH(
       return termsCheck.errorResponse!;
     }
 
+    if (user.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Apenas administradores podem alterar empreendimentos de construtoras.' },
+        { status: 403 }
+      );
+    }
+
     const { id } = await params;
     const body = await req.json();
 
-    const existing = await prisma.development.findFirst({
-      where: { id, userId: user.id },
+    const existing = await prisma.development.findUnique({
+      where: { id },
     });
 
     if (!existing) {
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
     }
 
+    const nextStatus =
+      body.status !== undefined || body.publicationStatus !== undefined
+        ? normalizeDevelopmentStatusInput(body.status ?? existing.status, body.publicationStatus)
+        : existing.status;
+
     const updated = await prisma.development.update({
       where: { id },
       data: {
-        status: body.status !== undefined ? body.status : existing.status,
+        status: nextStatus,
         latitude: body.latitude !== undefined ? (body.latitude ? parseFloat(String(body.latitude)) : null) : existing.latitude,
         longitude: body.longitude !== undefined ? (body.longitude ? parseFloat(String(body.longitude)) : null) : existing.longitude,
       },
@@ -418,7 +627,13 @@ export async function PATCH(
     // Recalcula matches após alteração de status do empreendimento
     await recalculateMatchesForDevelopment(updated.id);
 
-    return NextResponse.json({ success: true, development: updated });
+    return NextResponse.json({
+      success: true,
+      development: {
+        ...updated,
+        publicationStatus: resolvePublicationStatus(updated.status),
+      },
+    });
   } catch (error) {
     console.error('Erro ao alternar status do empreendimento:', error);
     return NextResponse.json({ error: 'Falha ao atualizar status.' }, { status: 500 });
@@ -440,16 +655,16 @@ export async function DELETE(
       return termsCheck.errorResponse!;
     }
 
+    if (user.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Apenas administradores podem excluir empreendimentos de construtoras.' },
+        { status: 403 }
+      );
+    }
+
     const { id } = await params;
 
-    const existing = await prisma.development.findFirst({
-      where: {
-        id,
-        ...(user.role === 'ADMIN' ? {} : {
-          OR: [{ userId: user.id }, { responsibleBrokerId: user.id }],
-        }),
-      },
-    });
+    const existing = await prisma.development.findUnique({ where: { id } });
 
     if (!existing) {
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
