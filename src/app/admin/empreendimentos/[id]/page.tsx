@@ -25,14 +25,26 @@ import {
   MessageCircle,
   Building,
   X,
+  CreditCard,
+  FileText,
+  Home,
 } from 'lucide-react';
 import AdminNavTabs from '@/components/admin/AdminNavTabs';
 import BlockModal from '@/components/admin/BlockModal';
 import BuildingLinkModal from '@/components/admin/BuildingLinkModal';
+import { CommercialUnitsManager } from '@/components/admin/CommercialUnitsManager';
+import { CommercialPaymentConditionsManager } from '@/components/admin/CommercialPaymentConditionsManager';
 
 interface DevelopmentAdminPageProps {
   params: Promise<{ id: string }>;
 }
+
+type AdminDevelopmentSectionTab =
+  | 'OVERVIEW'
+  | 'BLOCKS'
+  | 'UNITS'
+  | 'PAYMENT_CONDITIONS'
+  | 'MATERIALS';
 
 export default function DevelopmentAdminPage({ params }: DevelopmentAdminPageProps) {
   const { id } = use(params);
@@ -44,6 +56,8 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
   const [loadingDev, setLoadingDev] = useState(true);
   const [dev, setDev] = useState<any>(null);
   const [companyContacts, setCompanyContacts] = useState<any[]>([]);
+  const [activeSectionTab, setActiveSectionTab] =
+    useState<AdminDevelopmentSectionTab>('OVERVIEW');
 
   // Modais
   const [blockModalOpen, setBlockModalOpen] = useState(false);
@@ -490,7 +504,116 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+      {/* BARRA DE NAVEGAÇÃO DAS SEÇÕES DO EMPREENDIMENTO (ETAPA 6B.3) */}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          marginBottom: '24px',
+          padding: '6px',
+          backgroundColor: '#FFFFFF',
+          borderRadius: '14px',
+          border: '1px solid #E5E7EB',
+        }}
+      >
+        {[
+          {
+            id: 'OVERVIEW' as const,
+            label: 'Visão Geral',
+            icon: Building2,
+          },
+          {
+            id: 'BLOCKS' as const,
+            label: `Torres ou Quadras (${(dev.blocks || []).length})`,
+            icon: Layers,
+          },
+          {
+            id: 'UNITS' as const,
+            label: 'Unidades Comerciais',
+            icon: Home,
+          },
+          {
+            id: 'PAYMENT_CONDITIONS' as const,
+            label: 'Condições Comerciais',
+            icon: CreditCard,
+          },
+          {
+            id: 'MATERIALS' as const,
+            label: 'Materiais (Etapa 6B.4)',
+            icon: FileText,
+          },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeSectionTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              id={`tab-admin-dev-${tab.id.toLowerCase()}`}
+              onClick={() => setActiveSectionTab(tab.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 16px',
+                borderRadius: '10px',
+                border: 'none',
+                fontSize: '0.84rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                backgroundColor: isActive ? '#111827' : 'transparent',
+                color: isActive ? '#FFFFFF' : '#4B5563',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Icon size={16} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {activeSectionTab === 'UNITS' && (
+        <CommercialUnitsManager
+          developmentId={id}
+          developmentName={dev.name}
+          blocks={dev.blocks || []}
+          typologies={dev.typologies || []}
+          onStockMutated={loadDevelopment}
+        />
+      )}
+
+      {activeSectionTab === 'PAYMENT_CONDITIONS' && (
+        <CommercialPaymentConditionsManager
+          developmentId={id}
+          blocks={dev.blocks || []}
+          typologies={dev.typologies || []}
+        />
+      )}
+
+      {activeSectionTab === 'MATERIALS' && (
+        <div
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            border: '1px solid #E5E7EB',
+            padding: '32px 24px',
+            textAlign: 'center',
+          }}
+        >
+          <FileText size={36} style={{ color: '#9CA3AF', margin: '0 auto 12px' }} />
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#111827', margin: '0 0 6px' }}>
+            Central de Materiais Comerciais (Etapa 6B.4)
+          </h3>
+          <p style={{ fontSize: '0.86rem', color: '#6B7280', maxWidth: '520px', margin: '0 auto' }}>
+            O gerenciamento de books comerciais, plantas humanizadas, tabelas em PDF, memoriais descritivos e kits de divulgação será habilitado na Etapa 6B.4.
+          </p>
+        </div>
+      )}
+
+      {(activeSectionTab === 'OVERVIEW' || activeSectionTab === 'BLOCKS') && (
+      <div style={{ display: 'grid', gridTemplateColumns: activeSectionTab === 'BLOCKS' ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
         {/* COLUNA ESQUERDA: GESTÃO DE TORRES E QUADRAS */}
         <div>
           <div
@@ -601,19 +724,22 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                         {block.totalFloors && <span>{block.totalFloors} pavimentos</span>}
                         {block.unitsPerFloor && <span>{block.unitsPerFloor} un/andar</span>}
                         <span>Ordem: {block.displayOrder}</span>
-                        <span
+                        <button
+                          type="button"
+                          onClick={() => setActiveSectionTab('UNITS')}
                           style={{
-                            padding: '1px 7px',
+                            padding: '2px 9px',
                             borderRadius: '999px',
                             fontSize: '0.68rem',
-                            fontWeight: 700,
-                            backgroundColor: '#F3F4F6',
-                            color: '#4B5563',
-                            border: '1px solid #E5E7EB',
+                            fontWeight: 800,
+                            backgroundColor: '#FEF3C7',
+                            color: '#92400E',
+                            border: '1px solid #FDE68A',
+                            cursor: 'pointer',
                           }}
                         >
-                          Estoque de Unidades (Bloco 6B)
-                        </span>
+                          Gerenciar Unidades Comerciais →
+                        </button>
                       </div>
                     </div>
 
@@ -935,6 +1061,7 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
           </div>
         </div>
       </div>
+      )}
 
       {/* MODAL: CRIAR / EDITAR BLOCO */}
       <BlockModal

@@ -48,6 +48,12 @@ model User {
   decidedImageContributions    BuildingImageContribution[]    @relation("DecidedImageContributions")
   createdLandParcels           LandParcel[]                   @relation("LandParcelCreatedBy")
   createdCompanies             Company[]                      @relation("CreatedCompanies")
+  createdCommercialUnits       CommercialUnit[]               @relation("CreatedCommercialUnits")
+  updatedCommercialUnits       CommercialUnit[]               @relation("UpdatedCommercialUnits")
+  commercialUnitHistories      CommercialUnitHistory[]        @relation("CommercialUnitHistoryAuthor")
+  createdPaymentConditions     CommercialPaymentCondition[]   @relation("CreatedPaymentConditions")
+  uploadedCommercialMaterials  CommercialMaterial[]           @relation("UploadedCommercialMaterials")
+  createdTableImportBatches    CommercialTableImportBatch[]   @relation("CreatedTableImportBatches")
 }
 
 model BrokerProfile {
@@ -360,6 +366,11 @@ model Development {
   typologies            Typology[]
   contacts              DevelopmentContact[]
   blocks                DevelopmentBlock[]
+  commercialUnits       CommercialUnit[]
+  commercialHistories   CommercialUnitHistory[]
+  paymentConditions     CommercialPaymentCondition[]
+  commercialMaterials   CommercialMaterial[]
+  tableImportBatches    CommercialTableImportBatch[]
 
   @@index([companyId])
   @@index([buildingId])
@@ -412,6 +423,7 @@ model Company {
 
   developments      Development[]
   contacts          CompanyContact[]
+  commercialMaterials CommercialMaterial[]
 
   @@index([status])
   @@index([city, state])
@@ -494,6 +506,10 @@ model DevelopmentBlock {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
+  commercialUnits   CommercialUnit[]
+  paymentConditions CommercialPaymentCondition[]
+  materials         CommercialMaterial[]
+
   @@unique([developmentId, name])
   @@index([developmentId])
   @@index([displayOrder])
@@ -546,6 +562,9 @@ model Typology {
   publicLocationPrecision  String      @default("APPROXIMATE") // HIDDEN | APPROXIMATE | EXACT
 
   matches       Match[]
+  commercialUnits   CommercialUnit[]
+  paymentConditions CommercialPaymentCondition[]
+  materials         CommercialMaterial[]
 
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
@@ -892,6 +911,7 @@ model LandParcel {
   buildings            BuildingLandParcel[]
   primaryForBuildings  Building[]             @relation("BuildingPrimaryParcel")
   boundaryContributions BuildingBoundaryContribution[]
+  commercialUnits      CommercialUnit[]
 
   @@index([city, neighborhood])
   @@index([code])
@@ -982,6 +1002,7 @@ model BuildingUnit {
   // Vínculo 1:1 com a identidade física
   physicalPropertyId String?           @unique
   physicalProperty   PhysicalProperty? @relation(fields: [physicalPropertyId], references: [id], onDelete: SetNull)
+  commercialUnits    CommercialUnit[]
   
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
@@ -1048,6 +1069,7 @@ model PhysicalProperty {
   disputes            PropertyDispute[]
   priceHistory        PhysicalPropertyPriceHistory[]
   priceRevisionRequests PriceRevisionRequest[]
+  commercialUnits     CommercialUnit[]
 
   @@index([city, neighborhood])
   @@index([latitude, longitude])
@@ -1174,3 +1196,322 @@ model PriceRevisionRequest {
   @@index([propertyId])
   @@index([disputeId])
 }
+
+// ==============================================================================
+// BLOCO 6B — GESTÃO DE UNIDADES COMERCIAIS, CONDIÇÕES DE PAGAMENTO E MATERIAIS
+// ==============================================================================
+
+// 1. Unidade Comercial Oficial da Construtora (Estoque Primário)
+model CommercialUnit {
+  id                     String                        @id @default(cuid())
+  developmentId          String
+  development            Development                   @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+
+  blockId                String?
+  block                  DevelopmentBlock?             @relation(fields: [blockId], references: [id], onDelete: SetNull)
+
+  typologyId             String?
+  typology               Typology?                     @relation(fields: [typologyId], references: [id], onDelete: SetNull)
+
+  // Chave determinística igual a (blockId ?? "") para unicidade composta sem ambiguidade de NULL
+  blockKey               String                        @default("")
+  unitCode               String                        // Código comercial exibido (ex: "101", "302-B", "Casa 14", "Lote 15")
+  normalizedUnitCode     String                        // Código normalizado para unicidade (ex: "101", "302b", "casa14", "lote15")
+
+  // "APARTAMENTO" | "COBERTURA" | "STUDIO" | "SALA_COMERCIAL" | "CASA" | "LOTE"
+  unitType               String                        @default("APARTAMENTO")
+
+  // Posicionamento Vertical / Geral
+  floor                  Int?                          // Pavimento / andar (opcional; nulo em terrenos/lotes)
+  position               String?                       // Ex: "Frente", "Fundos", "Lateral", "Meio de quadra"
+  solarOrientation       String?                       // Ex: "Sol da manhã", "Norte", "Leste"
+
+  // Especificidades Horizontais (Casas em Condomínio, Lotes e Loteamentos)
+  lotNumber              String?                       // Número do lote quando aplicável
+  quadraName             String?                       // Identificação textual da quadra
+  frontage               Float?                        // Testada / frente (m)
+  backDimension          Float?                        // Fundos (m)
+  leftDepth              Float?                        // Lateral esquerda (m)
+  rightDepth             Float?                        // Lateral direita (m)
+  topography             String?                       // "PLANO" | "ACLIVE" | "DECLIVE" | "IRREGULAR"
+  isCorner               Boolean                       @default(false)
+  houseFloors            Int?                          // Nº de pavimentos da casa (ex: 1 = térrea, 2 = sobrado)
+
+  // Metragens e Características Físicas
+  usableArea             Float?                        // Área útil (m²)
+  privateArea            Float?                        // Área privativa (m²)
+  builtArea              Float?                        // Área construída (m²)
+  totalArea              Float?                        // Área total (m²)
+  landArea               Float?                        // Área do terreno / lote (m²)
+  bedrooms               Int                           @default(0)
+  suites                 Int                           @default(0)
+  bathrooms              Int                           @default(0)
+  lavabos                Int                           @default(0)
+  parkingSpaces          Int                           @default(0)
+  coveredParkingSpaces   Int?
+  uncoveredParkingSpaces Int?
+  parkingBoxNumbers      String?                       // Identificação das vagas/boxes
+  storageNumber          String?                       // Depósito privativo / hobby box
+  hasBarbecue            Boolean?
+  isPenthouse            Boolean                       @default(false)
+
+  // Situação Comercial e Preço Vigente
+  // "DISPONIVEL" | "RESERVADA" | "VENDIDA" | "INDISPONIVEL_TEMPORARIAMENTE"
+  commercialStatus       String                        @default("DISPONIVEL")
+  listPrice              Float?                        // Preço de tabela vigente (R$)
+  promotionalPrice       Float?                        // Preço promocional opcional (R$)
+  acceptsFinancing       Boolean                       @default(true)
+  acceptsExchange        Boolean                       @default(false)
+  exchangeNotes          String?                       @db.Text
+
+  // Controle de Reserva e Venda
+  reservedUntil          DateTime?
+  reservedByNote         String?                       @db.Text // Nota administrativa interna sobre reserva (restrito ao ADMIN)
+  soldAt                 DateTime?
+
+  // Observações Comerciais vs Administrativas
+  publicNotes            String?                       @db.Text // Visível para corretores autenticados
+  internalNotes          String?                       @db.Text // Exclusivo para ADMIN
+  description            String?                       @db.Text // Descrição geral da unidade (até 500 caracteres; não confidencial)
+
+  // Referências Opcionais à Identidade Física Compartilhada (Decisão D1 — sem criar Property nem alterar sharedPrice)
+  buildingUnitId         String?
+  buildingUnit           BuildingUnit?                 @relation(fields: [buildingUnitId], references: [id], onDelete: SetNull)
+
+  physicalPropertyId     String?
+  physicalProperty       PhysicalProperty?             @relation(fields: [physicalPropertyId], references: [id], onDelete: SetNull)
+
+  landParcelId           String?
+  landParcel             LandParcel?                   @relation(fields: [landParcelId], references: [id], onDelete: SetNull)
+
+  // Auditoria
+  createdById            String?
+  createdBy              User?                         @relation("CreatedCommercialUnits", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById            String?
+  updatedBy              User?                         @relation("UpdatedCommercialUnits", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt              DateTime                      @default(now())
+  updatedAt              DateTime                      @updatedAt
+
+  // Relacionamentos
+  history                CommercialUnitHistory[]
+  paymentConditions      CommercialPaymentCondition[]
+  materials              CommercialMaterial[]
+  importItems            CommercialTableImportItem[]
+
+  @@unique([developmentId, blockKey, normalizedUnitCode], name: "dev_block_unit_unique")
+  @@index([developmentId, commercialStatus])
+  @@index([developmentId, blockId])
+  @@index([developmentId, typologyId])
+  @@index([buildingUnitId])
+  @@index([physicalPropertyId])
+  @@index([landParcelId])
+  @@index([listPrice])
+}
+
+// 2. Histórico Auditável de Alterações de Preço e Disponibilidade da Unidade Comercial
+model CommercialUnitHistory {
+  id                       String                      @id @default(cuid())
+  commercialUnitId         String
+  commercialUnit           CommercialUnit              @relation(fields: [commercialUnitId], references: [id], onDelete: Cascade)
+
+  developmentId            String
+  development              Development                 @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+
+  previousStatus           String?
+  newStatus                String
+  previousListPrice        Float?
+  newListPrice             Float?
+  previousPromotionalPrice Float?
+  newPromotionalPrice      Float?
+
+  changedById              String?
+  changedBy                User?                       @relation("CommercialUnitHistoryAuthor", fields: [changedById], references: [id], onDelete: SetNull)
+
+  // "INITIAL_CREATION" | "MANUAL_ADMIN" | "TABLE_IMPORT" | "BULK_UPDATE" | "RESERVATION_EXPIRED"
+  source                   String                      @default("MANUAL_ADMIN")
+
+  importBatchId            String?
+  importBatch              CommercialTableImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
+  reason                   String?                     @db.Text
+  createdAt                DateTime                    @default(now())
+
+  @@index([commercialUnitId, createdAt])
+  @@index([developmentId, createdAt])
+  @@index([changedById])
+  @@index([importBatchId])
+}
+
+// 3. Condições Comerciais de Pagamento (Gerais do Empreendimento, por Bloco, por Tipologia ou por Unidade)
+model CommercialPaymentCondition {
+  id                             String            @id @default(cuid())
+  developmentId                  String
+  development                    Development       @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+
+  blockId                        String?
+  block                          DevelopmentBlock? @relation(fields: [blockId], references: [id], onDelete: SetNull)
+
+  typologyId                     String?
+  typology                       Typology?         @relation(fields: [typologyId], references: [id], onDelete: SetNull)
+
+  commercialUnitId               String?
+  commercialUnit                 CommercialUnit?   @relation(fields: [commercialUnitId], references: [id], onDelete: Cascade)
+
+  name                           String            // Ex: "Fluxo Padrão Obra", "Condição Especial Unidade 301"
+  description                    String?           @db.Text
+  isDefault                      Boolean           @default(false)
+  isActive                       Boolean           @default(true)
+
+  // Entrada (Ato / Parcelamento Inicial)
+  downPaymentPercent             Float?
+  downPaymentAmount              Float?
+  downPaymentInstallments        Int               @default(1)
+
+  // Parcelas Mensais (Durante a Obra ou Direto)
+  monthlyCount                   Int?
+  monthlyPercentTotal            Float?
+  monthlyInstallmentAmount       Float?
+
+  // Reforços / Balões (Semestrais, Anuais, etc.)
+  reinforcementCount             Int?
+  reinforcementFrequencyMonths   Int?              // Ex: 6 = semestral, 12 = anual
+  reinforcementPercentTotal      Float?
+  reinforcementInstallmentAmount Float?
+
+  // Saldo na Entrega das Chaves / Financiamento
+  keysPercent                    Float?
+  keysAmount                     Float?
+  financingPercent               Float?
+  financingAmount                Float?
+  directInstallmentsPostKeys     Int?
+
+  // Índices de Correção e Regras de Permuta
+  correctionIndexPreKeys         String?           // Ex: "INCC-M", "CUB/SC"
+  correctionIndexPostKeys        String?           // Ex: "IPCA + 0,8% a.m.", "IGP-M + 1% a.m."
+  acceptsExchange                Boolean           @default(false)
+  maxExchangePercent             Float?
+  exchangeNotes                  String?           @db.Text
+
+  // Validade e Observações
+  validUntil                     DateTime?
+  publicNotes                    String?           @db.Text
+  internalNotes                  String?           @db.Text // Restrito ao ADMIN
+  displayOrder                   Int               @default(0)
+
+  createdById                    String?
+  createdBy                      User?             @relation("CreatedPaymentConditions", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt                      DateTime          @default(now())
+  updatedAt                      DateTime          @updatedAt
+
+  @@index([developmentId, isActive])
+  @@index([blockId])
+  @@index([typologyId])
+  @@index([commercialUnitId])
+}
+
+// 4. Biblioteca de Materiais Comerciais (Tabelas, Books, Memoriais, Plantas, Vídeos, Documentos Internos)
+model CommercialMaterial {
+  id               String                       @id @default(cuid())
+  companyId        String?
+  company          Company?                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  developmentId    String?
+  development      Development?                 @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+
+  blockId          String?
+  block            DevelopmentBlock?            @relation(fields: [blockId], references: [id], onDelete: SetNull)
+
+  typologyId       String?
+  typology         Typology?                    @relation(fields: [typologyId], references: [id], onDelete: SetNull)
+
+  commercialUnitId String?
+  commercialUnit   CommercialUnit?              @relation(fields: [commercialUnitId], references: [id], onDelete: SetNull)
+
+  title            String
+  description      String?                      @db.Text
+  // "TABELA_PRECOS" | "BOOK_APRESENTACAO" | "MEMORIAL_DESCRITIVO" | "PLANTA_BAIXA" | "IMAGEM_COMERCIAL" | "VIDEO" | "REGULAMENTO_CONDOMINIO" | "DOCUMENTO_INTERNO" | "OUTRO"
+  category         String                       @default("OUTRO")
+
+  fileUrl          String
+  storagePath      String?
+  fileType         String?
+  fileExtension    String?
+  fileSizeBytes    Int?
+  versionLabel     String?
+
+  // "PUBLIC" | "BROKERS_ONLY" | "ADMIN_ONLY"
+  visibility       String                       @default("BROKERS_ONLY")
+  allowDownload    Boolean                      @default(true)
+  allowBrokerShare Boolean                      @default(true)
+  isActive         Boolean                      @default(true)
+  displayOrder     Int                          @default(0)
+
+  uploadedById     String?
+  uploadedBy       User?                        @relation("UploadedCommercialMaterials", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  importBatches    CommercialTableImportBatch[]
+
+  @@index([developmentId, category, isActive])
+  @@index([companyId, isActive])
+  @@index([typologyId])
+  @@index([commercialUnitId])
+  @@index([visibility])
+}
+
+// 5. Lote de Importação Assistida de Tabela de Vendas (Staging e Revisão Humana pelo ADMIN)
+model CommercialTableImportBatch {
+  id                String                      @id @default(cuid())
+  developmentId     String
+  development       Development                 @relation(fields: [developmentId], references: [id], onDelete: Cascade)
+
+  sourceMaterialId  String?
+  sourceMaterial    CommercialMaterial?         @relation(fields: [sourceMaterialId], references: [id], onDelete: SetNull)
+
+  fileName          String
+  fileType          String                      @default("XLSX") // "XLSX" | "CSV" | "PDF"
+  // "EXTRACTING" | "PENDING_REVIEW" | "APPLIED" | "CANCELLED" | "FAILED"
+  status            String                      @default("PENDING_REVIEW")
+
+  rawExtractionJson Json?
+  summaryStats      Json?
+  adminReviewNotes  String?                     @db.Text
+
+  createdById       String?
+  createdBy         User?                       @relation("CreatedTableImportBatches", fields: [createdById], references: [id], onDelete: SetNull)
+  appliedAt         DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  items             CommercialTableImportItem[]
+  histories         CommercialUnitHistory[]
+
+  @@index([developmentId, status])
+  @@index([createdById])
+}
+
+// 6. Item de Staging da Importação de Tabela (Linha Extraída + Diff Antes da Aprovação)
+model CommercialTableImportItem {
+  id                 String                     @id @default(cuid())
+  batchId            String
+  batch              CommercialTableImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  rowIndex           Int
+  matchedUnitId      String?
+  matchedUnit        CommercialUnit?            @relation(fields: [matchedUnitId], references: [id], onDelete: SetNull)
+
+  // "CREATE" | "UPDATE_PRICE" | "UPDATE_STATUS" | "UPDATE_BOTH" | "UNCHANGED" | "CONFLICT_ERROR"
+  actionType         String                     @default("CREATE")
+  extractedData      Json
+  diffData           Json?
+  validationWarnings Json?
+  isSelectedToApply  Boolean                    @default(true)
+
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([batchId, rowIndex])
+  @@index([matchedUnitId])
+}
+

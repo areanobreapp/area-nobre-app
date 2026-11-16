@@ -29,6 +29,7 @@ import {
 import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
 import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
+import { CommercialUnitsBrokerView } from '@/components/commercial-units/CommercialUnitsBrokerView';
 
 export default function EmpreendimentoDetalhesPage({
   params,
@@ -531,6 +532,9 @@ export default function EmpreendimentoDetalhesPage({
           );
         })()}
       </div>
+
+      {/* SEÇÃO: Unidades comerciais da construtora (consulta somente leitura — Bloco 6B) */}
+      <CommercialUnitsBrokerView developmentId={id} developmentName={development.name} />
 
       {/* SEÇÃO: Tipologias / Unidades Disponíveis */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
