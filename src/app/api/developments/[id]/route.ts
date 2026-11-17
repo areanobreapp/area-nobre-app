@@ -11,6 +11,7 @@ import {
   DEVELOPMENT_BUILDING_SELECT,
   DEVELOPMENT_COMPANY_SELECT,
 } from '@/lib/development-visibility';
+import { resolveDevelopmentStartingPrice } from '@/lib/development-display';
 
 const VALID_PROJECT_TYPES = ['VERTICAL', 'HORIZONTAL', 'MISTO', 'LOTEAMENTO'];
 
@@ -66,6 +67,16 @@ export async function GET(
         },
         typologies: {
           include: {
+            materials: {
+              where: {
+                category: 'PLANTA_TIPOLOGIA',
+                isActive: true,
+                ...(user.role === 'ADMIN'
+                  ? {}
+                  : { visibility: { in: ['PUBLIC', 'BROKERS_ONLY'] } }),
+              },
+              orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
+            },
             matches: {
               include: {
                 search: {
@@ -79,6 +90,18 @@ export async function GET(
             },
           },
           orderBy: { price: 'asc' },
+        },
+        commercialUnits: {
+          select: {
+            id: true,
+            blockId: true,
+            typologyId: true,
+            commercialStatus: true,
+            listPrice: true,
+            promotionalPrice: true,
+            floor: true,
+            unitCode: true,
+          },
         },
       },
     });
@@ -142,6 +165,7 @@ export async function GET(
         publicationStatus: resolvePublicationStatus(development.status),
         internalNotes: (isOwner || isAdmin) ? development.internalNotes : null,
         typologies: formattedTypologies,
+        startingPrice: resolveDevelopmentStartingPrice(development).minPrice,
       },
       isOwner: isOwner || isAdmin,
       canManage: isAdmin, // Somente ADMIN gerencia dados oficiais (Bloco 6)

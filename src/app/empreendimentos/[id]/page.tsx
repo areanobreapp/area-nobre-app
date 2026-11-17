@@ -30,6 +30,9 @@ import MatchExplanationModal from '@/components/MatchExplanationModal';
 import SharePropertyModal from '@/components/SharePropertyModal';
 import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 import { CommercialUnitsBrokerView } from '@/components/commercial-units/CommercialUnitsBrokerView';
+import { CommercialMaterialsBrokerView } from '@/components/commercial-materials/CommercialMaterialsBrokerView';
+import DevelopmentMapSection from '@/components/development/DevelopmentMapSection';
+import { resolveDevelopmentStartingPrice } from '@/lib/development-display';
 
 export default function EmpreendimentoDetalhesPage({
   params,
@@ -149,10 +152,8 @@ export default function EmpreendimentoDetalhesPage({
   const images = development.images || [];
   const currentPhoto = images[activePhotoIndex]?.url || images[0]?.url || null;
   const typologies = development.typologies || [];
-  const validPrices = typologies
-    .map((t: any) => Number(t.price))
-    .filter((p: number) => Number.isFinite(p) && p > 0);
-  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+  const startingPriceResult = resolveDevelopmentStartingPrice(development);
+  const minPrice = startingPriceResult.minPrice;
 
   const deliveryLabel =
     development.deliveryDate ||
@@ -536,6 +537,9 @@ export default function EmpreendimentoDetalhesPage({
       {/* SEÇÃO: Unidades comerciais da construtora (consulta somente leitura — Bloco 6B) */}
       <CommercialUnitsBrokerView developmentId={id} developmentName={development.name} />
 
+      {/* SEÇÃO: Materiais do Empreendimento (Etapa 6B.4) */}
+      <CommercialMaterialsBrokerView developmentId={id} developmentName={development.name} />
+
       {/* SEÇÃO: Tipologias / Unidades Disponíveis */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
@@ -771,6 +775,20 @@ export default function EmpreendimentoDetalhesPage({
           </div>
         )}
       </div>
+
+      {/* SEÇÃO: Localização do Empreendimento (Etapa 6C.1) */}
+      <DevelopmentMapSection
+        developmentName={development.name}
+        address={development.address}
+        number={development.number}
+        complement={development.complement}
+        neighborhood={development.neighborhood}
+        city={development.city}
+        state={development.state}
+        zipcode={development.zipcode}
+        latitude={development.latitude}
+        longitude={development.longitude}
+      />
 
       {/* SEÇÃO: Descrição e Notas do Corretor */}
       <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>

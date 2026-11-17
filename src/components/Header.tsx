@@ -56,7 +56,7 @@ export default function Header({ user }: HeaderProps) {
   }
 
   // Se estiver em página pública ou login, não exibe o cabeçalho interno
-  if (pathname.startsWith('/p/')) return null;
+  if (pathname.startsWith('/p/') || pathname.startsWith('/u/')) return null;
   const isLoginPage = pathname === '/login';
 
   return (

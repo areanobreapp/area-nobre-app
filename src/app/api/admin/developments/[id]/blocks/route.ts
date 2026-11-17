@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'Empreendimento não encontrado.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, blocks }, { status: 200 });
+    return NextResponse.json({ success: true, blocks, items: blocks }, { status: 200 });
   } catch (error: any) {
     console.error('Erro ao listar torres/quadras do empreendimento (ADMIN):', error);
     return NextResponse.json(

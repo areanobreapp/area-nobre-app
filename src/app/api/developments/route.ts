@@ -81,6 +81,15 @@ export async function GET(req: NextRequest) {
         _count: {
           select: { typologies: true, blocks: true },
         },
+        commercialUnits: {
+          where: { commercialStatus: 'DISPONIVEL' },
+          select: {
+            id: true,
+            commercialStatus: true,
+            listPrice: true,
+            promotionalPrice: true,
+          },
+        },
       },
     });
 

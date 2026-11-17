@@ -34,6 +34,8 @@ import BlockModal from '@/components/admin/BlockModal';
 import BuildingLinkModal from '@/components/admin/BuildingLinkModal';
 import { CommercialUnitsManager } from '@/components/admin/CommercialUnitsManager';
 import { CommercialPaymentConditionsManager } from '@/components/admin/CommercialPaymentConditionsManager';
+import { CommercialMaterialsAdminSection } from '@/components/admin/CommercialMaterialsAdminSection';
+import { resolveDevelopmentStartingPrice } from '@/lib/development-display';
 
 interface DevelopmentAdminPageProps {
   params: Promise<{ id: string }>;
@@ -502,6 +504,15 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
             {dev.building ? dev.building.name : 'Nenhum associado'}
           </div>
         </div>
+
+        <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', padding: '16px 20px', border: '1px solid #E5E7EB' }}>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Preço Inicial
+          </div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1E4620', marginTop: '6px' }}>
+            {resolveDevelopmentStartingPrice(dev).formatted}
+          </div>
+        </div>
       </div>
 
       {/* BARRA DE NAVEGAÇÃO DAS SEÇÕES DO EMPREENDIMENTO (ETAPA 6B.3) */}
@@ -540,7 +551,7 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
           },
           {
             id: 'MATERIALS' as const,
-            label: 'Materiais (Etapa 6B.4)',
+            label: 'Materiais Comerciais',
             icon: FileText,
           },
         ].map((tab) => {
@@ -593,23 +604,11 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
       )}
 
       {activeSectionTab === 'MATERIALS' && (
-        <div
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '16px',
-            border: '1px solid #E5E7EB',
-            padding: '32px 24px',
-            textAlign: 'center',
-          }}
-        >
-          <FileText size={36} style={{ color: '#9CA3AF', margin: '0 auto 12px' }} />
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#111827', margin: '0 0 6px' }}>
-            Central de Materiais Comerciais (Etapa 6B.4)
-          </h3>
-          <p style={{ fontSize: '0.86rem', color: '#6B7280', maxWidth: '520px', margin: '0 auto' }}>
-            O gerenciamento de books comerciais, plantas humanizadas, tabelas em PDF, memoriais descritivos e kits de divulgação será habilitado na Etapa 6B.4.
-          </p>
-        </div>
+        <CommercialMaterialsAdminSection
+          developmentId={id}
+          typologies={dev.typologies || []}
+          blocks={dev.blocks || []}
+        />
       )}
 
       {(activeSectionTab === 'OVERVIEW' || activeSectionTab === 'BLOCKS') && (
@@ -656,7 +655,7 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                 }}
               >
                 <Plus size={14} />
-                <span>Adicionar Bloco</span>
+                <span>Adicionar Bloco / Quadra</span>
               </button>
             </div>
 
@@ -709,11 +708,11 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                             borderRadius: '6px',
                             fontSize: '0.68rem',
                             fontWeight: 800,
-                            backgroundColor: block.blockType === 'TOWER' ? '#DCFCE7' : '#FEF3C7',
-                            color: block.blockType === 'TOWER' ? '#166534' : '#92400E',
+                            backgroundColor: block.blockType === 'QUADRA' ? '#FEF3C7' : '#DCFCE7',
+                            color: block.blockType === 'QUADRA' ? '#92400E' : '#166534',
                           }}
                         >
-                          {block.blockType === 'TOWER' ? 'TORRE' : block.blockType === 'QUADRA' ? 'QUADRA' : 'BLOCO'}
+                          {block.blockType === 'QUADRA' ? 'QUADRA (HORIZONTAL)' : 'BLOCO (VERTICAL)'}
                         </span>
                         <span style={{ fontSize: '0.94rem', fontWeight: 800, color: '#111827' }}>
                           {block.name}
@@ -721,8 +720,14 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                       </div>
 
                       <div style={{ display: 'flex', gap: '12px', fontSize: '0.78rem', color: '#6B7280', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        {block.totalFloors && <span>{block.totalFloors} pavimentos</span>}
-                        {block.unitsPerFloor && <span>{block.unitsPerFloor} un/andar</span>}
+                        {block.blockType === 'QUADRA' ? (
+                          block.unitsPerFloor ? <span>{block.unitsPerFloor} unidades/lotes planejados</span> : null
+                        ) : (
+                          <>
+                            {block.totalFloors && <span>{block.totalFloors} pavimentos</span>}
+                            {block.unitsPerFloor && <span>{block.unitsPerFloor} un/andar</span>}
+                          </>
+                        )}
                         <span>Ordem: {block.displayOrder}</span>
                         <button
                           type="button"
@@ -783,46 +788,27 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
           </div>
 
           {/* VÍNCULO COM EDIFÍCIO PREDIAL */}
-          <div
-            style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: '16px',
-              border: '1px solid #E5E7EB',
-              padding: '24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Building size={20} style={{ color: '#1E4620' }} />
-                <h3 style={{ fontSize: '1.12rem', fontWeight: 800, color: '#111827', margin: 0 }}>
-                  Edifício Predial do Acervo
-                </h3>
+          {/* Vínculo técnico com edifício da base predial (somente leitura para legados) */}
+          {dev.building ? (
+            <div
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderRadius: '16px',
+                border: '1px solid #E5E7EB',
+                padding: '20px 24px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <Building size={18} style={{ color: '#1E4620' }} />
+                <h4 style={{ fontSize: '0.94rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                  Edifício Predial Conectado (Base Cartográfica)
+                </h4>
               </div>
 
-              <button
-                type="button"
-                id="btn-associar-edificio"
-                onClick={() => setBuildingModalOpen(true)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #1E4620',
-                  backgroundColor: '#F0FDF4',
-                  color: '#1E4620',
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                {dev.building ? 'Alterar Edifício' : '+ Associar Edifício'}
-              </button>
-            </div>
-
-            {dev.building ? (
               <div
                 style={{
-                  padding: '16px',
+                  padding: '12px 14px',
                   borderRadius: '10px',
                   border: '1px solid #BBF7D0',
                   backgroundColor: '#F0FDF4',
@@ -835,13 +821,13 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                   <img
                     src={dev.building.coverImageUrl}
                     alt={dev.building.name}
-                    style={{ width: '56px', height: '56px', borderRadius: '8px', objectFit: 'cover' }}
+                    style={{ width: '48px', height: '48px', borderRadius: '8px', objectFit: 'cover' }}
                   />
                 ) : (
                   <div
                     style={{
-                      width: '56px',
-                      height: '56px',
+                      width: '48px',
+                      height: '48px',
                       borderRadius: '8px',
                       backgroundColor: '#DCFCE7',
                       color: '#166534',
@@ -850,14 +836,14 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                       justifyContent: 'center',
                     }}
                   >
-                    <Building size={24} />
+                    <Building size={20} />
                   </div>
                 )}
                 <div>
-                  <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#166534' }}>
+                  <div style={{ fontSize: '0.90rem', fontWeight: 800, color: '#166534' }}>
                     {dev.building.name}
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: '#4B5563', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.76rem', color: '#4B5563', marginTop: '2px' }}>
                     {dev.building.address}
                   </div>
                   <Link
@@ -867,10 +853,10 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '4px',
-                      fontSize: '0.76rem',
+                      fontSize: '0.74rem',
                       fontWeight: 700,
                       color: '#1E4620',
-                      marginTop: '6px',
+                      marginTop: '4px',
                       textDecoration: 'none',
                     }}
                   >
@@ -879,12 +865,8 @@ export default function DevelopmentAdminPage({ params }: DevelopmentAdminPagePro
                   </Link>
                 </div>
               </div>
-            ) : (
-              <p style={{ fontSize: '0.84rem', color: '#6B7280', margin: 0 }}>
-                Este empreendimento não está conectado a um condomínio da base predial. A conexão permite reutilizar o polígono territorial, fotos e agrupamentos no mapa.
-              </p>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
 
         {/* COLUNA DIREITA: GERENTES DO EMPREENDIMENTO */}

@@ -285,6 +285,13 @@ export async function getCompanyById(
           deliveryDate: true,
           buildingId: true,
           createdAt: true,
+          images: {
+            select: { id: true, url: true, isCover: true, order: true },
+            orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
+          },
+          _count: {
+            select: { commercialUnits: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
       },

@@ -18,6 +18,7 @@ import {
   Maximize2
 } from 'lucide-react';
 import { resolveMainArea } from '@/lib/property-display';
+import { getDevelopmentCoverUrl, resolveDevelopmentStartingPrice } from '@/lib/development-display';
 
 const LocationPickerModal = dynamic(() => import('@/components/LocationPickerModal'), { ssr: false });
 
@@ -291,12 +292,10 @@ export default function EmpreendimentosPage() {
           }}
         >
           {developments.map((d) => {
-            const coverImage = d.images?.[0]?.url || null;
+            const coverImage = getDevelopmentCoverUrl(d);
             const typologies = d.typologies || [];
-            const validPrices = typologies
-              .map((t: any) => Number(t.price))
-              .filter((p: number) => Number.isFinite(p) && p > 0);
-            const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : null;
+            const startingPriceResult = resolveDevelopmentStartingPrice(d);
+            const minPrice = startingPriceResult.minPrice;
 
             const deliveryLabel =
               d.deliveryDate ||

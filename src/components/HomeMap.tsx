@@ -77,6 +77,12 @@ import {
   resolveParking,
 } from '@/lib/property-display';
 import { normalizeBuildingName } from '@/lib/building-service';
+import {
+  getDevelopmentCoverUrl,
+  formatDevelopmentSubtitle,
+  formatDevelopmentLocation,
+  resolveDevelopmentStartingPrice,
+} from '@/lib/development-display';
 
 export interface BrokerIdentityInfo {
   id: string;
@@ -155,6 +161,13 @@ export interface DevelopmentItem {
   responsibleBroker?: BrokerIdentityInfo | null;
   name: string;
   developer: string;
+  companyId?: string | null;
+  company?: {
+    id?: string;
+    name?: string;
+    tradeName?: string | null;
+    logoUrl?: string | null;
+  } | null;
   stage: string;
   deliveryDate?: string | null;
   status: string;
@@ -203,6 +216,8 @@ export interface BuildingSuggestion {
   longitude?: number | null;
   primaryItemId?: string;
   isDevelopment?: boolean;
+  developer?: string | null;
+  coverImageUrl?: string | null;
 }
 
 export interface AddressSuggestion {
@@ -702,8 +717,11 @@ export default function HomeMap({
         const addrSimple = (item.address || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const addrMatch = addrSimple.includes(qSimple);
 
-        const devSimple = item.isDevelopment ? (item.developer || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase() : '';
-        const devMatch = devSimple.includes(qSimple);
+        const companyName = item.isDevelopment
+          ? (item.company?.tradeName || item.company?.name || item.developer || '')
+          : '';
+        const devSimple = companyName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const devMatch = item.isDevelopment && (devSimple.includes(qSimple) || (normQ !== '' && devSimple.includes(normQ)));
 
         // Busca por Edifício (nome oficial, nome normalizado, nomes alternativos)
         let buildingMatch = false;
@@ -739,12 +757,9 @@ export default function HomeMap({
         if (filters.neighborhood && !(item.neighborhood || '').toLowerCase().includes(filters.neighborhood.toLowerCase())) {
           return false;
         }
-        // Faixa de preço do empreendimento (pelo preço mínimo das tipologias)
+        // Faixa de preço do empreendimento (pelo menor preço válido - unidades disponíveis ou tipologias)
         const typologies = item.typologies || [];
-        const validDevPrices = typologies
-          .map((t) => Number(t.price))
-          .filter((p) => Number.isFinite(p) && p > 0);
-        const minDevPrice = validDevPrices.length > 0 ? Math.min(...validDevPrices) : 0;
+        const minDevPrice = resolveDevelopmentStartingPrice(item).minPrice || 0;
         if (filters.minPrice && minDevPrice < Number(filters.minPrice)) {
           return false;
         }
@@ -866,7 +881,12 @@ export default function HomeMap({
         // Empreendimento / Edifício em construção
         const devNameSimple = (item.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const devNorm = normalizeBuildingName(item.name || '');
-        const devMatch = devNameSimple.includes(qSimple) || (normQ !== '' && devNorm.includes(normQ));
+        const companyName = item.company?.tradeName || item.company?.name || item.developer || '';
+        const companySimple = companyName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        const devMatch =
+          devNameSimple.includes(qSimple) ||
+          (normQ !== '' && devNorm.includes(normQ)) ||
+          (companySimple !== '' && companySimple.includes(qSimple));
 
         if (devMatch) {
           const key = `dev_${item.id}`;
@@ -882,6 +902,8 @@ export default function HomeMap({
               longitude: item.longitude,
               primaryItemId: item.id,
               isDevelopment: true,
+              developer: companyName,
+              coverImageUrl: getDevelopmentCoverUrl(item),
             });
           }
         }
@@ -1392,9 +1414,7 @@ export default function HomeMap({
         : catColor;
 
       const priceVal = item.isDevelopment
-        ? (item.typologies && item.typologies.length > 0
-          ? Math.min(...item.typologies.map((t: any) => t.price).filter((p: number) => p > 0))
-          : 0)
+        ? (resolveDevelopmentStartingPrice(item).minPrice || 0)
         : item.price;
 
       const priceLabel = formatPriceShort(item.matchedTypologyPrice || priceVal);
@@ -2309,8 +2329,8 @@ export default function HomeMap({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
                         <div
                           style={{
-                            width: 32,
-                            height: 32,
+                            width: 36,
+                            height: 36,
                             borderRadius: 'var(--radius-sm)',
                             backgroundColor: '#E8F5E9',
                             color: 'var(--color-primary)',
@@ -2318,15 +2338,29 @@ export default function HomeMap({
                             alignItems: 'center',
                             justifyContent: 'center',
                             flexShrink: 0,
+                            overflow: 'hidden',
                           }}
                         >
-                          <Building2 size={17} />
+                          {b.isDevelopment && b.coverImageUrl ? (
+                            <img
+                              src={b.coverImageUrl}
+                              alt={b.name}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          ) : (
+                            <Building2 size={18} />
+                          )}
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div style={{ fontWeight: 800, fontSize: '0.88rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {b.name}
                           </div>
-                          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {b.isDevelopment ? (
+                            <div style={{ fontSize: '0.74rem', color: '#166534', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              Empreendimento · Construtora {b.developer || 'Não informada'}
+                            </div>
+                          ) : null}
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {[b.neighborhood, b.city].filter(Boolean).join(', ') || 'Criciúma'}
                           </div>
                         </div>
@@ -2336,15 +2370,15 @@ export default function HomeMap({
                           padding: '3px 8px',
                           fontSize: '0.72rem',
                           fontWeight: 700,
-                          backgroundColor: '#DCFCE7',
-                          color: '#166534',
+                          backgroundColor: b.isDevelopment ? '#DCFCE7' : '#F3F4F6',
+                          color: b.isDevelopment ? '#166534' : '#374151',
                           borderRadius: '999px',
                           whiteSpace: 'nowrap',
                           marginLeft: '8px',
                           flexShrink: 0,
                         }}
                       >
-                        {b.activeCount} {b.activeCount === 1 ? 'anúncio vinculado' : 'anúncios vinculados'}
+                        {b.isDevelopment ? 'Empreendimento' : (b.activeCount === 1 ? '1 anúncio vinculado' : `${b.activeCount} anúncios vinculados`)}
                       </span>
                     </div>
                   ))}
@@ -3526,17 +3560,23 @@ export default function HomeMap({
                     flexShrink: 0,
                   }}
                 >
-                  {selectedItem.images && selectedItem.images.length > 0 ? (
-                    <img
-                      src={selectedItem.images[0].url}
-                      alt="Foto do imóvel"
-                      style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                  ) : (
-                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
-                      <MapPin size={24} />
-                    </div>
-                  )}
+                  {(() => {
+                    const coverUrl = selectedItem.isDevelopment
+                      ? getDevelopmentCoverUrl(selectedItem)
+                      : (selectedItem.images?.[0]?.url || null);
+
+                    return coverUrl ? (
+                      <img
+                        src={coverUrl}
+                        alt={selectedItem.isDevelopment ? selectedItem.name : selectedItem.title}
+                        style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-light)' }}>
+                        <MapPin size={24} />
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Informações Resumidas */}
@@ -3578,10 +3618,18 @@ export default function HomeMap({
                     {selectedItem.isDevelopment ? selectedItem.name : selectedItem.title}
                   </h4>
 
+                  {selectedItem.isDevelopment ? (
+                    <div style={{ fontSize: '0.76rem', color: '#166534', fontWeight: 700, marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {formatDevelopmentSubtitle(selectedItem)}
+                    </div>
+                  ) : null}
+
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
                     <MapPin size={12} color="var(--color-primary)" />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedItem.neighborhood ? `${selectedItem.neighborhood}, ` : ''}{selectedItem.city || ''}
+                      {selectedItem.isDevelopment
+                        ? formatDevelopmentLocation(selectedItem)
+                        : `${selectedItem.neighborhood ? `${selectedItem.neighborhood}, ` : ''}${selectedItem.city || ''}`}
                     </span>
                   </div>
 
@@ -3592,8 +3640,8 @@ export default function HomeMap({
                         <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginRight: 4 }}>
                           A partir de
                         </span>
-                        {selectedItem.typologies && selectedItem.typologies.length > 0
-                          ? `R$ ${Math.min(...selectedItem.typologies.map((t) => t.price).filter((p) => p > 0)).toLocaleString('pt-BR')}`
+                        {resolveDevelopmentStartingPrice(selectedItem).minPrice
+                          ? `R$ ${resolveDevelopmentStartingPrice(selectedItem).minPrice!.toLocaleString('pt-BR')}`
                           : 'Consulte'}
                       </>
                     ) : (
@@ -4094,11 +4142,9 @@ export default function HomeMap({
                   <strong style={{ fontSize: '0.88rem', color: '#14532D' }}>
                     {selectedBuildingGroup.linkedDevelopment.name}
                   </strong>
-                  {(selectedBuildingGroup.linkedDevelopment.company?.tradeName || selectedBuildingGroup.linkedDevelopment.company?.name || selectedBuildingGroup.linkedDevelopment.developer) && (
-                    <span style={{ fontSize: '0.76rem', color: '#166534' }}>
-                      Construtora: <strong>{selectedBuildingGroup.linkedDevelopment.company?.tradeName || selectedBuildingGroup.linkedDevelopment.company?.name || selectedBuildingGroup.linkedDevelopment.developer}</strong>
-                    </span>
-                  )}
+                  <div style={{ fontSize: '0.76rem', color: '#166534', fontWeight: 700 }}>
+                    {formatDevelopmentSubtitle(selectedBuildingGroup.linkedDevelopment)}
+                  </div>
                   {selectedBuildingGroup.linkedDevelopment.deliveryDate && (
                     <span style={{ fontSize: '0.72rem', color: '#4B5563' }}>
                       Previsão de entrega: <strong>{new Date(selectedBuildingGroup.linkedDevelopment.deliveryDate).toLocaleDateString('pt-BR')}</strong>
@@ -4613,11 +4659,8 @@ export default function HomeMap({
               const isDev = item.isDevelopment;
               const hasCoords = item.latitude !== null && item.latitude !== undefined && !isNaN(item.latitude);
 
-              const validDevPrices = isDev && item.typologies
-                ? item.typologies.map((t) => Number(t.price)).filter((p) => Number.isFinite(p) && p > 0)
-                : [];
               const priceVal = isDev
-                ? (validDevPrices.length > 0 ? Math.min(...validDevPrices) : 0)
+                ? (resolveDevelopmentStartingPrice(item).minPrice || 0)
                 : item.price;
 
               const coverImg = item.images && item.images.length > 0 ? item.images[0].url : null;

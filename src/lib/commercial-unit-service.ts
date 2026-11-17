@@ -1609,7 +1609,20 @@ export async function getCommercialUnitById(
     where: { id: unitId },
     include: {
       block: true,
-      typology: true,
+      typology: {
+        include: {
+          materials: {
+            where: {
+              category: 'PLANTA_TIPOLOGIA',
+              isActive: true,
+              ...(isAdminViewer(viewer)
+                ? {}
+                : { visibility: { in: ['PUBLIC', 'BROKERS_ONLY'] } }),
+            },
+            orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
+          },
+        },
+      },
       buildingUnit: {
         select: {
           id: true,
@@ -2005,6 +2018,7 @@ export async function listDevelopmentBlocksWithSummary(
       select: {
         id: true,
         blockId: true,
+        floor: true,
         commercialStatus: true,
         listPrice: true,
         promotionalPrice: true,
@@ -2012,16 +2026,28 @@ export async function listDevelopmentBlocksWithSummary(
     }),
   ]);
 
-  const statsByBlock = new Map<
-    string,
-    {
-      totalUnits: number;
-      availableUnits: number;
-      reservedUnits: number;
-      soldUnits: number;
-      unavailableUnits: number;
-    }
-  >();
+  interface BlockStatsAccumulator {
+    totalUnits: number;
+    availableUnits: number;
+    reservedUnits: number;
+    soldUnits: number;
+    unavailableUnits: number;
+    minAvailablePrice: number | null;
+    floorsMap: Map<
+      number,
+      {
+        floor: number;
+        totalUnits: number;
+        availableUnits: number;
+        reservedUnits: number;
+        soldUnits: number;
+        unavailableUnits: number;
+        minAvailablePrice: number | null;
+      }
+    >;
+  }
+
+  const statsByBlock = new Map<string, BlockStatsAccumulator>();
 
   for (const b of blocks) {
     statsByBlock.set(b.id, {
@@ -2030,6 +2056,8 @@ export async function listDevelopmentBlocksWithSummary(
       reservedUnits: 0,
       soldUnits: 0,
       unavailableUnits: 0,
+      minAvailablePrice: null,
+      floorsMap: new Map(),
     });
   }
 
@@ -2037,23 +2065,135 @@ export async function listDevelopmentBlocksWithSummary(
     if (!u.blockId) continue;
     const st = statsByBlock.get(u.blockId);
     if (!st) continue;
+
     st.totalUnits++;
-    if (u.commercialStatus === 'DISPONIVEL') st.availableUnits++;
-    else if (u.commercialStatus === 'RESERVADA') st.reservedUnits++;
-    else if (u.commercialStatus === 'VENDIDA') st.soldUnits++;
-    else if (u.commercialStatus === 'INDISPONIVEL_TEMPORARIAMENTE') st.unavailableUnits++;
+    const effectivePrice = u.promotionalPrice != null && u.promotionalPrice > 0
+      ? u.promotionalPrice
+      : (u.listPrice != null && u.listPrice > 0 ? u.listPrice : null);
+
+    if (u.commercialStatus === 'DISPONIVEL') {
+      st.availableUnits++;
+      if (effectivePrice != null) {
+        st.minAvailablePrice = st.minAvailablePrice == null
+          ? effectivePrice
+          : Math.min(st.minAvailablePrice, effectivePrice);
+      }
+    } else if (u.commercialStatus === 'RESERVADA') {
+      st.reservedUnits++;
+    } else if (u.commercialStatus === 'VENDIDA') {
+      st.soldUnits++;
+    } else if (u.commercialStatus === 'INDISPONIVEL_TEMPORARIAMENTE') {
+      st.unavailableUnits++;
+    }
+
+    if (u.floor != null) {
+      let flStat = st.floorsMap.get(u.floor);
+      if (!flStat) {
+        flStat = {
+          floor: u.floor,
+          totalUnits: 0,
+          availableUnits: 0,
+          reservedUnits: 0,
+          soldUnits: 0,
+          unavailableUnits: 0,
+          minAvailablePrice: null,
+        };
+        st.floorsMap.set(u.floor, flStat);
+      }
+      flStat.totalUnits++;
+      if (u.commercialStatus === 'DISPONIVEL') {
+        flStat.availableUnits++;
+        if (effectivePrice != null) {
+          flStat.minAvailablePrice = flStat.minAvailablePrice == null
+            ? effectivePrice
+            : Math.min(flStat.minAvailablePrice, effectivePrice);
+        }
+      } else if (u.commercialStatus === 'RESERVADA') {
+        flStat.reservedUnits++;
+      } else if (u.commercialStatus === 'VENDIDA') {
+        flStat.soldUnits++;
+      } else if (u.commercialStatus === 'INDISPONIVEL_TEMPORARIAMENTE') {
+        flStat.unavailableUnits++;
+      }
+    }
   }
 
-  return blocks.map((b) => ({
-    ...b,
-    unitStats: statsByBlock.get(b.id) || {
+  return blocks.map((b) => {
+    const st = statsByBlock.get(b.id) || {
       totalUnits: 0,
       availableUnits: 0,
       reservedUnits: 0,
       soldUnits: 0,
       unavailableUnits: 0,
-    },
-  }));
+      minAvailablePrice: null,
+      floorsMap: new Map(),
+    };
+
+    const configuredFloors = Array.isArray(b.floorDistribution)
+      ? (b.floorDistribution as any[])
+      : null;
+
+    let plannedUnitsTotal: number | null = null;
+    if (configuredFloors && configuredFloors.length > 0) {
+      plannedUnitsTotal = configuredFloors.reduce((acc, f) => acc + (Number(f.plannedUnitsCount) || 0), 0);
+    } else if (b.totalFloors != null && b.totalFloors > 0 && b.unitsPerFloor != null && b.unitsPerFloor > 0) {
+      plannedUnitsTotal = b.totalFloors * b.unitsPerFloor;
+    }
+
+    // Gerar resumo de pavimentos (combinando configuração com unidades reais cadastradas)
+    const floorKeys = new Set<number>();
+    if (configuredFloors) {
+      configuredFloors.forEach((cf) => {
+        if (cf && typeof cf.floor === 'number') floorKeys.add(cf.floor);
+      });
+    }
+    st.floorsMap.forEach((_, f) => floorKeys.add(f));
+
+    const sortedFloorKeys = Array.from(floorKeys).sort((a, b) => a - b);
+    const floorSummaries = sortedFloorKeys.map((fl) => {
+      const cfg = configuredFloors?.find((c) => c.floor === fl);
+      const reg = st.floorsMap.get(fl) || {
+        floor: fl,
+        totalUnits: 0,
+        availableUnits: 0,
+        reservedUnits: 0,
+        soldUnits: 0,
+        unavailableUnits: 0,
+        minAvailablePrice: null,
+      };
+
+      const defaultLabel = fl === 0 ? 'Térreo' : (fl > 0 ? `${fl}º andar` : `Subsolo ${Math.abs(fl)}`);
+
+      return {
+        floor: fl,
+        label: cfg?.label || defaultLabel,
+        plannedUnitsCount: cfg?.plannedUnitsCount ?? (b.unitsPerFloor ?? null),
+        unitTypeHint: cfg?.unitTypeHint,
+        notes: cfg?.notes,
+        totalUnits: reg.totalUnits,
+        availableUnits: reg.availableUnits,
+        reservedUnits: reg.reservedUnits,
+        soldUnits: reg.soldUnits,
+        unavailableUnits: reg.unavailableUnits,
+        minAvailablePrice: reg.minAvailablePrice,
+      };
+    });
+
+    return {
+      ...b,
+      unitStats: {
+        totalUnits: st.totalUnits,
+        availableUnits: st.availableUnits,
+        reservedUnits: st.reservedUnits,
+        soldUnits: st.soldUnits,
+        unavailableUnits: st.unavailableUnits,
+        minAvailablePrice: st.minAvailablePrice,
+      },
+      minAvailablePrice: st.minAvailablePrice,
+      plannedUnitsTotal,
+      floorSummaries,
+    };
+  });
 }
 
 // ==============================================================================

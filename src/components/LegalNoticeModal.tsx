@@ -50,7 +50,9 @@ export default function LegalNoticeModal() {
         path === '/login' ||
         path === '/cadastro' ||
         path === '/termos-de-uso' ||
-        path === '/politica-de-privacidade'
+        path === '/politica-de-privacidade' ||
+        path.startsWith('/p/') ||
+        path.startsWith('/u/')
       ) {
         return;
       }

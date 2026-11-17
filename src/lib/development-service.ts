@@ -6,6 +6,19 @@ import {
   resolvePublicationStatus,
   type DevelopmentPublicationStatus,
 } from './development-visibility';
+import { resolveDevelopmentStartingPrice } from './development-display';
+export {
+  getDevelopmentCoverImage,
+  getDevelopmentCoverUrl,
+  getDevelopmentDeveloperName,
+  formatDevelopmentSubtitle,
+  formatDevelopmentLocation,
+  resolveDevelopmentStartingPrice,
+  formatDevelopmentStartingPrice,
+  formatBRLCurrency,
+  type DevelopmentImageItem,
+  type DevelopmentStartingPriceResult,
+} from './development-display';
 
 export interface CreateDevelopmentInput {
   name: string;
@@ -54,11 +67,64 @@ export interface ListDevelopmentsParams {
   limit?: number;
 }
 
+export interface BlockFloorPlan {
+  floor: number;               // Pavimento / andar (0 = térreo, 1..N = andares, <0 = subsolos)
+  label?: string;              // "Térreo", "1º andar", "Cobertura", "Subsolo 1", "Pavimento Técnico"
+  plannedUnitsCount: number;   // Quantidade planejada de unidades (>= 0)
+  unitTypeHint?: string;       // "APARTAMENTO" | "SALA_COMERCIAL" | "COBERTURA" | "STUDIO" | "CASA" | "LOTE"
+  notes?: string;              // Observações internas do pavimento
+}
+
+export function formatDefaultFloorLabel(floor: number): string {
+  if (floor === 0) return 'Térreo';
+  if (floor < 0) return `${Math.abs(floor)}º Subsolo`;
+  return `${floor}º Andar`;
+}
+
+export function normalizeFloorDistribution(raw: any): BlockFloorPlan[] | null {
+  if (!raw || !Array.isArray(raw)) return null;
+  const map = new Map<number, BlockFloorPlan>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const floor = typeof item.floor === 'number' ? Math.trunc(item.floor) : parseInt(String(item.floor), 10);
+    if (Number.isNaN(floor)) continue;
+
+    const plannedUnits = typeof item.plannedUnitsCount === 'number'
+      ? Math.max(0, Math.trunc(item.plannedUnitsCount))
+      : Math.max(0, parseInt(String(item.plannedUnitsCount || 0), 10) || 0);
+
+    const label = typeof item.label === 'string' && item.label.trim()
+      ? item.label.trim()
+      : formatDefaultFloorLabel(floor);
+
+    const unitTypeHint = typeof item.unitTypeHint === 'string' && item.unitTypeHint.trim()
+      ? item.unitTypeHint.trim()
+      : undefined;
+
+    const notes = typeof item.notes === 'string' && item.notes.trim()
+      ? item.notes.trim().slice(0, 500)
+      : undefined;
+
+    map.set(floor, {
+      floor,
+      label,
+      plannedUnitsCount: plannedUnits,
+      unitTypeHint,
+      notes,
+    });
+  }
+
+  if (map.size === 0) return null;
+  return Array.from(map.values()).sort((a, b) => a.floor - b.floor);
+}
+
 export interface CreateBlockInput {
   name: string;
   blockType?: 'TOWER' | 'QUADRA' | 'BLOCO';
   totalFloors?: number | null;
   unitsPerFloor?: number | null;
+  floorDistribution?: BlockFloorPlan[] | null;
   displayOrder?: number;
 }
 
@@ -143,6 +209,8 @@ export function sanitizeDevelopment(dev: any, userRole?: string): any {
     blocks: dev.blocks || [],
     images: dev.images || [],
     typologies: dev.typologies || [],
+    commercialUnits: dev.commercialUnits || [],
+    startingPrice: resolveDevelopmentStartingPrice(dev).minPrice,
     createdAt: dev.createdAt,
     updatedAt: dev.updatedAt,
   };
@@ -280,6 +348,18 @@ export async function getDevelopmentById(
       typologies: {
         orderBy: { price: 'asc' },
       },
+      commercialUnits: {
+        select: {
+          id: true,
+          blockId: true,
+          typologyId: true,
+          commercialStatus: true,
+          listPrice: true,
+          promotionalPrice: true,
+          floor: true,
+          unitCode: true,
+        },
+      },
     },
   });
 
@@ -353,8 +433,20 @@ export async function listDevelopments(
           include: { contact: true },
         },
         images: {
-          where: { isCover: true },
-          take: 1,
+          orderBy: [{ isCover: 'desc' }, { order: 'asc' }],
+          take: 5,
+        },
+        typologies: {
+          select: { id: true, price: true, status: true },
+        },
+        commercialUnits: {
+          where: { commercialStatus: 'DISPONIVEL' },
+          select: {
+            id: true,
+            commercialStatus: true,
+            listPrice: true,
+            promotionalPrice: true,
+          },
         },
       },
     }),
@@ -625,6 +717,7 @@ export async function createDevelopmentBlock(
       blockType: data.blockType || 'TOWER',
       totalFloors: data.totalFloors ?? null,
       unitsPerFloor: data.unitsPerFloor ?? null,
+      floorDistribution: data.floorDistribution !== undefined ? (normalizeFloorDistribution(data.floorDistribution) as any) : undefined,
       displayOrder: data.displayOrder ?? 0,
     },
   });
@@ -666,6 +759,7 @@ export async function updateDevelopmentBlock(
       blockType: data.blockType !== undefined ? data.blockType : undefined,
       totalFloors: data.totalFloors !== undefined ? data.totalFloors : undefined,
       unitsPerFloor: data.unitsPerFloor !== undefined ? data.unitsPerFloor : undefined,
+      floorDistribution: data.floorDistribution !== undefined ? (normalizeFloorDistribution(data.floorDistribution) as any) : undefined,
       displayOrder: data.displayOrder !== undefined ? data.displayOrder : undefined,
     },
   });

@@ -23,7 +23,7 @@ export default function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
     }
   }, [modalOpen]);
 
-  if (pathname === '/login' || pathname.startsWith('/p/')) return null;
+  if (pathname === '/login' || pathname.startsWith('/p/') || pathname.startsWith('/u/')) return null;
 
   return (
     <>

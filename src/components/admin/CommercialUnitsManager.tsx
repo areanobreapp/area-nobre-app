@@ -1,21 +1,24 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Plus,
+  RefreshCw,
   Search,
   Filter,
+  ArrowUpDown,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   DollarSign,
-  CheckCircle2,
   Pencil,
   Trash2,
   AlertCircle,
-  RefreshCw,
-  ArrowUpDown,
   Layers,
+  Table as TableIcon,
+  Home,
+  CheckCircle2,
 } from 'lucide-react';
 import FieldHelper from '@/components/FieldHelper';
 import styles from '@/styles/commercial-units.module.css';
@@ -29,6 +32,8 @@ import {
 import {
   CommercialUnitDetail,
   CommercialUnitStatusBadge,
+  ResaleListingBadge,
+  CapacityBadge,
   formatPricePerSqmText,
   formatUnitFloor,
 } from '@/components/commercial-units/CommercialUnitShared';
@@ -58,10 +63,46 @@ interface CommercialUnitsManagerProps {
 }
 
 type AreaFilterType = 'PRIVATE' | 'TOTAL' | 'BUILT' | 'LAND';
+type ViewMode = 'HIERARCHICAL' | 'TABLE';
+
+interface FloorItem {
+  floor: number;
+  label: string;
+  plannedUnitsCount: number;
+  units: any[];
+  availableCount: number;
+  reservedCount: number;
+  soldCount: number;
+  minAvailablePrice: number | null;
+}
+
+interface BlockHierarchy {
+  blockId: string | null;
+  name: string;
+  blockType: 'TOWER' | 'QUADRA' | 'BLOCO';
+  isVertical: boolean;
+  totalFloors?: number | null;
+  unitsPerFloor?: number | null;
+  plannedUnitsTotal?: number | null;
+  floors: FloorItem[];
+  directUnits: any[];
+  totalUnits: number;
+  availableCount: number;
+  reservedCount: number;
+  soldCount: number;
+  minAvailablePrice: number | null;
+}
+
+function getDefaultFloorLabel(floor: number): string {
+  if (floor === 0) return 'Térreo';
+  if (floor < 0) return `${Math.abs(floor)}º Subsolo`;
+  return `${floor}º Andar`;
+}
 
 /**
  * Gestão administrativa (ADMIN) do estoque oficial de unidades comerciais.
- * Consome exclusivamente as rotas `/api/admin/...`, que exigem perfil ADMIN no servidor.
+ * Suporta navegação hierárquica por Torre -> Pavimento -> Unidade (vertical)
+ * e Quadra -> Unidade (horizontal), além de modo tabela tradicional.
  */
 export function CommercialUnitsManager({
   developmentId,
@@ -81,9 +122,12 @@ export function CommercialUnitsManager({
     maxAvailablePrice: null as number | null,
   });
   const [blockSummaries, setBlockSummaries] = useState<any[]>([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 25, total: 0, totalPages: 1 });
+  const [pagination, setPagination] = useState({ page: 1, limit: 100, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Modo de visualização (Hierárquico / Tabela)
+  const [viewMode, setViewMode] = useState<ViewMode>('HIERARCHICAL');
 
   // Filtros e ordenação
   const [search, setSearch] = useState('');
@@ -101,7 +145,11 @@ export function CommercialUnitsManager({
   const [page, setPage] = useState(1);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Expansão sob demanda
+  // Expansão da hierarquia
+  const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(new Set());
+  const [expandedFloorKeys, setExpandedFloorKeys] = useState<Set<string>>(new Set());
+
+  // Expansão de detalhes da unidade
   const [expandedUnitId, setExpandedUnitId] = useState<string | null>(null);
   const [expandedDetailById, setExpandedDetailById] = useState<Record<string, any>>({});
   const [expandedHistoryById, setExpandedHistoryById] = useState<Record<string, any[]>>({});
@@ -112,6 +160,18 @@ export function CommercialUnitsManager({
   const [editingUnit, setEditingUnit] = useState<any | null>(null);
   const [priceModalUnit, setPriceModalUnit] = useState<any | null>(null);
   const [statusModalUnit, setStatusModalUnit] = useState<any | null>(null);
+
+  const isFilterActive = Boolean(
+    search.trim() ||
+      filterBlockId ||
+      filterUnitType ||
+      filterTypologyId ||
+      filterStatus !== 'ALL' ||
+      minPriceRaw ||
+      maxPriceRaw ||
+      minAreaRaw ||
+      maxAreaRaw
+  );
 
   const fetchUnitsAndSummary = useCallback(async () => {
     setLoading(true);
@@ -142,7 +202,7 @@ export function CommercialUnitsManager({
       params.set('sortBy', sortBy);
       params.set('sortOrder', sortOrder);
       params.set('page', String(page));
-      params.set('limit', '25');
+      params.set('limit', '100');
 
       const [unitsRes, blocksRes] = await Promise.all([
         fetch(`/api/admin/developments/${developmentId}/units?${params.toString()}`),
@@ -152,13 +212,23 @@ export function CommercialUnitsManager({
       const unitsData = await unitsRes.json();
       if (!unitsRes.ok) throw new Error(unitsData.error || 'Erro ao carregar unidades comerciais.');
 
-      setUnits(Array.isArray(unitsData.items) ? unitsData.items : []);
+      const receivedUnits = Array.isArray(unitsData.units)
+        ? unitsData.units
+        : Array.isArray(unitsData.items)
+        ? unitsData.items
+        : [];
+      setUnits(receivedUnits);
       if (unitsData.summary) setSummary(unitsData.summary);
       if (unitsData.pagination) setPagination(unitsData.pagination);
 
       if (blocksRes.ok) {
         const blocksData = await blocksRes.json();
-        setBlockSummaries(Array.isArray(blocksData.items) ? blocksData.items : []);
+        const receivedBlocks = Array.isArray(blocksData.blocks)
+          ? blocksData.blocks
+          : Array.isArray(blocksData.items)
+          ? blocksData.items
+          : [];
+        setBlockSummaries(receivedBlocks);
       }
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar estoque de unidades comerciais.');
@@ -185,6 +255,247 @@ export function CommercialUnitsManager({
   useEffect(() => {
     fetchUnitsAndSummary();
   }, [fetchUnitsAndSummary]);
+
+  // Construção da hierarquia Torre -> Pavimentos -> Unidades ou Quadra -> Unidades
+  const hierarchy = useMemo<BlockHierarchy[]>(() => {
+    // Lista de blocos de referência
+    const blockMap = new Map<string, any>();
+    blockSummaries.forEach((b) => blockMap.set(b.id, b));
+    blocks.forEach((b) => {
+      if (!blockMap.has(b.id)) {
+        blockMap.set(b.id, {
+          ...b,
+          unitStats: { totalUnits: 0, availableUnits: 0, reservedUnits: 0, soldUnits: 0 },
+        });
+      }
+    });
+
+    // Agrupamento de unidades por blockId
+    const unitsByBlock = new Map<string | null, any[]>();
+    units.forEach((u) => {
+      const bId = u.blockId || null;
+      const list = unitsByBlock.get(bId) || [];
+      list.push(u);
+      unitsByBlock.set(bId, list);
+    });
+
+    const result: BlockHierarchy[] = [];
+
+    // Processar cada bloco cadastrado
+    blockMap.forEach((block, bId) => {
+      const blockUnits = unitsByBlock.get(bId) || [];
+      const isVertical = block.blockType === 'TOWER' || (block.blockType === 'BLOCO' && (block.totalFloors > 0 || (block.floorDistribution && block.floorDistribution.length > 0)));
+
+      if (!isVertical) {
+        // Horizontal: Quadras ou Loteamentos sem pavimentos
+        const availableUnits = blockUnits.filter((u) => u.commercialStatus === 'DISPONIVEL');
+        const minAvailablePrice =
+          availableUnits.length > 0
+            ? Math.min(...availableUnits.map((u) => u.effectivePrice || u.listPrice || Infinity))
+            : null;
+
+        result.push({
+          blockId: bId,
+          name: block.name,
+          blockType: block.blockType || 'QUADRA',
+          isVertical: false,
+          totalFloors: null,
+          unitsPerFloor: null,
+          plannedUnitsTotal: block.plannedUnitsTotal ?? null,
+          floors: [],
+          directUnits: blockUnits,
+          totalUnits: blockUnits.length,
+          availableCount: availableUnits.length,
+          reservedCount: blockUnits.filter((u) => u.commercialStatus === 'RESERVADA').length,
+          soldCount: blockUnits.filter((u) => u.commercialStatus === 'VENDIDA').length,
+          minAvailablePrice: minAvailablePrice === Infinity ? null : minAvailablePrice,
+        });
+      } else {
+        // Vertical: Torres e Blocos verticais
+        // Coleta de pavimentos planejados e reais
+        const floorConfigs = new Map<number, { label: string; plannedUnitsCount: number }>();
+
+        if (Array.isArray(block.floorDistribution)) {
+          block.floorDistribution.forEach((fd: any) => {
+            if (typeof fd.floor === 'number') {
+              floorConfigs.set(fd.floor, {
+                label: fd.label || getDefaultFloorLabel(fd.floor),
+                plannedUnitsCount: fd.plannedUnitsCount ?? 0,
+              });
+            }
+          });
+        } else if (block.totalFloors && block.totalFloors > 0) {
+          const defaultPerFloor = block.unitsPerFloor || 0;
+          for (let f = 1; f <= block.totalFloors; f++) {
+            floorConfigs.set(f, {
+              label: getDefaultFloorLabel(f),
+              plannedUnitsCount: defaultPerFloor,
+            });
+          }
+        }
+
+        // Unidades por pavimento
+        const unitsByFloor = new Map<number, any[]>();
+        const directUnits: any[] = [];
+
+        blockUnits.forEach((u) => {
+          if (u.floor != null && typeof u.floor === 'number') {
+            const list = unitsByFloor.get(u.floor) || [];
+            list.push(u);
+            unitsByFloor.set(u.floor, list);
+            if (!floorConfigs.has(u.floor)) {
+              floorConfigs.set(u.floor, {
+                label: getDefaultFloorLabel(u.floor),
+                plannedUnitsCount: 0,
+              });
+            }
+          } else {
+            directUnits.push(u);
+          }
+        });
+
+        // Ordenar pavimentos
+        const sortedFloors = Array.from(floorConfigs.keys()).sort((a, b) => {
+          return sortOrder === 'desc' ? b - a : a - b;
+        });
+
+        const floors: FloorItem[] = sortedFloors.map((flNum) => {
+          const cfg = floorConfigs.get(flNum)!;
+          const flUnits = unitsByFloor.get(flNum) || [];
+          const avail = flUnits.filter((u) => u.commercialStatus === 'DISPONIVEL');
+          const minP =
+            avail.length > 0
+              ? Math.min(...avail.map((u) => u.effectivePrice || u.listPrice || Infinity))
+              : null;
+
+          return {
+            floor: flNum,
+            label: cfg.label,
+            plannedUnitsCount: cfg.plannedUnitsCount,
+            units: flUnits,
+            availableCount: avail.length,
+            reservedCount: flUnits.filter((u) => u.commercialStatus === 'RESERVADA').length,
+            soldCount: flUnits.filter((u) => u.commercialStatus === 'VENDIDA').length,
+            minAvailablePrice: minP === Infinity ? null : minP,
+          };
+        });
+
+        const availTotal = blockUnits.filter((u) => u.commercialStatus === 'DISPONIVEL');
+        const minBlockP =
+          availTotal.length > 0
+            ? Math.min(...availTotal.map((u) => u.effectivePrice || u.listPrice || Infinity))
+            : null;
+
+        result.push({
+          blockId: bId,
+          name: block.name,
+          blockType: block.blockType || 'TOWER',
+          isVertical: true,
+          totalFloors: block.totalFloors ?? null,
+          unitsPerFloor: block.unitsPerFloor ?? null,
+          plannedUnitsTotal: block.plannedUnitsTotal ?? null,
+          floors,
+          directUnits,
+          totalUnits: blockUnits.length,
+          availableCount: availTotal.length,
+          reservedCount: blockUnits.filter((u) => u.commercialStatus === 'RESERVADA').length,
+          soldCount: blockUnits.filter((u) => u.commercialStatus === 'VENDIDA').length,
+          minAvailablePrice: minBlockP === Infinity ? null : minBlockP,
+        });
+      }
+    });
+
+    // Unidades sem bloco vinculado
+    const unassignedUnits = unitsByBlock.get(null) || [];
+    if (unassignedUnits.length > 0) {
+      const avail = unassignedUnits.filter((u) => u.commercialStatus === 'DISPONIVEL');
+      const minP =
+        avail.length > 0
+          ? Math.min(...avail.map((u) => u.effectivePrice || u.listPrice || Infinity))
+          : null;
+
+      result.push({
+        blockId: null,
+        name: 'Geral / Sem Torre Definida',
+        blockType: 'BLOCO',
+        isVertical: false,
+        totalFloors: null,
+        unitsPerFloor: null,
+        plannedUnitsTotal: null,
+        floors: [],
+        directUnits: unassignedUnits,
+        totalUnits: unassignedUnits.length,
+        availableCount: avail.length,
+        reservedCount: unassignedUnits.filter((u) => u.commercialStatus === 'RESERVADA').length,
+        soldCount: unassignedUnits.filter((u) => u.commercialStatus === 'VENDIDA').length,
+        minAvailablePrice: minP === Infinity ? null : minP,
+      });
+    }
+
+    return result;
+  }, [blockSummaries, blocks, units, sortOrder]);
+
+  // Auto-expansão SOMENTE quando o usuário realizar uma busca ativa
+  useEffect(() => {
+    if (hierarchy.length === 0) return;
+
+    const searchTerm = search.trim();
+    if (searchTerm) {
+      // Quando há busca específica por unidade/código/posição, expande os agrupamentos necessários
+      const nextBlocks = new Set<string>();
+      const nextFloors = new Set<string>();
+
+      hierarchy.forEach((b) => {
+        const hasDirect = b.directUnits.length > 0;
+        const floorsWithUnits = b.floors.filter((f) => f.units.length > 0);
+
+        if (hasDirect || floorsWithUnits.length > 0) {
+          nextBlocks.add(b.blockId || 'unassigned');
+          floorsWithUnits.forEach((f) => {
+            nextFloors.add(`${b.blockId || 'unassigned'}-f-${f.floor}`);
+          });
+        }
+      });
+
+      setExpandedBlockIds(nextBlocks);
+      setExpandedFloorKeys(nextFloors);
+    }
+  }, [hierarchy, search]);
+
+  const toggleBlock = (blockKey: string) => {
+    setExpandedBlockIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(blockKey)) next.delete(blockKey);
+      else next.add(blockKey);
+      return next;
+    });
+  };
+
+  const toggleFloor = (floorKey: string) => {
+    setExpandedFloorKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(floorKey)) next.delete(floorKey);
+      else next.add(floorKey);
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => {
+    const allBlocks = new Set<string>();
+    const allFloors = new Set<string>();
+    hierarchy.forEach((b) => {
+      const bKey = b.blockId || 'unassigned';
+      allBlocks.add(bKey);
+      b.floors.forEach((f) => allFloors.add(`${bKey}-f-${f.floor}`));
+    });
+    setExpandedBlockIds(allBlocks);
+    setExpandedFloorKeys(allFloors);
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedBlockIds(new Set());
+    setExpandedFloorKeys(new Set());
+  };
 
   const loadExpandedDetails = useCallback(
     async (unitId: string, force = false) => {
@@ -265,9 +576,175 @@ export function CommercialUnitsManager({
     setPage(1);
   };
 
+  const openCreateWithDefaults = (defaultBlockId?: string | null, defaultFloor?: number | null) => {
+    setEditingUnit({
+      blockId: defaultBlockId || undefined,
+      floor: defaultFloor ?? undefined,
+    });
+    setFormModalOpen(true);
+  };
+
   const openCreate = () => {
     setEditingUnit(null);
     setFormModalOpen(true);
+  };
+
+  // Renderizador de Card individual da unidade (mobile-first)
+  const renderUnitCard = (unit: any) => {
+    const isExpanded = expandedUnitId === unit.id;
+    const primaryArea = resolvePrimaryAreaForSummary(unit);
+    const sqm = formatPricePerSqmText(unit);
+    const typeLabel =
+      COMMERCIAL_UNIT_TYPE_LABELS[(unit.unitType as CommercialUnitType) || 'APARTAMENTO'] || unit.unitType;
+    const detail = expandedDetailById[unit.id] || unit;
+    const historyList = expandedHistoryById[unit.id] || [];
+
+    return (
+      <div key={unit.id} className={styles.unitCard}>
+        <div className={styles.unitCardHeader}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className={styles.unitCardCode}>{unit.unitCode}</span>
+              {unit.resaleSummary?.activeResaleListingsCount > 0 && (
+                <ResaleListingBadge count={unit.resaleSummary.activeResaleListingsCount} />
+              )}
+            </div>
+            <span className={styles.unitCardSub}>
+              {unit.typology?.name ? `${unit.typology.name} • ${typeLabel}` : typeLabel}
+            </span>
+          </div>
+
+          <CommercialUnitStatusBadge
+            status={unit.commercialStatus}
+            onClick={() => setStatusModalUnit(unit)}
+            title="Clique para alterar status"
+          />
+        </div>
+
+        <div className={styles.unitCardBody}>
+          <div className={styles.unitCardRow}>
+            <span style={{ color: '#6B7280' }}>Metragem:</span>
+            <span style={{ fontWeight: 700, color: '#111827' }}>
+              {primaryArea.formatted} <span style={{ fontSize: '0.72rem', color: '#6B7280' }}>({primaryArea.shortLabel})</span>
+            </span>
+          </div>
+
+          <div className={styles.unitCardRow}>
+            <span style={{ color: '#6B7280' }}>Preço de tabela:</span>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontWeight: 800, color: '#1E4620' }}>
+                {formatCurrencyBRL(unit.effectivePrice)}
+              </span>
+              {unit.promotionalPrice != null &&
+                unit.listPrice != null &&
+                unit.promotionalPrice < unit.listPrice && (
+                  <span className={`${styles.cellSub} ${styles.cellStrike}`} style={{ display: 'block' }}>
+                    {formatCurrencyBRL(unit.listPrice)}
+                  </span>
+                )}
+            </div>
+          </div>
+
+          <div className={styles.unitCardRow}>
+            <span style={{ color: '#6B7280' }}>R$/m²:</span>
+            <span
+              style={{ fontWeight: 600, color: sqm.available ? '#374151' : '#9CA3AF' }}
+              title={sqm.basis}
+            >
+              {sqm.value}
+            </span>
+          </div>
+        </div>
+
+        <div className={styles.unitCardActions}>
+          <button
+            type="button"
+            onClick={() => setPriceModalUnit(unit)}
+            className={`${styles.btn} ${styles.btnSecondary} ${styles.btnIcon}`}
+            title="Alterar preço"
+            aria-label={`Alterar preço da unidade ${unit.unitCode}`}
+          >
+            <DollarSign size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingUnit(unit);
+              setFormModalOpen(true);
+            }}
+            className={`${styles.btn} ${styles.btnSecondary} ${styles.btnIcon}`}
+            title="Editar unidade"
+            aria-label={`Editar unidade ${unit.unitCode}`}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDeleteUnit(unit)}
+            className={`${styles.btn} ${styles.btnDanger} ${styles.btnIcon}`}
+            title="Excluir unidade"
+            aria-label={`Excluir unidade ${unit.unitCode}`}
+          >
+            <Trash2 size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleExpandUnit(unit.id)}
+            className={`${styles.btn} ${isExpanded ? styles.btnPrimary : styles.btnSecondary} ${styles.btnSm}`}
+            aria-expanded={isExpanded}
+          >
+            {isExpanded ? 'Recolher' : 'Ver detalhes'}
+            {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+        </div>
+
+        {isExpanded && (
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #E5E7EB' }}>
+            {loadingExpandId === unit.id ? (
+              <div className={styles.loading}>Carregando ficha e histórico da unidade {unit.unitCode}...</div>
+            ) : (
+              <CommercialUnitDetail
+                unit={detail}
+                developmentName={developmentName}
+                isAdmin
+                history={historyList}
+                actions={
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setPriceModalUnit(detail)}
+                      className={`${styles.btn} ${styles.btnSecondary} ${styles.btnSm}`}
+                    >
+                      <DollarSign size={14} />
+                      Alterar preço
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusModalUnit(detail)}
+                      className={`${styles.btn} ${styles.btnSecondary} ${styles.btnSm}`}
+                    >
+                      <CheckCircle2 size={14} />
+                      Alterar disponibilidade
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingUnit(detail);
+                        setFormModalOpen(true);
+                      }}
+                      className={`${styles.btn} ${styles.btnPrimary} ${styles.btnSm}`}
+                    >
+                      <Pencil size={14} />
+                      Editar unidade
+                    </button>
+                  </>
+                }
+              />
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -281,8 +758,7 @@ export function CommercialUnitsManager({
               Estoque oficial de unidades comerciais
             </h2>
             <p className={styles.sectionSubtitle}>
-              Visão resumida do estoque. Use <strong>Ver detalhes</strong> para abrir metragens, características,
-              R$/m², condições e histórico.
+              Gestão hierárquica por pavimento e quadra. Totalmente adaptada para visualização mobile e desktop.
             </p>
           </div>
           <div className={styles.headerActions}>
@@ -648,24 +1124,295 @@ export function CommercialUnitsManager({
         </div>
       )}
 
-      {/* LISTAGEM */}
+      {/* APRESENTAÇÃO E NAVEGAÇÃO DE UNIDADES */}
       <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#111827' }}>
+              Unidades encontradas: {units.length}
+            </span>
+
+            {/* Alternador de visualização */}
+            <div className={styles.viewModeToggle}>
+              <button
+                type="button"
+                onClick={() => setViewMode('HIERARCHICAL')}
+                className={`${styles.viewModeBtn} ${viewMode === 'HIERARCHICAL' ? styles.viewModeBtnActive : ''}`}
+                title="Visualização hierárquica por pavimento e quadra"
+              >
+                <Layers size={14} />
+                <span>Hierárquico</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('TABLE')}
+                className={`${styles.viewModeBtn} ${viewMode === 'TABLE' ? styles.viewModeBtnActive : ''}`}
+                title="Visualização em tabela plana"
+              >
+                <TableIcon size={14} />
+                <span>Tabela</span>
+              </button>
+            </div>
+          </div>
+
+          {viewMode === 'HIERARCHICAL' && hierarchy.length > 0 && (
+            <div className={styles.headerActions}>
+              <button
+                type="button"
+                onClick={handleExpandAll}
+                className={`${styles.btn} ${styles.btnGhost}`}
+                style={{ fontSize: '0.76rem' }}
+              >
+                Expandir tudo
+              </button>
+              <button
+                type="button"
+                onClick={handleCollapseAll}
+                className={`${styles.btn} ${styles.btnGhost}`}
+                style={{ fontSize: '0.76rem' }}
+              >
+                Recolher tudo
+              </button>
+            </div>
+          )}
+        </div>
+
         {loading ? (
           <div className={styles.loading}>Carregando unidades comerciais...</div>
         ) : units.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Building2 size={36} color="var(--text-light)" />
-            <span className={styles.emptyTitle}>Nenhuma unidade comercial encontrada</span>
-            <p className={styles.emptyText}>
-              Cadastre as unidades do empreendimento (apartamentos, coberturas, studios, salas comerciais, casas ou
-              lotes) ou ajuste os filtros selecionados.
-            </p>
-            <button type="button" onClick={openCreate} className={`${styles.btn} ${styles.btnPrimary}`}>
-              <Plus size={16} />
-              Cadastrar unidade
-            </button>
+          summary.totalUnits === 0 ? (
+            /* Sem nenhuma unidade cadastrada */
+            <div className={styles.emptyState}>
+              <Building2 size={40} color="var(--color-primary)" />
+              <span className={styles.emptyTitle}>Nenhuma unidade cadastrada neste empreendimento</span>
+              <p className={styles.emptyText}>
+                Inicie o cadastro das unidades oficiais informando número/código, pavimento ou quadra, tipologia e
+                valores de tabela.
+              </p>
+              <button type="button" onClick={openCreate} className={`${styles.btn} ${styles.btnPrimary}`}>
+                <Plus size={16} />
+                Cadastrar primeira unidade
+              </button>
+            </div>
+          ) : (
+            /* Filtros ativos sem resultados */
+            <div className={styles.emptyState}>
+              <Search size={40} color="var(--text-light)" />
+              <span className={styles.emptyTitle}>Nenhuma unidade comercial encontrada</span>
+              <p className={styles.emptyText}>
+                Nenhum registro corresponde aos filtros selecionados (busca, disponibilidade, tipologia ou faixa de preço).
+              </p>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <button type="button" onClick={resetFilters} className={`${styles.btn} ${styles.btnSecondary}`}>
+                  Limpar filtros
+                </button>
+                <button type="button" onClick={openCreate} className={`${styles.btn} ${styles.btnPrimary}`}>
+                  <Plus size={16} />
+                  Cadastrar unidade
+                </button>
+              </div>
+            </div>
+          )
+        ) : viewMode === 'HIERARCHICAL' ? (
+          /* VISUALIZAÇÃO HIERÁRQUICA MOBILE-FIRST */
+          <div className={styles.hierarchyWrap}>
+            {hierarchy.map((block) => {
+              const bKey = block.blockId || 'unassigned';
+              const isBlockExpanded = expandedBlockIds.has(bKey);
+
+              return (
+                <div key={bKey} className={styles.blockSection}>
+                  <button
+                    type="button"
+                    onClick={() => toggleBlock(bKey)}
+                    className={`${styles.blockHeader} ${isBlockExpanded ? styles.blockHeaderExpanded : ''}`}
+                  >
+                    <div className={styles.blockHeaderLeft}>
+                      {isBlockExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      {block.isVertical ? (
+                        <Building2 size={20} color="#1E4620" />
+                      ) : (
+                        <Home size={20} color="#065F46" />
+                      )}
+                      <div>
+                        <h3 className={styles.blockTitle}>
+                          {block.name}
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6B7280' }}>
+                            ({block.isVertical ? 'Torre vertical' : 'Quadra horizontal'})
+                          </span>
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className={styles.blockHeaderRight}>
+                      {block.plannedUnitsTotal != null && block.plannedUnitsTotal > 0 ? (
+                        <CapacityBadge current={block.totalUnits} planned={block.plannedUnitsTotal} />
+                      ) : (
+                        <CapacityBadge current={block.totalUnits} />
+                      )}
+
+                      {block.availableCount > 0 && (
+                        <span className={`${styles.tag} ${styles.textSuccess}`}>
+                          {block.availableCount} disp.
+                        </span>
+                      )}
+                      {block.reservedCount > 0 && (
+                        <span className={`${styles.tag} ${styles.textWarning}`}>
+                          {block.reservedCount} res.
+                        </span>
+                      )}
+                      {block.soldCount > 0 && (
+                        <span className={styles.tag} style={{ color: '#DC2626' }}>
+                          {block.soldCount} vend.
+                        </span>
+                      )}
+
+                      {block.minAvailablePrice != null && (
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1E4620' }}>
+                          A partir de {formatCurrencyBRL(block.minAvailablePrice, { compact: true })}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+
+                  {isBlockExpanded && (
+                    <div className={styles.blockContent}>
+                      {/* Estrutura vertical: Pavimentos */}
+                      {block.isVertical && (
+                        <>
+                          {block.floors.length === 0 ? (
+                            <div className={styles.emptyState} style={{ padding: '16px' }}>
+                              <span>Nenhum pavimento configurado para esta torre.</span>
+                              <button
+                                type="button"
+                                onClick={() => openCreateWithDefaults(block.blockId, 1)}
+                                className={`${styles.btn} ${styles.btnSecondary} ${styles.btnSm}`}
+                                style={{ marginTop: '8px' }}
+                              >
+                                <Plus size={14} /> Cadastrar unidade
+                              </button>
+                            </div>
+                          ) : (
+                            block.floors.map((floor) => {
+                              const fKey = `${bKey}-f-${floor.floor}`;
+                              const isFloorExpanded = expandedFloorKeys.has(fKey);
+
+                              return (
+                                <div key={fKey} className={styles.floorCard}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFloor(fKey)}
+                                    className={`${styles.floorHeader} ${isFloorExpanded ? styles.floorHeaderExpanded : ''}`}
+                                  >
+                                    <div className={styles.floorHeaderLeft}>
+                                      {isFloorExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                      <span className={styles.floorTitle}>{floor.label}</span>
+                                      {floor.plannedUnitsCount > 0 ? (
+                                        <CapacityBadge current={floor.units.length} planned={floor.plannedUnitsCount} />
+                                      ) : (
+                                        <CapacityBadge current={floor.units.length} />
+                                      )}
+                                    </div>
+
+                                    <div className={styles.floorHeaderRight}>
+                                      {floor.availableCount > 0 && (
+                                        <span className={`${styles.tag} ${styles.textSuccess}`} style={{ fontSize: '0.70rem' }}>
+                                          {floor.availableCount} disp.
+                                        </span>
+                                      )}
+                                      {floor.reservedCount > 0 && (
+                                        <span className={`${styles.tag} ${styles.textWarning}`} style={{ fontSize: '0.70rem' }}>
+                                          {floor.reservedCount} res.
+                                        </span>
+                                      )}
+                                      {floor.soldCount > 0 && (
+                                        <span className={styles.tag} style={{ fontSize: '0.70rem', color: '#DC2626' }}>
+                                          {floor.soldCount} vend.
+                                        </span>
+                                      )}
+
+                                      {floor.minAvailablePrice != null && (
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1E4620' }}>
+                                          A partir de {formatCurrencyBRL(floor.minAvailablePrice, { compact: true })}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </button>
+
+                                  {isFloorExpanded && (
+                                    <div className={styles.floorContent}>
+                                      {floor.units.length === 0 ? (
+                                        <div
+                                          style={{
+                                            padding: '16px',
+                                            textAlign: 'center',
+                                            backgroundColor: '#F9FAFB',
+                                            borderRadius: '6px',
+                                            border: '1px dashed #E5E7EB',
+                                            fontSize: '0.80rem',
+                                            color: '#6B7280',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                          }}
+                                        >
+                                          <span>
+                                            Nenhuma unidade cadastrada neste pavimento
+                                            {floor.plannedUnitsCount > 0
+                                              ? ` (capacidade planejada: ${floor.plannedUnitsCount} un.)`
+                                              : ''}
+                                            .
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => openCreateWithDefaults(block.blockId, floor.floor)}
+                                            className={`${styles.btn} ${styles.btnSecondary} ${styles.btnSm}`}
+                                          >
+                                            <Plus size={14} />
+                                            Cadastrar unidade no {floor.label}
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div className={styles.unitCardsGrid}>
+                                          {floor.units.map(renderUnitCard)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+
+                          {/* Unidades da torre sem andar especificado */}
+                          {block.directUnits.length > 0 && (
+                            <div style={{ marginTop: '10px' }}>
+                              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#6B7280', marginBottom: '8px' }}>
+                                Outras unidades desta torre (sem pavimento atribuído)
+                              </div>
+                              <div className={styles.unitCardsGrid}>
+                                {block.directUnits.map(renderUnitCard)}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* Estrutura horizontal: Quadras e Lotes diretamente */}
+                      {!block.isVertical && (
+                        <div className={styles.unitCardsGrid}>
+                          {block.directUnits.map(renderUnitCard)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
+          /* MODO TABELA PLANA (DESKTOP) */
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
@@ -697,6 +1444,11 @@ export function CommercialUnitsManager({
                         <td data-label="Torre / quadra">{unit.block?.name || unit.quadraName || '—'}</td>
                         <td data-label="Unidade">
                           <span className={styles.cellCode}>{unit.unitCode}</span>
+                          {unit.resaleSummary?.activeResaleListingsCount > 0 && (
+                            <div style={{ marginTop: '3px' }}>
+                              <ResaleListingBadge count={unit.resaleSummary.activeResaleListingsCount} />
+                            </div>
+                          )}
                         </td>
                         <td data-label="Pavimento">{formatUnitFloor(unit)}</td>
                         <td data-label="Tipologia / tipo">

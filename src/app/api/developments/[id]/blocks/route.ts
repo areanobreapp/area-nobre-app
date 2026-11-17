@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       );
     }
 
-    return NextResponse.json({ success: true, blocks }, { status: 200 });
+    return NextResponse.json({ success: true, blocks, items: blocks }, { status: 200 });
   } catch (error: any) {
     console.error('Erro ao consultar torres e quadras do empreendimento:', error);
     return NextResponse.json(

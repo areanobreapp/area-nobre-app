@@ -26,11 +26,13 @@ import {
   Star,
   Trash2,
   X,
+  Image as ImageIcon,
 } from 'lucide-react';
 import AdminNavTabs from '@/components/admin/AdminNavTabs';
 import CompanyContactModal from '@/components/admin/CompanyContactModal';
 import DevelopmentModal from '@/components/admin/DevelopmentModal';
 import { formatCnpj } from '@/lib/company-service';
+import { getDevelopmentCoverUrl } from '@/lib/development-display';
 
 interface CompanyProfilePageProps {
   params: Promise<{ id: string }>;
@@ -720,107 +722,188 @@ export default function CompanyProfilePage({ params }: CompanyProfilePageProps) 
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-              {(company.developments || []).map((dev: any) => (
-                <div
-                  key={dev.id}
-                  style={{
-                    backgroundColor: '#FFFFFF',
-                    borderRadius: '14px',
-                    border: '1px solid #E5E7EB',
-                    padding: '20px',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
-                      <Link
-                        href={`/admin/empreendimentos/${dev.id}`}
-                        style={{
-                          fontSize: '1.05rem',
-                          fontWeight: 800,
-                          color: '#111827',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        {dev.name}
-                      </Link>
+              {(company.developments || []).map((dev: any) => {
+                const coverUrl = getDevelopmentCoverUrl(dev);
+                const commUnitsCount = dev._count?.commercialUnits ?? null;
+
+                return (
+                  <div
+                    key={dev.id}
+                    style={{
+                      backgroundColor: '#FFFFFF',
+                      borderRadius: '14px',
+                      border: '1px solid #E5E7EB',
+                      overflow: 'hidden',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+                    }}
+                  >
+                    {/* Header com Imagem de Capa do Empreendimento */}
+                    <Link
+                      href={`/admin/empreendimentos/${dev.id}`}
+                      style={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '160px',
+                        backgroundColor: '#F3F4F6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        textDecoration: 'none',
+                      }}
+                    >
+                      {coverUrl ? (
+                        <img
+                          src={coverUrl}
+                          alt={dev.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '6px',
+                            color: '#9CA3AF',
+                          }}
+                        >
+                          <ImageIcon size={32} />
+                          <span style={{ fontSize: '0.74rem', fontWeight: 600 }}>Sem foto de capa</span>
+                        </div>
+                      )}
+
+                      {/* Badge de Estágio da Obra */}
                       <span
                         style={{
-                          padding: '3px 8px',
-                          borderRadius: '12px',
+                          position: 'absolute',
+                          top: '10px',
+                          left: '10px',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
                           fontSize: '0.72rem',
                           fontWeight: 800,
-                          backgroundColor: dev.status === 'Ativo' ? '#DEF7EC' : '#F3F4F6',
+                          backgroundColor: 'rgba(255, 255, 255, 0.94)',
+                          color: '#166534',
+                          backdropFilter: 'blur(4px)',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                        }}
+                      >
+                        {dev.stage || 'Em obras'}
+                      </span>
+
+                      {/* Badge de Status / Publicação */}
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: '10px',
+                          right: '10px',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          backgroundColor: dev.status === 'Ativo' ? 'rgba(222, 247, 236, 0.95)' : 'rgba(243, 244, 246, 0.95)',
                           color: dev.status === 'Ativo' ? '#03543F' : '#6B7280',
+                          backdropFilter: 'blur(4px)',
                         }}
                       >
                         {dev.status}
                       </span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.80rem', color: '#6B7280', marginBottom: '12px' }}>
-                      <MapPin size={13} />
-                      <span>{dev.neighborhood ? `${dev.neighborhood}, ` : ''}{dev.city}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-                      <span style={{ fontSize: '0.74rem', backgroundColor: '#F3F4F6', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, color: '#374151' }}>
-                        Estágio: <strong>{dev.stage}</strong>
-                      </span>
-                      {dev.totalUnits && (
-                        <span style={{ fontSize: '0.74rem', backgroundColor: '#F3F4F6', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, color: '#374151' }}>
-                          Unidades: <strong>{dev.totalUnits}</strong>
-                        </span>
-                      )}
-                      {dev.totalTowers && (
-                        <span style={{ fontSize: '0.74rem', backgroundColor: '#F3F4F6', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, color: '#374151' }}>
-                          Torres: <strong>{dev.totalTowers}</strong>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #F3F4F6', paddingTop: '14px' }}>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleDevStatus(dev.id, dev.status)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        fontSize: '0.76rem',
-                        fontWeight: 700,
-                        color: dev.status === 'Ativo' ? '#DC2626' : '#166534',
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
-                    >
-                      {dev.status === 'Ativo' ? 'Pausar / Inativar' : 'Ativar Empreendimento'}
-                    </button>
-
-                    <Link
-                      href={`/admin/empreendimentos/${dev.id}`}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        backgroundColor: '#1E4620',
-                        color: '#FFFFFF',
-                        fontSize: '0.78rem',
-                        fontWeight: 700,
-                        textDecoration: 'none',
-                      }}
-                    >
-                      <Layers size={13} />
-                      <span>Gerenciar Torres e Contatos</span>
                     </Link>
+
+                    {/* Corpo do Card */}
+                    <div style={{ padding: '16px 18px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ marginBottom: '10px' }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '2px' }}>
+                          {company.tradeName || company.name}
+                        </div>
+                        <Link
+                          href={`/admin/empreendimentos/${dev.id}`}
+                          style={{
+                            fontSize: '1.05rem',
+                            fontWeight: 800,
+                            color: '#111827',
+                            textDecoration: 'none',
+                            lineHeight: 1.3,
+                            display: 'block',
+                          }}
+                        >
+                          {dev.name}
+                        </Link>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.80rem', color: '#6B7280', marginBottom: '12px' }}>
+                        <MapPin size={13} color="#166534" />
+                        <span>{dev.neighborhood ? `${dev.neighborhood}, ` : ''}{dev.city}</span>
+                      </div>
+
+                      {/* Resumo Comercial e Escala */}
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px', marginTop: 'auto' }}>
+                        {commUnitsCount !== null && (
+                          <span style={{ fontSize: '0.74rem', backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', padding: '3px 8px', borderRadius: '6px', fontWeight: 700, color: '#065F46' }}>
+                            Estoque: <strong>{commUnitsCount} un.</strong>
+                          </span>
+                        )}
+                        {dev.totalUnits && (
+                          <span style={{ fontSize: '0.74rem', backgroundColor: '#F3F4F6', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, color: '#374151' }}>
+                            Total: <strong>{dev.totalUnits} un.</strong>
+                          </span>
+                        )}
+                        {dev.totalTowers && (
+                          <span style={{ fontSize: '0.74rem', backgroundColor: '#F3F4F6', padding: '3px 8px', borderRadius: '6px', fontWeight: 600, color: '#374151' }}>
+                            Torres: <strong>{dev.totalTowers}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #F3F4F6', paddingTop: '12px', marginTop: 'auto' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDevStatus(dev.id, dev.status)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            color: dev.status === 'Ativo' ? '#DC2626' : '#166534',
+                            cursor: 'pointer',
+                            padding: 0,
+                          }}
+                        >
+                          {dev.status === 'Ativo' ? 'Pausar / Inativar' : 'Ativar Empreendimento'}
+                        </button>
+
+                        <Link
+                          href={`/admin/empreendimentos/${dev.id}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#1E4620',
+                            color: '#FFFFFF',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <Layers size={13} />
+                          <span>Gerenciar Torres e Unidades</span>
+                        </Link>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

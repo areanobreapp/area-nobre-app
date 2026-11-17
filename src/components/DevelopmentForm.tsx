@@ -24,13 +24,14 @@ import {
   Car,
   Maximize2,
   Compass,
-  Link2,
-  Search,
   Sparkles,
   Eye,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import FieldHelper from './FieldHelper';
 import CompanySelectAutocomplete, { CompanyOption } from '@/components/admin/CompanySelectAutocomplete';
+import TypologyPlantsManager from '@/components/admin/TypologyPlantsManager';
 
 const LocationPickerModal = dynamic(() => import('./LocationPickerModal'), { ssr: false });
 
@@ -137,6 +138,59 @@ const PROPERTY_TYPES = [
 
 const TYPOLOGY_STATUSES = ['Disponível', 'Reservada', 'Esgotada'];
 
+
+function getTypologySummaryText(t: TypologyInput, commercialUnits: any[] = []): {
+  name: string;
+  areaLabel: string;
+  suitesLabel: string;
+  bedroomsLabel: string;
+  unitsCountLabel: string;
+  summaryLine: string;
+} {
+  const name = t.name?.trim() || 'Sem nome';
+
+  // Metragem correspondente à natureza do imóvel (nunca "Área útil" para apartamentos)
+  const propType = (t.propertyType || '').toLowerCase();
+  const isHouse = propType.includes('casa');
+  const isLot = propType.includes('lote') || propType.includes('terreno');
+
+  let areaLabel = 'Metragem a definir';
+  if (isHouse) {
+    const val = t.builtArea || t.privateArea || t.totalArea;
+    if (val) areaLabel = `${val} m² (Área construída)`;
+  } else if (isLot) {
+    const val = t.totalArea || t.privateArea;
+    if (val) areaLabel = `${val} m² (Área do terreno)`;
+  } else {
+    // Apartamento, Studio, Sala comercial, Cobertura, etc.
+    const val = t.privateArea || t.totalArea;
+    if (val) areaLabel = `${val} m² (Área privativa)`;
+  }
+
+  // Suítes
+  const suitesVal = Math.max(0, Number(t.suites) || 0);
+  const suitesLabel = suitesVal === 1 ? '1 suíte' : suitesVal > 1 ? `${suitesVal} suítes` : 'Sem suíte';
+
+  // Dormitórios totais
+  const otherVal = Math.max(0, parseInt(String(t.otherBedrooms ?? 0), 10) || 0);
+  const totalBed = suitesVal + otherVal;
+  const bedroomsLabel = totalBed === 1 ? '1 dormitório' : totalBed > 1 ? `${totalBed} dormitórios` : 'Sem dormitórios';
+
+  // Unidades comerciais vinculadas reais
+  const linkedUnitsCount = t.id && Array.isArray(commercialUnits)
+    ? commercialUnits.filter((u: any) => u.typologyId === t.id).length
+    : 0;
+
+  const unitsCountLabel =
+    linkedUnitsCount === 0
+      ? 'Nenhuma unidade vinculada'
+      : `${linkedUnitsCount} ${linkedUnitsCount === 1 ? 'unidade' : 'unidades'}`;
+
+  const summaryLine = `${name} | ${areaLabel} | ${suitesLabel} | ${bedroomsLabel} | ${unitsCountLabel}`;
+
+  return { name, areaLabel, suitesLabel, bedroomsLabel, unitsCountLabel, summaryLine };
+}
+
 export default function DevelopmentForm({
   initialData,
   isEditing = false,
@@ -205,12 +259,8 @@ export default function DevelopmentForm({
   const [longitude, setLongitude] = useState(initialData?.longitude ? String(initialData.longitude) : '');
   const [geoPrecision, setGeoPrecision] = useState<{ precision?: 'precise' | 'approximate'; precisionLevel?: string } | null>(null);
 
-  // Vínculo com Edifício da Base Cartográfica (Building)
-  const [buildingId, setBuildingId] = useState<string>(initialData?.buildingId || '');
-  const [selectedBuilding, setSelectedBuilding] = useState<any>(initialData?.building || null);
-  const [buildingSearch, setBuildingSearch] = useState<string>('');
-  const [buildingResults, setBuildingResults] = useState<any[]>([]);
-  const [searchingBuildings, setSearchingBuildings] = useState<boolean>(false);
+  // Campo buildingId mantido opcional no backend para retrocompatibilidade
+  const [buildingId] = useState<string>(initialData?.buildingId || '');
 
   // Pré-carrega construtora quando iniciado a partir do perfil da construtora (?companyId=...)
   useEffect(() => {
@@ -237,30 +287,6 @@ export default function DevelopmentForm({
         .catch(() => {});
     }
   }, [initialCompanyId, initialData?.company]);
-
-  // Busca de edifícios na base cartográfica para vinculação opcional sem duplicação
-  useEffect(() => {
-    const q = buildingSearch.trim();
-    if (q.length < 2) {
-      setBuildingResults([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setSearchingBuildings(true);
-      try {
-        const res = await fetch(`/api/buildings?search=${encodeURIComponent(q)}&limit=8`);
-        if (res.ok) {
-          const json = await res.json();
-          setBuildingResults(json.buildings || json.data || []);
-        }
-      } catch {
-        // ignore
-      } finally {
-        setSearchingBuildings(false);
-      }
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [buildingSearch]);
 
   // Fotos
   const [images, setImages] = useState<string[]>(
@@ -366,6 +392,25 @@ export default function DevelopmentForm({
     ];
   });
 
+  // Por padrão, todas as tipologias existentes iniciam recolhidas
+  const [expandedTypologies, setExpandedTypologies] = useState<Record<number, boolean>>({});
+
+  const toggleTypology = (index: number) => {
+    setExpandedTypologies((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const handleExpandAllTypologies = () => {
+    const all: Record<number, boolean> = {};
+    typologies.forEach((_, idx) => {
+      all[idx] = true;
+    });
+    setExpandedTypologies(all);
+  };
+
+  const handleCollapseAllTypologies = () => {
+    setExpandedTypologies({});
+  };
+
   // Helpers para formatação de moeda
   function formatCurrency(val: string) {
     const clean = val.replace(/\D/g, '');
@@ -470,6 +515,7 @@ export default function DevelopmentForm({
         : projectType === 'LOTEAMENTO'
         ? 'Outro'
         : 'Apartamento';
+    setExpandedTypologies((prev) => ({ ...prev, [typologies.length]: true }));
     setTypologies((prev) => [
       ...prev,
       {
@@ -512,6 +558,106 @@ export default function DevelopmentForm({
       copy[index] = { ...copy[index], [field]: value };
       return copy;
     });
+  }
+
+  // Salvar tipologia individual e liberar plantas imediatamente (Etapa 6C.1)
+  const [savingTypologyIdx, setSavingTypologyIdx] = useState<number | null>(null);
+
+  async function handleSaveTypologyAndEnablePlants(idx: number) {
+    const t = typologies[idx];
+    if (!t) return;
+
+    if (!initialData?.id) {
+      alert('Para anexar plantas, salve primeiro os dados básicos do formulário principal do empreendimento.');
+      return;
+    }
+
+    if (!t.name || !t.name.trim()) {
+      alert(`Por favor, dê um nome à tipologia #${idx + 1} antes de salvar.`);
+      return;
+    }
+
+    setSavingTypologyIdx(idx);
+    try {
+      const parsedSuites = Math.max(0, Number(t.suites) || 0);
+      const hasOtherBed = t.otherBedrooms !== undefined && t.otherBedrooms !== null && t.otherBedrooms !== '';
+      const parsedOtherBed = hasOtherBed ? Math.max(0, parseInt(String(t.otherBedrooms), 10) || 0) : null;
+      const bedrooms = parsedOtherBed !== null ? parsedSuites + parsedOtherBed : Number(t.bedrooms) || parsedSuites;
+
+      const hasSocial = t.isClassifyingBaths && t.socialBathrooms !== undefined && t.socialBathrooms !== null && t.socialBathrooms !== '';
+      const hasLavabos = t.isClassifyingBaths && t.lavabos !== undefined && t.lavabos !== null && t.lavabos !== '';
+      const socialBathrooms = hasSocial ? Math.max(0, parseInt(String(t.socialBathrooms), 10) || 0) : null;
+      const lavabos = hasLavabos ? Math.max(0, parseInt(String(t.lavabos), 10) || 0) : null;
+
+      let bathrooms = Number(t.bathrooms) || parsedSuites;
+      if (t.isClassifyingBaths && (hasSocial || hasLavabos)) {
+        bathrooms = parsedSuites + (socialBathrooms ?? 0) + (lavabos ?? 0);
+      } else if (!t.isClassifyingBaths && t.legacyBathrooms != null) {
+        bathrooms = t.legacyBathrooms;
+      }
+
+      const hasCovered = t.isClassifyingParking && t.coveredParkingSpaces !== undefined && t.coveredParkingSpaces !== null && t.coveredParkingSpaces !== '';
+      const hasUncovered = t.isClassifyingParking && t.uncoveredParkingSpaces !== undefined && t.uncoveredParkingSpaces !== null && t.uncoveredParkingSpaces !== '';
+      const coveredParkingSpaces = hasCovered ? Math.max(0, parseInt(String(t.coveredParkingSpaces), 10) || 0) : null;
+      const uncoveredParkingSpaces = hasUncovered ? Math.max(0, parseInt(String(t.uncoveredParkingSpaces), 10) || 0) : null;
+
+      let parkingSpaces = Number(t.parkingSpaces) || 0;
+      if (t.isClassifyingParking && (hasCovered || hasUncovered)) {
+        parkingSpaces = (coveredParkingSpaces ?? 0) + (uncoveredParkingSpaces ?? 0);
+      } else if (!t.isClassifyingParking && t.legacyParkingSpaces != null) {
+        parkingSpaces = t.legacyParkingSpaces;
+      }
+
+      const rawPrice = t.price ? String(t.price).replace(/\D/g, '') : '';
+      const priceNum = rawPrice ? parseFloat(rawPrice) : 0;
+
+      const payload = {
+        name: t.name.trim(),
+        propertyType: t.propertyType || 'Apartamento',
+        price: priceNum,
+        privateArea: t.privateArea || null,
+        builtArea: t.builtArea || null,
+        totalArea: t.totalArea || null,
+        suites: parsedSuites,
+        otherBedrooms: parsedOtherBed,
+        bedrooms,
+        socialBathrooms,
+        lavabos,
+        bathrooms,
+        coveredParkingSpaces,
+        uncoveredParkingSpaces,
+        parkingSpaces,
+        status: t.status || 'Disponível',
+        notes: t.notes?.trim() || null,
+      };
+
+      const res = await fetch(`/api/developments/${initialData.id}/typologies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao salvar tipologia.');
+      }
+
+      if (data.typology?.id) {
+        setTypologies((prev) => {
+          const copy = [...prev];
+          copy[idx] = {
+            ...copy[idx],
+            id: data.typology.id,
+          };
+          return copy;
+        });
+      }
+    } catch (err: any) {
+      console.error('Erro ao salvar tipologia atômica:', err);
+      alert(err.message || 'Falha ao salvar tipologia.');
+    } finally {
+      setSavingTypologyIdx(null);
+    }
   }
 
   // Submit
@@ -1603,187 +1749,6 @@ export default function DevelopmentForm({
             title="Localização do Empreendimento no Mapa"
           />
         )}
-
-        {/* Associação Opcional com Edifício da Base Cartográfica (Building) */}
-        <div
-          style={{
-            marginTop: '8px',
-            padding: '16px',
-            borderRadius: 'var(--radius-md)',
-            border: '1px solid var(--border-light)',
-            backgroundColor: '#F8FAFC',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Link2 size={18} color="var(--color-primary)" />
-              <div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Vínculo com Edifício da Base Cartográfica (Opcional)
-                </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                  Associe este empreendimento a um edifício já existente na base predial do mapa sem criar registros duplicados.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {buildingId && selectedBuilding ? (
-            <div
-              id="card-edificio-vinculado"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '10px',
-                padding: '12px 14px',
-                backgroundColor: '#EFF6FF',
-                border: '1px solid #BFDBFE',
-                borderRadius: 'var(--radius-sm)',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#1E40AF' }}>
-                  Edifício vinculado: {selectedBuilding.name}
-                </div>
-                <div style={{ fontSize: '0.76rem', color: '#1E3A8A' }}>
-                  ID: {buildingId}
-                  {selectedBuilding.latitude != null && selectedBuilding.longitude != null
-                    ? ` • Coordenadas cartográficas: ${Number(selectedBuilding.latitude).toFixed(5)}, ${Number(selectedBuilding.longitude).toFixed(5)}`
-                    : ''}
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {(!latitude || !longitude) &&
-                  selectedBuilding.latitude != null &&
-                  selectedBuilding.longitude != null && (
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => {
-                        setLatitude(String(selectedBuilding.latitude));
-                        setLongitude(String(selectedBuilding.longitude));
-                      }}
-                      style={{ padding: '6px 10px', fontSize: '0.78rem' }}
-                    >
-                      Usar coordenadas do edifício
-                    </button>
-                  )}
-                <button
-                  type="button"
-                  id="btn-desvincular-edificio"
-                  onClick={() => {
-                    setBuildingId('');
-                    setSelectedBuilding(null);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: '1px solid #FECACA',
-                    backgroundColor: '#FEF2F2',
-                    color: '#B91C1C',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '6px 10px',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Desvincular
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ position: 'relative' }}>
-              <div style={{ position: 'relative' }}>
-                <Search
-                  size={16}
-                  color="#9CA3AF"
-                  style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}
-                />
-                <input
-                  type="text"
-                  id="input-busca-edificio"
-                  value={buildingSearch}
-                  onChange={(e) => setBuildingSearch(e.target.value)}
-                  placeholder="Pesquisar edifício existente na base cartográfica pelo nome ou endereço..."
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px 9px 36px',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-light)',
-                    fontSize: '0.86rem',
-                    backgroundColor: 'white',
-                  }}
-                />
-              </div>
-              {searchingBuildings && (
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  Pesquisando edifícios na base cartográfica...
-                </div>
-              )}
-              {buildingResults.length > 0 && (
-                <div
-                  style={{
-                    marginTop: '6px',
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'white',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  }}
-                >
-                  {buildingResults.map((b: any) => (
-                    <button
-                      type="button"
-                      key={b.id}
-                      id={`building-option-${b.id}`}
-                      onClick={() => {
-                        setBuildingId(b.id);
-                        setSelectedBuilding(b);
-                        setBuildingSearch('');
-                        setBuildingResults([]);
-                        if ((!latitude || !longitude) && b.latitude != null && b.longitude != null) {
-                          setLatitude(String(b.latitude));
-                          setLongitude(String(b.longitude));
-                        }
-                      }}
-                      style={{
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '9px 12px',
-                        border: 'none',
-                        borderBottom: '1px solid #F1F5F9',
-                        backgroundColor: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: '8px',
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          {b.name}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          {b.address || b.neighborhood || b.city || 'Base cartográfica'}
-                        </div>
-                      </div>
-                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--color-primary)' }}>
-                        Vincular
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* BLOCO 3: Identidade Visual (Fachada Principal e Galeria) */}
@@ -1939,16 +1904,54 @@ export default function DevelopmentForm({
             </div>
           </div>
 
-          <button
-            type="button"
-            id="btn-add-typology"
-            onClick={handleAddTypology}
-            className="btn-secondary"
-            style={{ padding: '8px 14px', fontSize: '0.86rem' }}
-          >
-            <Plus size={16} />
-            <span>Adicionar Tipologia</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {typologies.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleExpandAllTypologies}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: '#FFFFFF',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Expandir todas
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCollapseAllTypologies}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border-light)',
+                    backgroundColor: '#FFFFFF',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Recolher todas
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              id="btn-add-typology"
+              onClick={handleAddTypology}
+              className="btn-secondary"
+              style={{ padding: '8px 14px', fontSize: '0.86rem' }}
+            >
+              <Plus size={16} />
+              <span>Adicionar Tipologia</span>
+            </button>
+          </div>
         </div>
 
         {/* Lista de Tipologias */}
@@ -1986,22 +1989,107 @@ export default function DevelopmentForm({
               : (t.legacyParkingSpaces ?? (parsedCovered + parsedUncovered));
 
             const isHouseType = t.propertyType === 'Casa em Condomínio' || t.propertyType === 'Casa';
+            const isExpanded = Boolean(expandedTypologies[idx]);
+            const summary = getTypologySummaryText(t, initialData?.commercialUnits || []);
 
             return (
               <div
                 key={t.id || idx}
                 style={{
-                  padding: '20px',
                   borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-light)',
+                  border: isExpanded ? '1px solid var(--color-primary)' : '1px solid var(--border-light)',
                   backgroundColor: 'white',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '18px',
+                  overflow: 'hidden',
                   position: 'relative',
                   boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  transition: 'border-color 0.15s ease',
                 }}
               >
+                {/* Linha Resumida (Accordion Header) */}
+                <div
+                  onClick={() => toggleTypology(idx)}
+                  style={{
+                    padding: '12px 16px',
+                    backgroundColor: isExpanded ? '#F0FDF4' : '#F9FAFB',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    borderBottom: isExpanded ? '1px solid var(--border-light)' : 'none',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        fontSize: '0.78rem',
+                        fontWeight: 800,
+                        color: 'var(--color-primary)',
+                        backgroundColor: '#DCFCE7',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      #{idx + 1}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.88rem',
+                        fontWeight: 700,
+                        color: 'var(--text-primary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={summary.summaryLine}
+                    >
+                      {summary.summaryLine}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveTypology(idx);
+                      }}
+                      title="Remover Tipologia"
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        color: 'var(--color-danger)',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        padding: '4px',
+                      }}
+                    >
+                      <Trash2 size={14} />
+                      <span className="hidden sm:inline">Remover</span>
+                    </button>
+                    {isExpanded ? (
+                      <ChevronUp size={18} color="var(--text-secondary)" />
+                    ) : (
+                      <ChevronDown size={18} color="var(--text-secondary)" />
+                    )}
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div
+                    style={{
+                      padding: '20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '18px',
+                    }}
+                  >
                 {/* Topo do Card da Tipologia */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', borderBottom: '1px solid var(--border-light)', paddingBottom: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2604,9 +2692,20 @@ export default function DevelopmentForm({
                     }}
                   />
                 </div>
+
+                {/* Plantas da Tipologia (Etapa 6C.1) */}
+                <TypologyPlantsManager
+                  developmentId={initialData?.id || ''}
+                  typologyId={t.id}
+                  typologyName={t.name || `Tipo ${String.fromCharCode(65 + idx)}`}
+                  onSaveTypologyAndEnablePlants={() => handleSaveTypologyAndEnablePlants(idx)}
+                  isSavingTypology={savingTypologyIdx === idx}
+                />
               </div>
-            );
-          })}
+            )}
+          </div>
+        );
+      })}
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import type { CommercialUnitStatus, CommercialUnitType } from './commercial-unit-service';
-import { resolvePrimaryArea } from './commercial-unit-rules';
+import { resolvePrimaryArea, getUnitCategory } from './commercial-unit-rules';
 
 export const COMMERCIAL_UNIT_TYPE_LABELS: Record<CommercialUnitType, string> = {
   APARTAMENTO: 'Apartamento',
@@ -241,4 +241,18 @@ export function resolvePrimaryAreaForSummary(unit: {
     label: primary.label,
     shortLabel: primary.shortLabel,
   };
+}
+
+/**
+ * Formata o pavimento/andar da unidade comercial (ex: "2º andar", "Térreo", "—").
+ */
+export function formatUnitFloor(
+  unit: { unitType?: string | null; floor?: number | null },
+  long = false
+): string {
+  if (getUnitCategory(unit.unitType) === 'LOT' || unit.floor == null) {
+    return long ? 'Não aplicável' : '—';
+  }
+  if (unit.floor === 0) return 'Térreo';
+  return long ? `${unit.floor}º andar` : `${unit.floor}º`;
 }

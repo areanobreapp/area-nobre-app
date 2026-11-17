@@ -37,6 +37,10 @@ import SharePropertyModal from '@/components/SharePropertyModal';
 import { PropertyCompactFeatures } from '@/components/PropertyFeaturesDisplay';
 import { getWhatsAppUrl } from '@/lib/whatsapp';
 import { consolidateMatches } from '@/lib/geo/property-grouping';
+import {
+  getDevelopmentCoverUrl,
+  formatDevelopmentSubtitle,
+} from '@/lib/development-display';
 
 const SearchMatchesMap = dynamic(() => import('@/components/SearchMatchesMap'), { ssr: false });
 
@@ -733,7 +737,7 @@ export default function BuscaDetalhesPage({
                 ? `${m.typology?.development?.name} — ${m.typology?.name}`
                 : m.property?.title;
               const offerImage = isTypology
-                ? m.typology?.development?.images?.[0]?.url || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&auto=format&fit=crop&q=80'
+                ? getDevelopmentCoverUrl(m.typology?.development) || 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&auto=format&fit=crop&q=80'
                 : m.property?.images?.[0]?.url || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&auto=format&fit=crop&q=80';
               const offerPrice = isTypology ? m.typology?.price : m.property?.price;
               const offerCity = isTypology ? m.typology?.development?.city : m.property?.city;
@@ -847,7 +851,7 @@ export default function BuscaDetalhesPage({
                           fontSize: '1rem',
                           fontWeight: 800,
                           color: 'var(--text-main)',
-                          margin: '0 0 4px 0',
+                          margin: '0 0 2px 0',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -855,6 +859,12 @@ export default function BuscaDetalhesPage({
                       >
                         {offerTitle}
                       </h3>
+
+                      {isTypology && (
+                        <div style={{ fontSize: '0.76rem', color: '#166534', fontWeight: 700, marginBottom: 4 }}>
+                          {formatDevelopmentSubtitle(m.typology?.development)}
+                        </div>
+                      )}
 
                       <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--color-primary)', marginBottom: 6 }}>
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(offerPrice || 0)}

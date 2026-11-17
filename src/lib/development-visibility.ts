@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { resolveDevelopmentStartingPrice } from './development-display';
 
 /**
  * ÁREA NOBRE — BLOCO 6A.6
@@ -207,21 +208,24 @@ export function buildDevelopmentVisibleByIdWhere(
 export function sanitizeDevelopmentForViewer<T extends Record<string, any>>(
   dev: T,
   viewer: DevelopmentViewer
-): T & { publicationStatus: DevelopmentPublicationStatus } {
+): T & { publicationStatus: DevelopmentPublicationStatus; startingPrice?: number | null } {
   const admin = isAdminViewer(viewer);
   const owner = !dev.companyId && (dev.userId === viewer.id || dev.responsibleBrokerId === viewer.id);
   const publicationStatus = resolvePublicationStatus(dev.status);
+  const startingPrice = resolveDevelopmentStartingPrice(dev).minPrice;
 
   if (admin || owner) {
     return {
       ...dev,
       publicationStatus,
+      startingPrice,
     };
   }
 
   return {
     ...dev,
     publicationStatus,
+    startingPrice,
     internalNotes: null,
     typologies: Array.isArray(dev.typologies)
       ? dev.typologies.map((t: any) => ({ ...t, notes: null }))

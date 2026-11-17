@@ -65,26 +65,70 @@ export async function generateUniquePublicId(prismaClient: any): Promise<string>
  * Retorna e normaliza a URL base da aplicação respeitando o ambiente (localhost vs homologação vs produção).
  *
  * Regras:
- * 1. Prioriza configuração explícita via APP_PUBLIC_URL ou NEXT_PUBLIC_APP_URL.
- * 2. Em ambiente de homologação remoto na Vercel (se VERCEL_URL estiver disponível e a URL explícita não tiver sido configurada),
- *    utiliza https://${VERCEL_URL} para evitar fallback silencioso para localhost.
+ * 1. Em produção ou homologação com domínio remoto explícito configurado:
+ *    - Utiliza o domínio canônico oficial configurado via APP_PUBLIC_URL ou NEXT_PUBLIC_APP_URL.
+ *    - Em ambiente Vercel, utiliza https://${VERCEL_URL}.
+ * 2. Em desenvolvimento local (ou quando a URL configurada apontar para localhost/127.0.0.1):
+ *    - Se uma requisição (req) for informada, utiliza de forma segura o host e protocolo efetivos da requisição,
+ *      garantindo fidelidade absoluta à porta local onde o servidor está atendendo.
+ *    - Se nenhuma requisição for informada, utiliza o valor sanitizado de APP_PUBLIC_URL ou o padrão seguro 'http://localhost:3000'.
  * 3. Sanitiza espaços e barras finais.
- * 4. Mantém http://localhost:3000 como fallback seguro padrão de desenvolvimento local.
  */
-export function getAppBaseUrl(): string {
+export function getAppBaseUrl(req?: Request | Headers | null): string {
   const isHomologation =
     process.env.APP_ENV === 'homologation' ||
     process.env.NEXT_PUBLIC_APP_ENV === 'homologation';
 
-  const rawUrl = (process.env.APP_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim();
-  if (rawUrl) {
-    return rawUrl.replace(/\/+$/, '');
+  const rawUrl = (process.env.APP_PUBLIC_URL || process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+  const isExplicitRemoteDomain = Boolean(
+    rawUrl &&
+      !rawUrl.includes('localhost') &&
+      !rawUrl.includes('127.0.0.1') &&
+      !rawUrl.includes('0.0.0.0')
+  );
+
+  // 1. Domínio oficial remoto explícito (produção / homologação remota com domínio próprio)
+  if (isExplicitRemoteDomain) {
+    return rawUrl;
   }
 
+  // 2. Ambiente Vercel de homologação/preview
   if (isHomologation && process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL.trim().replace(/\/+$/, '')}`;
   }
 
+  // 3. Desenvolvimento local: inspeciona com segurança o host da requisição ativa se fornecido
+  if (req) {
+    try {
+      let host: string | null = null;
+      let proto = 'http';
+
+      if ('headers' in req && typeof req.headers?.get === 'function') {
+        host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+        proto = req.headers.get('x-forwarded-proto') || 'http';
+      } else if (typeof (req as any).get === 'function') {
+        host = (req as any).get('x-forwarded-host') || (req as any).get('host');
+        proto = (req as any).get('x-forwarded-proto') || 'http';
+      }
+
+      if (host) {
+        const hostname = host.split(':')[0];
+        // Valida que o host seja estritamente um endereço local para evitar open-redirect
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+          return `${proto}://${host}`;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Configuração local explícita sanitizada
+  if (rawUrl) {
+    return rawUrl;
+  }
+
+  // 5. Fallback padrão seguro de desenvolvimento local
   return 'http://localhost:3000';
 }
 

@@ -501,6 +501,7 @@ model DevelopmentBlock {
   blockType     String       @default("TOWER") // "TOWER" | "QUADRA" | "BLOCO"
   totalFloors   Int?         // Quantidade de pavimentos (se vertical)
   unitsPerFloor Int?         // Unidades por pavimento (se vertical)
+  floorDistribution Json?    // Configuração individual dos pavimentos (array de BlockFloorPlan)
   displayOrder  Int          @default(0)
   
   createdAt     DateTime     @default(now())

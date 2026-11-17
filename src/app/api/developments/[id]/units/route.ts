@@ -38,6 +38,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       {
         success: true,
         units: result.items,
+        items: result.items,
         pagination: result.pagination,
         summary: result.summary,
       },
