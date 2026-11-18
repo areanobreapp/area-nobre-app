@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import {
+  assertTypologyPlantOwnership,
   createCommercialMaterial,
   updateCommercialMaterial,
-  deleteCommercialMaterial,
+  validateMaterialLinkForTypology,
 } from '@/lib/commercial-material-service';
 import {
   uploadCommercialMaterialFile,
-  validateMaterialMagicBytes,
+  validateTypologyPlantFile,
 } from '@/lib/material-storage';
 
 interface RouteContext {
@@ -87,9 +88,9 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      const magicCheck = validateMaterialMagicBytes(buffer, file.name);
-      if (!magicCheck.valid) {
-        return NextResponse.json({ error: magicCheck.error }, { status: 400 });
+      const plantCheck = validateTypologyPlantFile(buffer, file.name, file.type);
+      if (!plantCheck.valid) {
+        return NextResponse.json({ error: plantCheck.error }, { status: 400 });
       }
 
       // Upload seguro para o Supabase Storage ou fallback local
@@ -136,11 +137,16 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ success: true, plant: material }, { status: 201 });
     }
 
-    // Caso 2: JSON payload (vinculação de material existente ou link externo)
+    // Caso 2: JSON payload (vinculação de material existente)
     const body = await req.json();
     const { materialId, isPrimary } = body;
 
     if (materialId) {
+      const linkCheck = await validateMaterialLinkForTypology(typology, materialId, prisma);
+      if (!linkCheck.allowed) {
+        return NextResponse.json({ error: linkCheck.error }, { status: linkCheck.status });
+      }
+
       if (isPrimary) {
         await prisma.commercialMaterial.updateMany({
           where: { typologyId, category: 'PLANTA_TIPOLOGIA' },
@@ -177,6 +183,12 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     if (!materialId) {
       return NextResponse.json({ error: 'materialId é obrigatório.' }, { status: 400 });
+    }
+
+    // MEL-01: Confirma que o materialId pertence à tipologia da rota (rejeita operações cruzadas)
+    const ownership = await assertTypologyPlantOwnership(typologyId, materialId, prisma);
+    if (!ownership.allowed) {
+      return NextResponse.json({ error: ownership.error }, { status: ownership.status });
     }
 
     // Se solicitada definição como principal:
@@ -227,7 +239,13 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ error: 'materialId é obrigatório.' }, { status: 400 });
     }
 
-    // Desvincula a planta da tipologia mantendo integridade
+    // MEL-01: Confirma que o materialId pertence à tipologia da rota antes de desvincular
+    const ownership = await assertTypologyPlantOwnership(typologyId, materialId, prisma);
+    if (!ownership.allowed) {
+      return NextResponse.json({ error: ownership.error }, { status: ownership.status });
+    }
+
+    // Desvincula a planta da tipologia mantendo integridade (sem excluir fisicamente o material)
     await prisma.commercialMaterial.update({
       where: { id: materialId },
       data: { typologyId: null },

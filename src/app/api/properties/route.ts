@@ -235,7 +235,20 @@ export async function GET(req: NextRequest) {
     const isUserAdmin = user.role === 'ADMIN';
     const sanitizedProperties = properties.map((p) => {
       const isOwner = p.responsibleBrokerId === user.id || p.userId === user.id || isUserAdmin;
-      if (isOwner) return p;
+      const serializedSharedPrice =
+        p.physicalProperty?.sharedPrice != null ? Number(p.physicalProperty.sharedPrice) : null;
+
+      if (isOwner) {
+        return {
+          ...p,
+          physicalProperty: p.physicalProperty
+            ? {
+                ...p.physicalProperty,
+                sharedPrice: serializedSharedPrice,
+              }
+            : null,
+        };
+      }
       return {
         ...p,
         internalNotes: null,
@@ -246,7 +259,7 @@ export async function GET(req: NextRequest) {
         physicalProperty: p.physicalProperty
           ? {
               id: p.physicalProperty.id,
-              sharedPrice: p.physicalProperty.sharedPrice,
+              sharedPrice: serializedSharedPrice,
               activeListingsCount: p.physicalProperty.activeListingsCount,
               primaryListingId: p.physicalProperty.primaryListingId,
               listings: p.physicalProperty.listings,

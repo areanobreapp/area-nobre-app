@@ -254,3 +254,59 @@ export const DEVELOPMENT_BUILDING_SELECT = {
   status: true,
 } as const;
 
+export interface DevelopmentPublicShareCheckResult {
+  allowed: boolean;
+  reasonCode?: 'NOT_FOUND' | 'DEVELOPMENT_NOT_PUBLISHED' | 'COMPANY_INACTIVE';
+  reason?: string;
+}
+
+/**
+ * Regra centralizada (FUNC-02 / Bloco 6A.6) para verificar se um empreendimento
+ * está apto para compartilhamento público e consulta externa de suas unidades/materiais:
+ * - O empreendimento deve existir e estar com status conceitual 'PUBLICADO' (status === 'Ativo').
+ * - Se possuir construtora oficial vinculada (companyId != null), a construtora deve estar 'ACTIVE'.
+ * - Se não possuir construtora vinculada (registro legado), preserva o comportamento atual exigindo apenas 'PUBLICADO'.
+ */
+export function isDevelopmentPubliclyShareable(
+  dev:
+    | {
+        status?: string | null;
+        companyId?: string | null;
+        company?: { status?: string | null } | null;
+      }
+    | null
+    | undefined
+): DevelopmentPublicShareCheckResult {
+  if (!dev) {
+    return {
+      allowed: false,
+      reasonCode: 'NOT_FOUND',
+      reason: 'Empreendimento não encontrado.',
+    };
+  }
+
+  const pubStatus = resolvePublicationStatus(dev.status);
+  if (pubStatus !== 'PUBLICADO') {
+    return {
+      allowed: false,
+      reasonCode: 'DEVELOPMENT_NOT_PUBLISHED',
+      reason: 'Este empreendimento não está disponível para consulta pública no momento.',
+    };
+  }
+
+  const hasCompanyLink = Boolean(dev.companyId && String(dev.companyId).trim() !== '');
+  if (hasCompanyLink || dev.company) {
+    const companyStatus = (dev.company?.status || '').trim().toUpperCase();
+    if (companyStatus !== 'ACTIVE') {
+      return {
+        allowed: false,
+        reasonCode: 'COMPANY_INACTIVE',
+        reason: 'Este empreendimento não está disponível para divulgação pública no momento.',
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
+

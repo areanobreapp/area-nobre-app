@@ -14,6 +14,7 @@ import {
   unitTypeHasBedrooms,
   unitTypeHasBathrooms,
 } from '@/lib/commercial-unit-rules';
+import { serializeDecimalToNumber } from '@/lib/property-display';
 
 export type CommercialUnitType =
   | 'APARTAMENTO'
@@ -1555,8 +1556,7 @@ export function sanitizeCommercialUnitForViewer<T extends Record<string, any>>(
           typeof physicalProp.activeListingsCount === 'number'
             ? physicalProp.activeListingsCount
             : activeResaleListings.length,
-        sharedResalePrice:
-          physicalProp.sharedPrice != null ? Number(physicalProp.sharedPrice) : null,
+        sharedResalePrice: serializeDecimalToNumber(physicalProp.sharedPrice),
         activeResaleListingIds: activeResaleListings.map((l: any) => l.id),
       }
     : {
@@ -1567,9 +1567,19 @@ export function sanitizeCommercialUnitForViewer<T extends Record<string, any>>(
         activeResaleListingIds: [] as string[],
       };
 
+  const normalizedPhysicalProperty = unit.physicalProperty
+    ? {
+        ...unit.physicalProperty,
+        sharedPrice: serializeDecimalToNumber(unit.physicalProperty.sharedPrice),
+      }
+    : unit.physicalProperty;
+
   if (admin) {
     return {
       ...unit,
+      ...(unit.physicalProperty !== undefined
+        ? { physicalProperty: normalizedPhysicalProperty }
+        : {}),
       ...derived,
       resaleSummary,
     };
@@ -1588,6 +1598,9 @@ export function sanitizeCommercialUnitForViewer<T extends Record<string, any>>(
 
   return {
     ...(brokerSafeUnit as T),
+    ...(unit.physicalProperty !== undefined
+      ? { physicalProperty: normalizedPhysicalProperty }
+      : {}),
     ...derived,
     internalNotes: null,
     reservedByNote: null,

@@ -4,7 +4,7 @@ import {
   getPublicCommercialUnitUrl,
 } from '@/lib/commercial-unit-share';
 import CommercialUnitPublicView from '@/components/commercial-units/CommercialUnitPublicView';
-import { Building2, AlertCircle } from 'lucide-react';
+import { AlertCircle, MessageCircle } from 'lucide-react';
 import { formatCurrencyBRL } from '@/lib/commercial-unit-format';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!result || !result.isAvailable || !result.data) {
     return {
-      title: 'Unidade Indisponível | Área Nobre',
+      title: `${result?.unavailabilityTitle || 'Unidade Indisponível'} | Área Nobre`,
       description: 'Esta apresentação comercial não está disponível no momento.',
       robots: { index: false, follow: false },
     };
@@ -55,8 +55,12 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
   const result = await resolvePublicCommercialUnit(token);
   const publicUrl = getPublicCommercialUnitUrl(token);
 
-  // Se a unidade não existir, o token for inválido/adulterado, o corretor estiver inativo ou o empreendimento for despublicado:
+  // Se a unidade estiver indisponível (VENDIDA, INDISPONIVEL_TEMPORARIAMENTE, empreendimento não publicado, token inválido, etc.):
   if (!result || !result.isAvailable || !result.data) {
+    const broker = result?.broker;
+    const isTemporarilyUnavailable =
+      result?.unavailabilityCode === 'UNIT_TEMPORARILY_UNAVAILABLE';
+
     return (
       <div
         style={{
@@ -71,7 +75,7 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
       >
         <div
           style={{
-            maxWidth: '440px',
+            maxWidth: '460px',
             width: '100%',
             backgroundColor: '#FFFFFF',
             borderRadius: '16px',
@@ -86,8 +90,8 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
               width: '56px',
               height: '56px',
               borderRadius: '50%',
-              backgroundColor: '#FEF2F2',
-              color: '#DC2626',
+              backgroundColor: isTemporarilyUnavailable ? '#FEF3C7' : '#FEF2F2',
+              color: isTemporarilyUnavailable ? '#B45309' : '#DC2626',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -105,7 +109,7 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
               margin: '0 0 8px',
             }}
           >
-            Apresentação Indisponível
+            {result?.unavailabilityTitle || 'Apresentação Indisponível'}
           </h1>
 
           <p
@@ -119,6 +123,65 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
             {result?.unavailabilityReason ||
               'Esta unidade comercial não está disponível para visualização pública no momento. Entre em contato diretamente com o corretor responsável para mais detalhes.'}
           </p>
+
+          {/* Preserva a identificação do corretor responsável quando o link é válido (FUNC-01) */}
+          {broker && (
+            <div
+              style={{
+                backgroundColor: '#F8FAFC',
+                border: '1px solid #E2E8F0',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '20px',
+                textAlign: 'left',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#166534',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  marginBottom: '6px',
+                }}
+              >
+                Corretor Responsável
+              </div>
+              <div style={{ fontSize: '0.96rem', fontWeight: 800, color: '#0F172A' }}>
+                {broker.commercialName}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '2px' }}>
+                {broker.creci ? `CRECI: ${broker.creci} • ` : ''}
+                {broker.formattedPhone || broker.city || 'Atendimento Autorizado'}
+              </div>
+
+              {broker.hasWhatsApp && broker.whatsappUrl && (
+                <a
+                  href={broker.whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    marginTop: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    backgroundColor: '#25D366',
+                    color: '#FFFFFF',
+                    borderRadius: '8px',
+                    fontSize: '0.86rem',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                  }}
+                >
+                  <MessageCircle size={16} />
+                  <span>Falar com o Corretor no WhatsApp</span>
+                </a>
+              )}
+            </div>
+          )}
 
           <div
             style={{
@@ -137,3 +200,4 @@ export default async function PublicCommercialUnitPage({ params }: PageProps) {
 
   return <CommercialUnitPublicView data={result.data} publicUrl={publicUrl} />;
 }
+

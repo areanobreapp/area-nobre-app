@@ -36,6 +36,8 @@ const HomeMap = dynamic(() => import('@/components/HomeMap'), {
   ),
 });
 
-export default function HomeMapClient(props: any) {
+import type { HomeMapProps } from '@/components/HomeMap';
+
+export default function HomeMapClient(props: HomeMapProps) {
   return <HomeMap {...props} />;
 }

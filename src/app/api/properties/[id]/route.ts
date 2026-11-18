@@ -208,7 +208,15 @@ export async function GET(
       exchangeNotes: (!isOwner && !isAdmin) ? null : property.exchangeNotes,
       registryNumber: (!isOwner && !isAdmin) ? null : property.registryNumber,
       boundary: (!isOwner && !isAdmin) ? null : property.boundary,
-      physicalProperty: property.physicalProperty,
+      physicalProperty: property.physicalProperty
+        ? {
+            ...property.physicalProperty,
+            sharedPrice:
+              property.physicalProperty.sharedPrice != null
+                ? Number(property.physicalProperty.sharedPrice)
+                : null,
+          }
+        : null,
       matches: formattedMatches,
       authorizationState: exposureCheck,
     };

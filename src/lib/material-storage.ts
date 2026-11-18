@@ -27,6 +27,29 @@ export const ALLOWED_MATERIAL_MIMES = [
   'text/plain',
 ];
 
+export const ALLOWED_PLANT_EXTENSIONS = [
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+] as const;
+
+export const ALLOWED_PLANT_MIMES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const;
+
+const PLANT_EXTENSION_TO_MIME: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
 /**
  * Validação rigorosa de Magic Bytes para documentos e mídias
  */
@@ -115,6 +138,90 @@ export function validateMaterialMagicBytes(
   return {
     valid: false,
     error: `Formato de arquivo não suportado ou assinatura binária inválida para '${ext}'. Formatos aceitos: PDF, XLSX, XLS, CSV, JPG, PNG e WEBP.`,
+  };
+}
+
+/**
+ * Validação estrita para upload de Plantas de Tipologia (MEL-01):
+ * - Preserva limite de 25 MB (MAX_MATERIAL_SIZE_BYTES).
+ * - Restringe exclusivamente aos formatos PDF, JPEG, PNG e WEBP.
+ * - Rejeita planilhas (XLS, XLSX, CSV) e arquivos executáveis/outros.
+ * - Valida extensão, tipo MIME declarado (quando informado) e assinatura binária real (magic bytes),
+ *   exigindo correspondência entre a extensão e a assinatura binária.
+ */
+export function validateTypologyPlantFile(
+  buffer: Buffer,
+  filename: string,
+  declaredMime?: string | null
+): { valid: boolean; detectedMime?: string; extension?: string; error?: string } {
+  if (!buffer || buffer.length < 4) {
+    return { valid: false, error: 'Arquivo de planta inválido ou vazio.' };
+  }
+
+  if (buffer.length > MAX_MATERIAL_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: `O arquivo excede o limite máximo permitido de ${MAX_MATERIAL_SIZE_BYTES / (1024 * 1024)}MB.`,
+    };
+  }
+
+  const ext = path.extname(filename || '').toLowerCase();
+  if (!ext || !(ALLOWED_PLANT_EXTENSIONS as readonly string[]).includes(ext)) {
+    return {
+      valid: false,
+      error: `Extensão '${ext || 'desconhecida'}' não permitida para plantas de tipologia. Formatos aceitos exclusivamente: PDF, JPG, JPEG, PNG e WEBP.`,
+    };
+  }
+
+  if (declaredMime && declaredMime.trim() && declaredMime.trim().toLowerCase() !== 'application/octet-stream') {
+    const cleanDeclared = declaredMime.trim().toLowerCase().split(';')[0];
+    if (!(ALLOWED_PLANT_MIMES as readonly string[]).includes(cleanDeclared)) {
+      return {
+        valid: false,
+        error: `Tipo de arquivo declarado ('${cleanDeclared}') não permitido para plantas. Envie apenas PDF, JPEG, PNG ou WEBP.`,
+      };
+    }
+  }
+
+  const magic = validateMaterialMagicBytes(buffer, filename);
+  if (!magic.valid || !magic.detectedMime) {
+    return {
+      valid: false,
+      error:
+        magic.error ||
+        'Assinatura binária inválida para planta de tipologia. Formatos aceitos: PDF, JPEG, PNG e WEBP.',
+    };
+  }
+
+  if (!(ALLOWED_PLANT_MIMES as readonly string[]).includes(magic.detectedMime)) {
+    return {
+      valid: false,
+      error: 'Formato não permitido para plantas de tipologia (planilhas XLS, XLSX e CSV não são aceitas). Envie apenas PDF, JPEG, PNG ou WEBP.',
+    };
+  }
+
+  const expectedMimeForExt = PLANT_EXTENSION_TO_MIME[ext];
+  if (expectedMimeForExt && expectedMimeForExt !== magic.detectedMime) {
+    return {
+      valid: false,
+      error: `O conteúdo real do arquivo (${magic.detectedMime}) não corresponde à extensão informada (${ext}).`,
+    };
+  }
+
+  if (declaredMime && declaredMime.trim() && declaredMime.trim().toLowerCase() !== 'application/octet-stream') {
+    const cleanDeclared = declaredMime.trim().toLowerCase().split(';')[0];
+    if (cleanDeclared !== magic.detectedMime) {
+      return {
+        valid: false,
+        error: `O tipo declarado (${cleanDeclared}) diverge da assinatura binária real do arquivo (${magic.detectedMime}).`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    detectedMime: magic.detectedMime,
+    extension: ext.replace('.', ''),
   };
 }
 

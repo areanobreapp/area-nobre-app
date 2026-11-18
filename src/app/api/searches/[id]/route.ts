@@ -159,6 +159,20 @@ export async function GET(
       }
       return {
         ...m,
+        property: m.property
+          ? {
+              ...m.property,
+              physicalProperty: m.property.physicalProperty
+                ? {
+                    ...m.property.physicalProperty,
+                    sharedPrice:
+                      m.property.physicalProperty.sharedPrice != null
+                        ? Number(m.property.physicalProperty.sharedPrice)
+                        : null,
+                  }
+                : null,
+            }
+          : null,
         parsedExplanation,
       };
     });

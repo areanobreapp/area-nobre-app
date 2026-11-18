@@ -1,5 +1,7 @@
 import { PrismaClient, CommercialMaterial } from '@prisma/client';
 import { prisma as defaultPrisma } from './db';
+import { isDevelopmentPubliclyShareable } from './development-visibility';
+import { evaluateCommercialUnitShareStatus } from './commercial-unit-share';
 
 export const MATERIAL_CATEGORIES = [
   { value: 'FOLDER_COMERCIAL', label: 'Folder Comercial' },
@@ -251,7 +253,7 @@ export async function listCommercialMaterialsForBroker(
 }
 
 /**
- * Busca Material por ID com verificação rigorosa de autorização
+ * Busca Material por ID com verificação rigorosa de autorização (rotas internas autenticadas)
  */
 export async function getMaterialWithAuthCheck(
   materialId: string,
@@ -261,7 +263,16 @@ export async function getMaterialWithAuthCheck(
   const material = await prismaClient.commercialMaterial.findUnique({
     where: { id: materialId },
     include: {
-      development: { select: { id: true, name: true, status: true } },
+      development: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          companyId: true,
+          company: { select: { id: true, status: true } },
+        },
+      },
+      company: { select: { id: true, status: true } },
       typology: { select: { id: true, name: true, propertyType: true } },
     },
   });
@@ -272,6 +283,10 @@ export async function getMaterialWithAuthCheck(
 
   const isAdmin = viewer?.role === 'ADMIN';
   const isBroker = viewer?.role === 'BROKER' || viewer?.role === 'USER';
+
+  if (!isAdmin && !material.isActive) {
+    return { material: null, status: 404, error: 'Material não disponível.' };
+  }
 
   // 1. Material ADMIN_ONLY: apenas administradores
   if (material.visibility === 'ADMIN_ONLY') {
@@ -286,21 +301,257 @@ export async function getMaterialWithAuthCheck(
     if (!isAdmin && !isBroker) {
       return { material: null, status: 401, error: 'Autenticação necessária para acessar este material.' };
     }
-    // Verifica se o empreendimento está ativo
-    if (!isAdmin && material.development?.status !== 'Ativo') {
-      return { material: null, status: 403, error: 'Empreendimento não disponível para consulta.' };
+    if (!isAdmin) {
+      if (material.development && !isDevelopmentPubliclyShareable(material.development).allowed) {
+        return { material: null, status: 403, error: 'Empreendimento não disponível para consulta.' };
+      }
+      if (material.company && material.company.status !== 'ACTIVE') {
+        return { material: null, status: 403, error: 'Construtora inativa.' };
+      }
     }
     return { material, status: 200, error: null };
   }
 
   // 3. Material PUBLIC: acesso público permitido
   if (material.visibility === 'PUBLIC') {
-    // Se o empreendimento estiver arquivado e não for admin, bloqueia
-    if (!isAdmin && material.development?.status === 'Inativo') {
-      return { material: null, status: 403, error: 'Empreendimento inativo.' };
+    if (!isAdmin) {
+      if (material.development && !isDevelopmentPubliclyShareable(material.development).allowed) {
+        return { material: null, status: 403, error: 'Empreendimento não disponível para consulta.' };
+      }
+      if (material.company && material.company.status !== 'ACTIVE') {
+        return { material: null, status: 403, error: 'Construtora inativa.' };
+      }
     }
     return { material, status: 200, error: null };
   }
 
   return { material: null, status: 403, error: 'Acesso não autorizado.' };
 }
+
+/**
+ * Busca Material Público por ID para rotas sem autenticação (/api/public/materials/[id]/view e /download).
+ * Valida (MEL-02 / FUNC-01 / FUNC-02):
+ * - Existência e status ativo do material (isActive === true).
+ * - Visibilidade PUBLIC e autorização de compartilhamento (allowBrokerShare === true).
+ * - Permissão de download (allowDownload === true) quando requireDownload === true.
+ * - Empreendimento publicado e construtora ativa.
+ * - Quando vinculado diretamente a uma unidade comercial (commercialUnitId), a unidade deve estar publicamente ativa (DISPONIVEL ou RESERVADA).
+ */
+export async function getPublicMaterialWithAuthCheck(
+  materialId: string,
+  options?: { requireDownload?: boolean },
+  prismaClient: any = defaultPrisma
+) {
+  const material = await prismaClient.commercialMaterial.findUnique({
+    where: { id: materialId },
+    include: {
+      development: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          companyId: true,
+          company: { select: { id: true, status: true } },
+        },
+      },
+      company: { select: { id: true, status: true } },
+      commercialUnit: {
+        select: {
+          id: true,
+          commercialStatus: true,
+        },
+      },
+    },
+  });
+
+  if (!material || !material.isActive) {
+    return { material: null, status: 404, error: 'Material comercial não encontrado.' };
+  }
+
+  if (material.visibility !== 'PUBLIC') {
+    return {
+      material: null,
+      status: 403,
+      error: 'Este material não possui autorização para acesso público. Autenticação exigida.',
+    };
+  }
+
+  if (!material.allowBrokerShare) {
+    return {
+      material: null,
+      status: 403,
+      error: 'O compartilhamento deste material não foi autorizado.',
+    };
+  }
+
+  if (options?.requireDownload && !material.allowDownload) {
+    return {
+      material: null,
+      status: 403,
+      error: 'O download deste material não foi autorizado.',
+    };
+  }
+
+  if (material.development) {
+    const devCheck = isDevelopmentPubliclyShareable(material.development);
+    if (!devCheck.allowed) {
+      return {
+        material: null,
+        status: 403,
+        error: devCheck.reason || 'Empreendimento não disponível para consulta pública.',
+      };
+    }
+  }
+
+  if (material.company && material.company.status !== 'ACTIVE') {
+    return {
+      material: null,
+      status: 403,
+      error: 'Este material não está disponível para consulta pública no momento.',
+    };
+  }
+
+  if (material.commercialUnit) {
+    const unitEval = evaluateCommercialUnitShareStatus(material.commercialUnit.commercialStatus);
+    if (!unitEval.isPubliclyActive) {
+      return {
+        material: null,
+        status: 403,
+        error: 'A unidade associada a este material não está mais disponível para consulta pública.',
+      };
+    }
+  }
+
+  return { material, status: 200, error: null };
+}
+
+/**
+ * Confirma que um materialId pertence estritamente ao typologyId informado na rota (MEL-01).
+ * Rejeita operações cruzadas entre tipologias nos métodos PATCH e DELETE.
+ */
+export async function assertTypologyPlantOwnership(
+  typologyId: string,
+  materialId: string,
+  prismaClient: any = defaultPrisma
+): Promise<{
+  allowed: boolean;
+  status: number;
+  error?: string;
+  material?: any;
+}> {
+  if (!typologyId || !materialId) {
+    return {
+      allowed: false,
+      status: 400,
+      error: 'typologyId e materialId são obrigatórios.',
+    };
+  }
+
+  const material = await prismaClient.commercialMaterial.findUnique({
+    where: { id: materialId },
+    select: {
+      id: true,
+      typologyId: true,
+      developmentId: true,
+      category: true,
+      fileExtension: true,
+      fileType: true,
+    },
+  });
+
+  if (!material) {
+    return {
+      allowed: false,
+      status: 404,
+      error: 'Planta não encontrada.',
+    };
+  }
+
+  if (material.typologyId !== typologyId) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Operação negada: o material informado não pertence a esta tipologia.',
+    };
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    material,
+  };
+}
+
+/**
+ * Valida se um material existente pode ser vinculado a uma tipologia via POST JSON (MEL-01):
+ * - Deve pertencer ao mesmo empreendimento (developmentId).
+ * - Não pode estar vinculado a outra tipologia diferente.
+ * - Não pode ser planilha (XLS, XLSX, CSV).
+ */
+export async function validateMaterialLinkForTypology(
+  typology: { id: string; developmentId: string },
+  materialId: string,
+  prismaClient: any = defaultPrisma
+): Promise<{
+  allowed: boolean;
+  status: number;
+  error?: string;
+  material?: any;
+}> {
+  const material = await prismaClient.commercialMaterial.findUnique({
+    where: { id: materialId },
+    select: {
+      id: true,
+      typologyId: true,
+      developmentId: true,
+      fileExtension: true,
+      fileType: true,
+    },
+  });
+
+  if (!material) {
+    return {
+      allowed: false,
+      status: 404,
+      error: 'Material não encontrado.',
+    };
+  }
+
+  if (material.developmentId && material.developmentId !== typology.developmentId) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Operação negada: o material pertence a outro empreendimento.',
+    };
+  }
+
+  if (material.typologyId && material.typologyId !== typology.id) {
+    return {
+      allowed: false,
+      status: 403,
+      error: 'Operação negada: o material já está vinculado a outra tipologia.',
+    };
+  }
+
+  const ext = (material.fileExtension || '').toLowerCase().replace('.', '');
+  const mime = (material.fileType || '').toLowerCase();
+  if (
+    ['xls', 'xlsx', 'csv'].includes(ext) ||
+    mime.includes('spreadsheet') ||
+    mime.includes('excel') ||
+    mime.includes('csv')
+  ) {
+    return {
+      allowed: false,
+      status: 400,
+      error: 'Planilhas (XLS, XLSX, CSV) não podem ser vinculadas como planta de tipologia.',
+    };
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    material,
+  };
+}
+

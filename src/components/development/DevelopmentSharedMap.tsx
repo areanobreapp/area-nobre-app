@@ -20,6 +20,34 @@ export interface DevelopmentSharedMapProps {
   longitude: number | null;
 }
 
+function escapePopupHtml(text?: string | null): string {
+  if (!text) return '';
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildMarkerPopupHtml(
+  developmentName: string,
+  address?: string | null,
+  number?: string | null
+): string {
+  const safeName = escapePopupHtml(developmentName);
+  const safeAddr = address
+    ? `${escapePopupHtml(address)}${number ? `, ${escapePopupHtml(number)}` : ''}`
+    : '';
+  return `
+    <div style="font-family: inherit; font-size: 13px; line-height: 1.4; padding: 2px;">
+      <strong style="color: #111827;">${safeName}</strong><br/>
+      <span style="color: #1E4620; font-weight: 700;">Localização do Empreendimento</span>
+      ${safeAddr ? `<br/><span style="color: #6B7280; font-size: 11px;">${safeAddr}</span>` : ''}
+    </div>
+  `;
+}
+
 export default function DevelopmentSharedMap({
   developmentName,
   address,
@@ -35,7 +63,12 @@ export default function DevelopmentSharedMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
   const [activeBaseMap, setActiveBaseMap] = useState<BaseMapType>('street');
+  const activeBaseMapRef = useRef<BaseMapType>('street');
+  const popupInfoRef = useRef({ developmentName, address, number });
+
+  popupInfoRef.current = { developmentName, address, number };
 
   const hasCoords =
     latitude !== null &&
@@ -52,10 +85,12 @@ export default function DevelopmentSharedMap({
     .filter(Boolean)
     .join(' • ');
 
+  // 1. Inicialização do mapa: depende exclusivamente das coordenadas (UI-02: nunca recria o mapa ao alternar Rua/Satélite)
   useEffect(() => {
     if (!hasCoords || !containerRef.current || typeof window === 'undefined') return;
 
     let isCancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function initMap() {
       const L = (await import('leaflet')).default;
@@ -64,6 +99,8 @@ export default function DevelopmentSharedMap({
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
+        tileLayerRef.current = null;
+        markerRef.current = null;
       }
 
       const map = L.map(containerRef.current, {
@@ -74,7 +111,7 @@ export default function DevelopmentSharedMap({
         attributionControl: false,
       });
 
-      const tileLayer = createBaseMapTileLayer(activeBaseMap);
+      const tileLayer = createBaseMapTileLayer(activeBaseMapRef.current);
       tileLayer.addTo(map);
       tileLayerRef.current = tileLayer;
 
@@ -101,21 +138,15 @@ export default function DevelopmentSharedMap({
       });
 
       const marker = L.marker([latitude!, longitude!], { icon: needleIcon });
-      marker.bindPopup(`
-        <div style="font-family: inherit; font-size: 13px; line-height: 1.4; padding: 2px;">
-          <strong style="color: #111827;">${developmentName}</strong><br/>
-          <span style="color: #1E4620; font-weight: 700;">Localização do Empreendimento</span>
-          ${address ? `<br/><span style="color: #6B7280; font-size: 11px;">${address}${number ? `, ${number}` : ''}</span>` : ''}
-        </div>
-      `);
-
+      const { developmentName: initName, address: initAddr, number: initNum } = popupInfoRef.current;
+      marker.bindPopup(buildMarkerPopupHtml(initName, initAddr, initNum));
       marker.addTo(map);
+      markerRef.current = marker;
 
       map.setView([latitude!, longitude!], 17);
       mapRef.current = map;
 
-      // Observador de redimensionamento
-      let resizeObserver: ResizeObserver | null = null;
+      // Observador de redimensionamento com cleanup garantido
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
         resizeObserver = new ResizeObserver(() => {
           if (mapRef.current) {
@@ -130,20 +161,41 @@ export default function DevelopmentSharedMap({
 
     return () => {
       isCancelled = true;
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
       }
+      tileLayerRef.current = null;
+      markerRef.current = null;
     };
-  }, [hasCoords, latitude, longitude, developmentName, address, number, activeBaseMap]);
+  }, [hasCoords, latitude, longitude]);
 
+  // 2. Atualiza apenas o texto do popup caso nome ou endereço mudem, sem recriar mapa nem fechar popup
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.setPopupContent(
+        buildMarkerPopupHtml(developmentName, address, number)
+      );
+    }
+  }, [developmentName, address, number]);
+
+  // 3. Alterna apenas a camada cartográfica (Rua / Satélite) preservando centro, zoom, marcador e popup aberto
   function handleBaseMapChange(newType: BaseMapType) {
+    if (newType === activeBaseMapRef.current) return;
+    activeBaseMapRef.current = newType;
     setActiveBaseMap(newType);
-    if (mapRef.current && tileLayerRef.current) {
-      mapRef.current.removeLayer(tileLayerRef.current);
-      const newLayer = createBaseMapTileLayer(newType);
-      newLayer.addTo(mapRef.current);
-      tileLayerRef.current = newLayer;
+
+    if (mapRef.current) {
+      const nextLayer = createBaseMapTileLayer(newType);
+      nextLayer.addTo(mapRef.current);
+      if (tileLayerRef.current) {
+        mapRef.current.removeLayer(tileLayerRef.current);
+      }
+      tileLayerRef.current = nextLayer;
     }
   }
 

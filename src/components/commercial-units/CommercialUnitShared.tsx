@@ -273,6 +273,9 @@ export function CommercialUnitDetail({
             { label: 'Área total (fração ideal)', value: unit.totalArea, helpKey: 'totalArea' },
           ];
 
+  const canShareUnit =
+    unit.commercialStatus === 'DISPONIVEL' || unit.commercialStatus === 'RESERVADA';
+
   return (
     <div className={styles.detail}>
       <div className={styles.detailHeader}>
@@ -286,22 +289,30 @@ export function CommercialUnitDetail({
           <button
             type="button"
             id={`btn-compartilhar-unidade-${(unit.unitCode || 'unidade').toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
-            onClick={() => setShowShareModal(true)}
+            onClick={() => {
+              if (canShareUnit) setShowShareModal(true);
+            }}
+            disabled={!canShareUnit}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
               padding: '6px 12px',
-              backgroundColor: '#F1F5F9',
-              color: '#1E4620',
+              backgroundColor: canShareUnit ? '#F1F5F9' : '#F8FAFC',
+              color: canShareUnit ? '#1E4620' : '#94A3B8',
               border: '1px solid #CBD5E1',
               borderRadius: '6px',
               fontSize: '0.80rem',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: canShareUnit ? 'pointer' : 'not-allowed',
+              opacity: canShareUnit ? 1 : 0.7,
               transition: 'all 0.15s ease',
             }}
-            title="Compartilhar Unidade com Cliente"
+            title={
+              canShareUnit
+                ? 'Compartilhar Unidade com Cliente'
+                : 'Unidades vendidas ou indisponíveis temporariamente não permitem novos links de compartilhamento'
+            }
           >
             <Share2 size={14} />
             <span>Compartilhar Unidade</span>

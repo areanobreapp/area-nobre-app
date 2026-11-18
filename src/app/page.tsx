@@ -3,6 +3,8 @@ import { getCurrentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { MATCH_THRESHOLD } from '@/lib/matching/config';
 import HomeMapClient from '@/components/HomeMapClient';
+import type { PropertyItem, InitialDevelopmentItem } from '@/components/HomeMap';
+import { serializePhysicalPropertyForClient } from '@/lib/property-display';
 import {
   buildDevelopmentWhere,
   DEVELOPMENT_BUILDING_SELECT,
@@ -286,12 +288,20 @@ export default async function HomePage({
       : null,
   ]);
 
-  // Sanitização de campos privados para imóveis/empreendimentos de outros corretores
+  // Sanitização de campos privados e serialização explícita de Decimal (SER-01) para Client Components
   const isUserAdmin = user.role === 'ADMIN';
 
-  const properties = rawProperties.map((p) => {
+  const properties: PropertyItem[] = rawProperties.map((p) => {
     const isOwner = p.responsibleBrokerId === user.id || p.userId === user.id || isUserAdmin;
-    if (isOwner) return p;
+    const serializedPhysical = serializePhysicalPropertyForClient(p.physicalProperty);
+
+    if (isOwner) {
+      return {
+        ...p,
+        physicalProperty: serializedPhysical,
+      };
+    }
+
     return {
       ...p,
       internalNotes: null,
@@ -299,10 +309,13 @@ export default async function HomePage({
       registryNumber: null,
       boundary: null,
       boundaryArea: null,
+      physicalProperty: serializedPhysical,
     };
   });
 
-  const developments = rawDevelopments.map((d) => sanitizeDevelopmentForViewer(d, user));
+  const developments: InitialDevelopmentItem[] = rawDevelopments.map((d) =>
+    sanitizeDevelopmentForViewer(d, user)
+  );
 
   const formattedMatches = topMatches.map((m) => {
     let parsedExplanation = [];
@@ -360,8 +373,8 @@ export default async function HomePage({
 
   return (
     <HomeMapClient
-      initialProperties={properties as any}
-      initialDevelopments={developments as any}
+      initialProperties={properties}
+      initialDevelopments={developments}
       kpis={kpis}
       recentMatches={formattedMatches}
       user={user}

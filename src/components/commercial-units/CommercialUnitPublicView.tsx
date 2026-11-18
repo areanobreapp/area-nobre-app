@@ -85,12 +85,16 @@ export default function CommercialUnitPublicView({
   };
 
   const currentStatusMeta = statusMeta[unit.commercialStatus] || statusMeta.DISPONIVEL;
+  const isReservedUnit = unit.commercialStatus === 'RESERVADA';
 
   const devImages = dev.images && dev.images.length > 0 ? dev.images : [];
   const activeImage = devImages[activeImageIndex] || null;
 
   const plants = unit.typology?.plants || [];
   const selectedPlant = plants[activePlantIndex] || plants[0] || null;
+
+  const getPublicPlantViewUrl = (plant: { id: string; fileUrl?: string }) =>
+    `/api/public/materials/${plant.id}/view`;
 
   const isImageFormat = (ext?: string | null, type?: string | null) => {
     if (type?.startsWith('image/')) return true;
@@ -547,25 +551,62 @@ export default function CommercialUnitPublicView({
                 {unit.unitType} • {dev.name}
               </div>
 
-              {/* Bloco de Preço */}
+              {/* Bloco de Preço e Situação de Reserva (FUNC-01) */}
               <div
                 style={{
-                  backgroundColor: '#F0FDF4',
-                  border: '1px solid #BBF7D0',
+                  backgroundColor: isReservedUnit ? '#FFFBEB' : '#F0FDF4',
+                  border: `1px solid ${isReservedUnit ? '#FDE68A' : '#BBF7D0'}`,
                   borderRadius: '10px',
                   padding: '16px',
                   marginBottom: '18px',
                 }}
               >
-                <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#166534' }}>
-                  Valor de Tabela Vigente
+                <div
+                  style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    color: isReservedUnit ? '#B45309' : '#166534',
+                  }}
+                >
+                  {isReservedUnit ? 'Valor de Referência (Unidade Reservada)' : 'Valor de Tabela Vigente'}
                 </div>
-                <div style={{ fontSize: '1.95rem', fontWeight: 900, color: '#166534', margin: '4px 0 2px' }}>
+                <div
+                  style={{
+                    fontSize: '1.95rem',
+                    fontWeight: 900,
+                    color: isReservedUnit ? '#92400E' : '#166534',
+                    margin: '4px 0 2px',
+                  }}
+                >
                   {formattedPrice}
                 </div>
                 {unit.pricePerSqmText && (
-                  <div style={{ fontSize: '0.80rem', color: '#15803D', fontWeight: 600 }}>
+                  <div
+                    style={{
+                      fontSize: '0.80rem',
+                      color: isReservedUnit ? '#B45309' : '#15803D',
+                      fontWeight: 600,
+                    }}
+                  >
                     {unit.pricePerSqmText}
+                  </div>
+                )}
+
+                {isReservedUnit && (
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      paddingTop: '10px',
+                      borderTop: '1px dashed #FCD34D',
+                      fontSize: '0.78rem',
+                      color: '#92400E',
+                      lineHeight: 1.45,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Esta unidade encontra-se reservada no momento e não está disponível para aquisição imediata. Consulte o corretor responsável para verificar a situação da reserva ou conhecer unidades semelhantes disponíveis.
                   </div>
                 )}
               </div>
@@ -653,7 +694,11 @@ export default function CommercialUnitPublicView({
                   }}
                 >
                   <MessageCircle size={18} />
-                  <span>Tenho Interesse / Chamar no WhatsApp</span>
+                  <span>
+                    {isReservedUnit
+                      ? 'Consultar Reserva / Outras Opções'
+                      : 'Tenho Interesse / Chamar no WhatsApp'}
+                  </span>
                 </a>
               ) : (
                 <div style={{ fontSize: '0.78rem', color: '#64748B', textAlign: 'center' }}>
@@ -798,7 +843,7 @@ export default function CommercialUnitPublicView({
                   title="Clique para ampliar a planta"
                 >
                   <img
-                    src={selectedPlant.fileUrl}
+                    src={getPublicPlantViewUrl(selectedPlant)}
                     alt={selectedPlant.title}
                     style={{ width: '100%', height: 'auto', display: 'block', maxHeight: '460px', objectFit: 'contain', backgroundColor: '#FFFFFF' }}
                   />
@@ -843,7 +888,7 @@ export default function CommercialUnitPublicView({
                   </p>
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
                     <a
-                      href={selectedPlant.fileUrl}
+                      href={getPublicPlantViewUrl(selectedPlant)}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
@@ -869,7 +914,7 @@ export default function CommercialUnitPublicView({
               {/* Botões de Ação da Planta: Visualizar em Nova Aba e Baixar Documento Público */}
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '4px' }}>
                 <a
-                  href={selectedPlant.fileUrl}
+                  href={getPublicPlantViewUrl(selectedPlant)}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -1225,24 +1270,8 @@ export default function CommercialUnitPublicView({
           </div>
         </section>
 
-        {/* 9. LOCALIZAÇÃO DO EMPREENDIMENTO */}
-        <section
-          style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '14px',
-            border: '1px solid #E2E8F0',
-            padding: '24px',
-            marginBottom: '28px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px', borderBottom: '1px solid #E2E8F0', paddingBottom: '12px' }}>
-            <MapPin size={18} color="#1E4620" />
-            <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#0F172A' }}>
-              Localização do Empreendimento
-            </h2>
-          </div>
-
+        {/* 9. LOCALIZAÇÃO DO EMPREENDIMENTO (UI-01: card único gerenciado por DevelopmentSharedMap) */}
+        <div style={{ marginBottom: '28px' }}>
           <DevelopmentSharedMap
             developmentName={dev.name}
             address={dev.address}
@@ -1255,7 +1284,7 @@ export default function CommercialUnitPublicView({
             latitude={dev.latitude}
             longitude={dev.longitude}
           />
-        </section>
+        </div>
 
         {/* 10. OPÇÃO "CONHECER O EMPREENDIMENTO" (Card Final) */}
         <section
@@ -1619,7 +1648,7 @@ export default function CommercialUnitPublicView({
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <a
-                  href={zoomedPlant.fileUrl}
+                  href={getPublicPlantViewUrl(zoomedPlant)}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
@@ -1680,7 +1709,7 @@ export default function CommercialUnitPublicView({
             </div>
             <div style={{ padding: '16px', display: 'flex', justifyContent: 'center', backgroundColor: '#0F172A' }}>
               <img
-                src={zoomedPlant.fileUrl}
+                src={getPublicPlantViewUrl(zoomedPlant)}
                 alt={zoomedPlant.title}
                 style={{ maxWidth: '100%', maxHeight: '78vh', objectFit: 'contain' }}
               />

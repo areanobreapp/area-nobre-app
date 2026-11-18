@@ -136,7 +136,49 @@ export interface PropertyItem {
   images?: { url: string; isCover?: boolean }[];
   isDevelopment?: false;
   physicalPropertyId?: string | null;
-  physicalProperty?: any;
+  physicalProperty?: {
+    id: string;
+    buildingId?: string | null;
+    sharedPrice: number | null;
+    activeListingsCount?: number;
+    primaryListingId?: string | null;
+    unit?: {
+      id: string;
+      unitNumber: string;
+      normalizedUnit?: string;
+      tower?: string | null;
+      floor?: number | null;
+      bedrooms?: number | null;
+      suites?: number | null;
+      bathrooms?: number | null;
+      parkingSpaces?: number | null;
+      privateArea?: number | null;
+      totalArea?: number | null;
+    } | null;
+    building?: {
+      id: string;
+      name: string;
+      normalizedName?: string | null;
+      alternativeNames?: string | null;
+      address?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      coverImageUrl?: string | null;
+      boundary?: string | null;
+      boundaryArea?: number | null;
+    } | null;
+    listings?: Array<{
+      id: string;
+      title?: string;
+      price?: number;
+      isPrimaryListing?: boolean;
+      createdAt?: Date | string;
+      responsibleBroker?: BrokerIdentityInfo | null;
+      user?: BrokerIdentityInfo | null;
+    }>;
+  } | null;
   buildingId?: string | null;
   building?: {
     id: string;
@@ -195,6 +237,10 @@ export interface DevelopmentItem {
   isDevelopment: true;
 }
 
+export type InitialDevelopmentItem = Omit<DevelopmentItem, 'isDevelopment'> & {
+  isDevelopment?: boolean;
+};
+
 export type MapItem = (PropertyItem | DevelopmentItem) & {
   matchScore?: number;
   matchExplanation?: any[];
@@ -229,9 +275,9 @@ export interface AddressSuggestion {
   lng: number;
 }
 
-interface HomeMapProps {
+export interface HomeMapProps {
   initialProperties: PropertyItem[];
-  initialDevelopments: DevelopmentItem[];
+  initialDevelopments: InitialDevelopmentItem[];
   kpis: {
     propertiesCount: number;
     developmentsCount: number;

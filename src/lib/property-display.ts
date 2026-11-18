@@ -542,3 +542,64 @@ export function resolveParking(p: PropertyFeaturesInput): ParkingDisplay | null 
     summaryLabel,
   };
 }
+
+/**
+ * Converte de forma determinística e segura um valor Prisma.Decimal (ou número/string numérico)
+ * para um `number` primitivo serializável entre Server Components e Client Components (SER-01).
+ * - Preserva `null` quando o valor for nulo, indefinido ou inválido.
+ * - Preserva `0` e centavos sem perda desnecessária de precisão.
+ */
+export function serializeDecimalToNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as { toNumber?: () => number; toString?: () => string };
+    if (typeof obj.toString === 'function') {
+      const str = obj.toString();
+      const parsed = Number(str);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    if (typeof obj.toNumber === 'function') {
+      const num = obj.toNumber();
+      if (Number.isFinite(num)) {
+        return num;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Serializa um objeto `physicalProperty` convertendo `sharedPrice` (Prisma.Decimal)
+ * para `number | null` (plain object seguro para React Server Components e JSON).
+ */
+export function serializePhysicalPropertyForClient<
+  T extends { sharedPrice?: unknown } | null | undefined
+>(
+  physicalProperty: T
+): T extends null | undefined ? null : Omit<NonNullable<T>, 'sharedPrice'> & { sharedPrice: number | null } {
+  if (!physicalProperty) {
+    return null as any;
+  }
+  return {
+    ...physicalProperty,
+    sharedPrice: serializeDecimalToNumber(physicalProperty.sharedPrice),
+  } as any;
+}
+
